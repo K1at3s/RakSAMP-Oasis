@@ -5,8 +5,8 @@ const crypto = require('crypto');
 const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, StringSelectMenuBuilder, ChannelType } = require('discord.js');
 
 const config = require('./config');
-const License = require('./models/License');
-const Guild = require('./models/Guild');
+const License = require('./models').License;
+const Guild = require('./models').Guild;
 const guildUtils = require('./utils/guildUtils');
 const socketStore = require('./utils/socketStore');
 const { loadCommands, registerCommands, registerForGuild, handleInteraction } = require('./handlers/commandHandler');

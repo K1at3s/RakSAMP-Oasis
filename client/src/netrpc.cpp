@@ -853,62 +853,10 @@ static void NormalizeGroupName(char *sz)
 
 static void LoadGroupColors()
 {
+	// Kullanici: text dosyasina kayit YOK - DB tek kaynak. (LoadGroupsFromDb
+	// ProcessDbSync uzerinden acilista DB'den geri yukler; bu fonksiyon bos.)
 	g_groupColorCount = 0;
-	FILE *f = fopen(g_szColorsFile, "r");
-	if(f)
-	{
-		char szLine[200];
-		while(fgets(szLine, sizeof(szLine), f) && g_groupColorCount < MAX_GROUP_COLORS)
-		{
-			// Format: "kisa_tag|Tam Grup Adi" (RENK YOK - renk eslesmesi kaldirildi, isim->tag)
-			char szTag[96] = {0}; char szName[96] = {0};
-			char szRest[200] = {0};
-			if(sscanf(szLine, "%95[^\r\n]", szRest) == 1 && szRest[0])
-			{
-				char *pSep = strchr(szRest, '|');
-				if(pSep)
-				{
-					int nT = (int)(pSep - szRest);
-					if(nT > 95) nT = 95;
-					memcpy(szTag, szRest, nT); szTag[nT] = 0;
-					strncpy_s(szName, sizeof(szName), pSep + 1, sizeof(szName) - 1);
-				}
-				else
-					strncpy_s(szTag, sizeof(szTag), szRest, sizeof(szTag) - 1);
-				StripColorCodes(szTag);
-				StripColorCodes(szName);
-				// Kirlilik temizligi: dosyada AYNI renk birden fazla gruba yazilmis olabiliyor
-				// (eski oegrenme). Bir renk TEK gruba ait olmali. Renk zaten kayitliysa
-				// yeni kayit ACILMAZ; eksik tag/isim varsa var olana doldurulur. Boylece
-				// ?zf bir renge rastgele 4-5 kayittan ilkini degil tek dogru grubu gosterir.
-				bool bMerged = false;
-				int k = 0;
-				for(; k < g_groupColorCount; k++)
-				{
-					// RENK YOK: isim bazli dedup - ayni isim zaten kayitliysa tag/isim doldur, yeni kayit acma.
-					if(szName[0] && _stricmp(g_groupColors[k].szName, szName) == 0)
-					{
-						if(!g_groupColors[k].szTag[0] && szTag[0])
-							strncpy_s(g_groupColors[k].szTag, sizeof(g_groupColors[0].szTag),
-								szTag, sizeof(g_groupColors[0].szTag) - 1);
-						if(!g_groupColors[k].szName[0] && szName[0])
-							strncpy_s(g_groupColors[k].szName, sizeof(g_groupColors[0].szName),
-								szName, sizeof(g_groupColors[0].szName) - 1);
-						bMerged = true;
-						break;
-					}
-				}
-				if(bMerged) continue;
-				strncpy_s(g_groupColors[g_groupColorCount].szTag, sizeof(g_groupColors[0].szTag),
-					szTag, sizeof(g_groupColors[0].szTag) - 1);
-				strncpy_s(g_groupColors[g_groupColorCount].szName, sizeof(g_groupColors[0].szName),
-					szName, sizeof(g_groupColors[0].szName) - 1);
-				g_groupColorCount++;
-			}
-		}
-		fclose(f);
-	}
-	Log("[ZF] %d grup dosyadan yuklendi.", g_groupColorCount);
+	Log("[ZF] Text dosyasi yuklemesi kaldirildi (DB tek kaynak).");
 }
 
 // Bugunun tarihi YYYYMMDD sayisi (gunluk zone verisi sifirlama icin).
@@ -938,16 +886,9 @@ void InitGroupColorsFromDisk()
 
 static void SaveGroupColors()
 {
-	FILE *f = fopen(g_szColorsFile, "w");
-	if(f)
-	{
-		for(int i = 0; i < g_groupColorCount; i++)
-			// RENKSIZ format: "kisa_tag|Tam Grup Adi"
-			fprintf(f, "%s%s%s\n", g_groupColors[i].szTag,
-				g_groupColors[i].szName[0] ? "|" : "", g_groupColors[i].szName);
-		fclose(f);
-	}
-	Log("[ZF] %d grup dosyaya kaydedildi.", g_groupColorCount);
+	// Kullanici: text dosyasina kayit YOK - DB tek kaynak. Veri ProcessDbSync'in
+	// /api/groups push'uyla (60 sn'de bir) DB'ye yazilir.
+	Log("[ZF] Text dosyasi kaydi kaldirildi (DB tek kaynak, %d grup).", g_groupColorCount);
 }
 
 // --- DB PUSH (MySQL backend) ---

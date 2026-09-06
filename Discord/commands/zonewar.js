@@ -1,5 +1,5 @@
 const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
-const Guild = require('../models/Guild');
+const Guild = require('../models').Guild;
 const { sendToGuildChannel } = require('../utils/discordNotifier');
 
 module.exports = {

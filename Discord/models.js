@@ -1,5 +1,9 @@
-﻿// Guild: MySQL/ProxySQL shim (db.js). Alan adlar─▒ kodun geri kalan─▒n─▒n bekledi─si gibi.
-module.exports = require('../db').model('guilds', {
+// Tek dosyada model tanimlari (models/ klasoru kaldirildi - kullanici).
+// db.js uzerinde mongoose-uyumlu minimal API: findOne / create / findOneAndUpdate.
+// Alan adlari kodun geri kalaninin bekledigi gibi (guildId, linkedHwids, ...).
+const db = require('./db');
+
+const Guild = db.model('guilds', {
     pkey: 'guildId',
     fields: {
         guildId: { col: 'guild_id', type: 'text', pk: true },
@@ -19,3 +23,16 @@ module.exports = require('../db').model('guilds', {
         createdAt: { col: 'created_at', type: 'text', def: () => new Date().toISOString() }
     }
 });
+
+const License = db.model('licenses', {
+    pkey: 'hwid',
+    fields: {
+        hwid: { col: 'hwid', type: 'text', pk: true },
+        isApproved: { col: 'is_approved', type: 'int', def: 0 },
+        welcomeEnabled: { col: 'welcome_enabled', type: 'int', def: 1 },
+        welcomeMessage: { col: 'welcome_message', type: 'text', def: '' },
+        createdAt: { col: 'created_at', type: 'text', def: () => new Date().toISOString() }
+    }
+});
+
+module.exports = { Guild, License };

@@ -1,5 +1,5 @@
 const { SlashCommandBuilder, PermissionFlagsBits, ChannelType } = require('discord.js');
-const Guild = require('../models/Guild');
+const Guild = require('../models').Guild;
 
 // /kurulum (setup): BARE = kanallari olusturur. Kapatmak icin islem:kapat (EN: off).
 //   TR: /kurulum            -> olustur

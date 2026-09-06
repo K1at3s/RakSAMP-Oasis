@@ -1,4 +1,4 @@
-﻿const Guild = require('../models/Guild');
+const Guild = require('../models').Guild;
 
 // Sunucu kaydini getir, yoksa varsayilan degerlerle olustur
 async function getGuild(guildId) {
