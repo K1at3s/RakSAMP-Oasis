@@ -56,6 +56,7 @@ void SetUpConsole()
 	FILE *fp;
 
 	AllocConsole();
+	SetConsoleOutputCP(65001); // UTF-8: Turkce karakterler konsolda dogru gorunsun
 
 	// output
 	lStdHandle = (long)GetStdHandle(STD_OUTPUT_HANDLE);

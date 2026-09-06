@@ -27,10 +27,10 @@ bool g_isEngineActive = false;
 bool g_waitingForGStats = false;
 unsigned long g_gstatsReqTime = 0;
 // true = /gstats,/stats (ID dialogunda otomatik bos submit -> kendi grubu)
-// false = /astats (kullanici account ID girer)
+// false = /astats (kullan�c� account ID girer)
 bool g_gstatsAutoSubmit = true;
 bool g_gstatsSentFirst = false;
-// Discord slash komutundan gelen requesterId: sonuc o kullaniciya reply olarak gonderilir
+// Discord slash komutundan gelen requesterId: sonuc o kullan�c�ya reply olarak g�nderilir
 std::string g_gstatsRequesterId = "";
 // Komut parametresi (/gstats 5, /stats 5, /astats 5 gibi) - ID dialogu submit'inde kullanilir
 std::string g_gstatsInput = "";
@@ -49,7 +49,7 @@ std::string g_adminsRequesterId = "";
 bool g_groupChatEnabled = false;
 int g_bridgeSuppressEcho = 0;
 std::string g_welcomeMessage = "";
-bool g_welcomeEnabled = true;   // ?greet acik/kapali (backend welcome_enabled kopyasi)
+bool g_welcomeEnabled = true;   // ?greet a��k/kapal� (backend welcome_enabled kopyasi)
 // Bot mesaj dili: false=English (varsayilan), true=Turkce. Mongo'dan (Guild.lang) gelir.
 bool g_langTurkish = false;
 
@@ -127,13 +127,13 @@ bool PerformSecurityHandshake(const std::string& serverUrl) {
     std::cout << "[INFO] Discord uzerinden yoneticiye bu kodu iletin.\n";
     std::cout << "-------------------------------------------\n";
 
-    // Backend ayakta degilse (Discord botu kapali) kullaniciya belirgin uyari goster
+    // Backend ayakta degilse (Discord botu kapal�) kullan�c�ya belirgin uyari goster
     if (!res || res->status != 200) {
         MessageBoxA(NULL,
-            "Discord botu kapali oldugu icin RakSAMP acilamiyor.\n\n"
+            "Discord botu kapal� oldugu icin RakSAMP acilamiyor.\n\n"
             "Lutfen Discord botunun (backend sunucusunun) calistigindan emin olun ve tekrar deneyin.\n\n"
             "HWID panoya kopyalandi.",
-            "RakSAMP - Baslanti Hatasi",
+            "RakSAMP - Ba�lanti Hatasi",
             MB_OK | MB_ICONERROR);
     }
 
@@ -158,9 +158,9 @@ void TriggerWarHelp(const char *playerName) {
 
     auto res = cli.Post("/api/warhelp", body.dump(), "application/json");
     if (res && res->status == 200) {
-        std::cout << "-Uo´©Å [WARHELP] Discord'a yardim cagrisi gonderildi!\n";
+        std::cout << "-Uo´©Å [WARHELP] Discord'a yardim cagrisi g�nderildi!\n";
     } else {
-        std::cout << "-Uá´©Å [WARHELP] Discord'a gonderilemedi (HTTP " << (res ? res->status : -1) << ")\n";
+        std::cout << "-Uá´©Å [WARHELP] Discord'a g�nderilemedi (HTTP " << (res ? res->status : -1) << ")\n";
     }
 }
 
@@ -180,9 +180,9 @@ void ToggleDiscordChat() {
             g_groupChatEnabled = data.value("enabled", false);
             if (g_groupChatEnabled) {
                 std::cout << "­sÆ¼ [GROUPCHAT] Discord grup chat k├pr├╝s├╝ A├cILDI\n";
-                // Oyun icinde dile gore geri bildirim (Discord'a tekrar gitmesin)
+                // Oyun icinde dile g�re geri bildirim (Discord'a tekrar gitmesin)
                 g_bridgeSuppressEcho++;
-                sendChat((char *)(g_langTurkish ? "!Discord otomasyonu ACIK." : "!Discord automation enabled"));
+                sendChat((char *)(g_langTurkish ? "!Discord otomasyonu A�IK." : "!Discord automation enabled"));
             } else {
                 std::cout << "­sÆ¼ [GROUPCHAT] Discord grup chat k├pr├╝s├╝ KAPANDI\n";
                 g_bridgeSuppressEcho++;
@@ -190,7 +190,7 @@ void ToggleDiscordChat() {
             }
         } catch (...) {}
     } else {
-        std::cout << "-Uá´©Å [GROUPCHAT] Durum degistirilemedi (HTTP " << (res ? res->status : -1) << ")\n";
+        std::cout << "-Uá´©Å [GROUPCHAT] Durum de�i�tirilemedi (HTTP " << (res ? res->status : -1) << ")\n";
     }
 }
 
@@ -237,11 +237,11 @@ bool ServerSetGuildId(const char *guildId) {
             }
         } catch (...) {}
     }
-    std::cout << "-Uá´©Å [GUILDID] Baglanti basarisiz (HTTP " << (res ? res->status : -1) << ")\n";
+    std::cout << "-Uá´©Å [GUILDID] Ba�lant� ba�ar�s�z (HTTP " << (res ? res->status : -1) << ")\n";
     return false;
 }
 
-// 6. Oyun -> Discord: grup chat'inde ! ile baslayan kendi mesajimizi ilet
+// 6. Oyun -> Discord: grup chat'inde ! ile ba�layan kendi mesaj�mizi ilet
 void SendGroupChatToDiscord(const char *text) {
     if (!g_isEngineActive || g_sessionToken.empty()) return;
     if (text == NULL || text[0] == '\0') return;
@@ -277,7 +277,7 @@ void PollDiscordChat() {
 
     std::string url = "/api/groupchat/poll?hwid=" + g_myHWID;
     // Botun calistigi grubu backend'e bildir (guild kaydina groupName yazilir):
-    // "hakixld botu The Youngster'da" bilgisi buradan gelir (oyun ici otomatik ogrenilir).
+    // "hakixld botu The Youngster'da" bilgisi buradan gelir (oyun ici otomatik ��renilir).
     if (!g_myGroupName.empty()) {
         url += "&group=" + g_myGroupName;
     }
@@ -289,7 +289,7 @@ void PollDiscordChat() {
         g_groupChatEnabled = data.value("enabled", g_groupChatEnabled);
 
         // Bot dilini backend'den senkronla. Backend yalnizca guild bulabildigi
-        // zaman lang gonderir; guild yoksa alan yoktur ve lokal secim (?tr/?en)
+        // zaman lang g�nderir; guild yoksa alan yoktur ve lokal secim (?tr/?en)
         // korunur - backend'in "en" varsayilani ?tr'yi ezmesin.
         if (data.contains("lang") && data["lang"].is_string()) {
             std::string lang = data["lang"].get<std::string>();
@@ -311,7 +311,7 @@ void PollDiscordChat() {
                 if (author.empty()) author = "Discord";
 
                 // Oyunda Discord'dan geldigi ve kimin yazdigi belli olsun.
-                // "!" on-eki sunucunun bu mesaji gruba yonlendirmesini saglar;
+                // "!" on-eki sunucunun bu mesaj� gruba yonlendirmesini saglar;
                 // HandleGroupCommand "!!" aradigi icin bu tek "!" Discord'a geri gitmez.
                 std::string snd = "![Discord] " + author + ": " + text;
                 char szBuf[300] = {0};
@@ -341,9 +341,9 @@ void SendGStatsToDiscord(const char *szInfo) {
 
     auto res = cli.Post("/api/gstats", body.dump(), "application/json");
     if (res && res->status == 200) {
-        std::cout << "­sôè [GSTATS] Discord'a gonderildi!\n";
+        std::cout << "­sôè [GSTATS] Discord'a g�nderildi!\n";
     } else {
-        std::cout << "-Uá´©Å [GSTATS] Gonderilemedi (HTTP " << (res ? res->status : -1) << ")\n";
+        std::cout << "-Uá´©Å [GSTATS] G�nderilemedi (HTTP " << (res ? res->status : -1) << ")\n";
     }
 
     g_gstatsRequesterId = "";
@@ -366,9 +366,9 @@ void SendAdminsToDiscord(const char *szInfo) {
 
     auto res = cli.Post("/api/admins", body.dump(), "application/json");
     if (res && res->status == 200) {
-        std::cout << "­søí´©Å [ADMINS] Discord'a gonderildi!\n";
+        std::cout << "­søí´©Å [ADMINS] Discord'a g�nderildi!\n";
     } else {
-        std::cout << "-Uá´©Å [ADMINS] Gonderilemedi (HTTP " << (res ? res->status : -1) << ")\n";
+        std::cout << "-Uá´©Å [ADMINS] G�nderilemedi (HTTP " << (res ? res->status : -1) << ")\n";
     }
 
     g_adminsRequesterId = "";
@@ -389,9 +389,9 @@ void SendBackupCall(const char *playerName) {
 
     auto res = cli.Post("/api/backup", body.dump(), "application/json");
     if (res && res->status == 200) {
-        std::cout << "­såI [BACKUP] Discord'a backup cagrisi gonderildi!\n";
+        std::cout << "­såI [BACKUP] Discord'a backup cagrisi g�nderildi!\n";
     } else {
-        std::cout << "-Uá´©Å [BACKUP] Gonderilemedi (HTTP " << (res ? res->status : -1) << ")\n";
+        std::cout << "-Uá´©Å [BACKUP] G�nderilemedi (HTTP " << (res ? res->status : -1) << ")\n";
     }
 }
 
@@ -415,18 +415,18 @@ void SendWelcomeBack(const char *playerName) {
         try {
             auto data = json::parse(res->body);
             if (data.contains("enabled") && !data.value("enabled", true)) {
-                std::cout << "Welcome back mesajlari kapali, bildirim atlandi.\n";
+                std::cout << "Welcome back mesajlari kapal�, bildirim atlandi.\n";
             }
         } catch (...) {}
-        std::cout << "­sæï [WELCOME] Discord'a welcome back gonderildi!\n";
+        std::cout << "­sæï [WELCOME] Discord'a welcome back g�nderildi!\n";
     } else {
-        std::cout << "-Uá´©Å [WELCOME] Gonderilemedi (HTTP " << (res ? res->status : -1) << ")\n";
+        std::cout << "-Uá´©Å [WELCOME] G�nderilemedi (HTTP " << (res ? res->status : -1) << ")\n";
     }
 }
 
 // 11a. ?greet - welcome back bildirimlerini a├g/kapat (DB'de saklanir).
 // bForceOnOff: -1 = toggle, 0 = off'a zorla, 1 = on'a zorla.
-// Sonuc GRUPTA duyurulur (kullanici: "acik mi kapali mi diye mesaj atmiyor").
+// Sonuc GRUPTA duyurulur (kullan�c�: "a��k mi kapal� mi diye mesaj atmiyor").
 void ToggleWelcomeBackEx(int bForceOnOff) {
     if (!g_isEngineActive || g_sessionToken.empty()) return;
 
@@ -461,12 +461,12 @@ void ToggleWelcomeBackEx(int bForceOnOff) {
     char szMsg[96];
     if (bOk)
         sprintf_s(szMsg, sizeof(szMsg), g_langTurkish ? "!Welcome mesajlari: %s." : "!Welcome messages: %s.",
-            enabled ? (g_langTurkish ? "ACIK" : "ON") : (g_langTurkish ? "KAPALI" : "OFF"));
+            enabled ? (g_langTurkish ? "A�IK" : "ON") : (g_langTurkish ? "KAPALI" : "OFF"));
     else
-        sprintf_s(szMsg, sizeof(szMsg), g_langTurkish ? "!Welcome mesajlari degistirilemedi." : "!Could not change welcome messages.");
+        sprintf_s(szMsg, sizeof(szMsg), g_langTurkish ? "!Welcome mesajlari de�i�tirilemedi." : "!Could not change welcome messages.");
     sendChat(szMsg);
-    std::cout << (bOk ? (enabled ? "­sæï [WELCOME] Welcome back ACIK\n" : "­sæï [WELCOME] Welcome back KAPALI\n")
-                      : "-Uá´©Å [WELCOME] Durum degistirilemedi\n");
+    std::cout << (bOk ? (enabled ? "­sæï [WELCOME] Welcome back A�IK\n" : "­sæï [WELCOME] Welcome back KAPALI\n")
+                      : "-Uá´©Å [WELCOME] Durum de�i�tirilemedi\n");
 }
 
 // 11b. ?welcomemsg <mesaj> - ki┼siye ├zel welcome mesaj─▒ ayarla (MongoDB'de saklan─▒r)
@@ -515,7 +515,7 @@ void SetWelcomeMessage(const char *message) {
         try {
             auto data = json::parse(res->body);
             g_welcomeMessage = data.value("welcomeMessage", g_welcomeMessage);
-            std::cout << "-£ë´©Å [WELCOME] Kisisele welcome mesaji ayarlandi: " << g_welcomeMessage << "\n";
+            std::cout << "-£ë´©Å [WELCOME] Kisisele welcome mesaj� ayarlandi: " << g_welcomeMessage << "\n";
         } catch (...) {}
     } else {
         std::cout << "-Uá´©Å [WELCOME] Mesaj ayarlanamadi (HTTP " << (res ? res->status : -1) << ")\n";
@@ -545,7 +545,7 @@ void RefreshWelcomeState() {
     } catch (...) {}
 }
 
-// 12. Discord -> Oyun: /send ve /gstats komutlarini kuyruktan cekip oyunda calistir (2 sn'de bir)
+// 12. Discord -> Oyun: /send ve /gstats komutlar�ni kuyruktan cekip oyunda calistir (2 sn'de bir)
 void PollCommands() {
     if (!g_isEngineActive || g_sessionToken.empty()) return;
 
@@ -679,8 +679,8 @@ void SendKillList(const char *redBox, const char *blueBox, const char *redName, 
 
     auto res = cli.Post("/api/killlist", body.dump(), "application/json");
     if (res && res->status == 200) {
-        std::cout << "-Uo´©Å [KILLLIST] Discord'a GZ sonucu gonderildi!\n";
+        std::cout << "-Uo´©Å [KILLLIST] Discord'a GZ sonucu g�nderildi!\n";
     } else {
-        std::cout << "-Uá´©Å [KILLLIST] Gonderilemedi (HTTP " << (res ? res->status : -1) << ")\n";
+        std::cout << "-Uá´©Å [KILLLIST] G�nderilemedi (HTTP " << (res ? res->status : -1) << ")\n";
     }
 }

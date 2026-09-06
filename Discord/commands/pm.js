@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, MessageFlags } = require('discord.js');
 const Guild = require('../models').Guild;
 const { queueCommand } = require('../utils/commandOutbox');
 const { setPendingInteraction } = require('../utils/pendingReplies');
@@ -31,7 +31,7 @@ module.exports = {
         const message = interaction.options.getString('mesaj').slice(0, 200);
         const isTr = guild.lang === 'tr';
 
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
         setPendingInteraction(interaction.id, interaction);
         queueCommand(hwid, { type: 'pm', target, message, discordUser: interaction.user.username, requesterId: interaction.id });
 

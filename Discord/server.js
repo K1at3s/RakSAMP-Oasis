@@ -609,17 +609,47 @@ const mvpDmg = Number(body.mvpDmg) || 0;
 });
 
 // Oyun içinden /pm yaniti — Discord'da /pm'i kullanan kisiye etiketli + ephemeral gosterilir.
+// /pm gonderimi sonrasi: client hedefin GERCEK oyun ici adini cozduyse Discord'daki
+// ilk embed'i o adla gunceller (Discord'da ID yazilsa da "cb650r" gosterir).
+app.post('/api/pm/sent', async (req, res) => {
+    const body = req.body || {};
+    const requesterId = String(body.requesterId || '');
+    const interaction = requesterId ? getPendingInteraction(requesterId) : null;
+    if (interaction) {
+        const targetName = String(body.targetName || body.target || 'oyuncu').slice(0, 64);
+        const message = String(body.message || '').slice(0, 200);
+        const isTr = (await Guild.findOne({ guildId: interaction.guildId }))?.lang === 'tr';
+        try {
+            const embed = new EmbedBuilder()
+                .setTitle(isTr ? '📨 Mesaj Gönderildi' : '📨 Message Sent')
+                .setDescription(isTr
+                    ? `\`${targetName}\` oyuncusuna: ${message}`
+                    : `To \`${targetName}\`: ${message}`)
+                .setColor(0x00FF00)
+                .setFooter({ text: isTr ? 'Yanıt gelince burada görünür' : 'Replies will appear here' });
+            await interaction.editReply({ embeds: [embed] });
+            console.log(`📨 PM-SENT (req=${requesterId.slice(0, 8)}): hedef ${targetName}`);
+            return res.json({ success: true });
+        } catch (e) {
+            console.error('PM-SENT edit hatası:', e.message);
+        }
+    }
+    return res.json({ success: false });
+});
+
 app.post('/api/pm/reply', async (req, res) => {
     const body = req.body || {};
     const requesterId = String(body.requesterId || '');
     const reply = String(body.reply || '').slice(0, 200);
     const author = String(body.author || 'Oyuncu');
     const interaction = requesterId ? getPendingInteraction(requesterId) : null;
+    console.log(`📥 PM-REPLY geldi (req=${String(requesterId || '').slice(0, 12)}, author=${author}, interaction=${interaction ? 'BULUNDU' : 'YOK'})`);
     if (interaction) {
         try {
+            const userId = (interaction.user && interaction.user.id) ? interaction.user.id : requesterId;
             const embed = new EmbedBuilder()
                 .setTitle('📥 Oyun İçinden Yanıt')
-                .setDescription(`<@${requesterId}> — **${author}**: ${reply}`)
+                .setDescription(`<@${userId}> — **${author}**: ${reply}`)
                 .setColor(0x3498DB)
                 .setTimestamp();
             await interaction.editReply({ embeds: [embed] });
@@ -779,7 +809,7 @@ app.post('/api/alog', async (req, res) => {
     let rows;
     if (/^\d+$/.test(q)) {
         rows = await db.execute(
-            `SELECT action, mode, COUNT(*) AS cnt
+            `SELECT MAX(target_name) AS target_name, action, mode, COUNT(*) AS cnt
              FROM admin_logs
              WHERE target_id = ?
              GROUP BY action, mode
@@ -801,20 +831,23 @@ app.post('/api/alog', async (req, res) => {
         return res.json({ success: true, summary: L(guild, `Kayıt yok: ${q}`, `No records: ${q}`) });
     }
 
-    // "ban: 3 (CNR: 2, PTP: 1) | mute: 2" gibi kompakt özet
-    const byName = {};
+    // uL.Hold formati: "ALogs for <isim>: B:0 | M-Bans:1 | D:0 | J:0 | K:0 | M-Kicks:0 | Mutes:3 | SubScores:0"
+    const cnt = { B: 0, 'M-Bans': 0, D: 0, J: 0, K: 0, 'M-Kicks': 0, Mutes: 0, SubScores: 0 };
     for (const r of rows) {
-        const k = r.action || 'bilinmeyen';
-        if (!byName[k]) byName[k] = [];
-        byName[k].push({ mode: r.mode || '-', cnt: Number(r.cnt) });
+        const act = r.action || '';
+        const mode = (r.mode || '').trim();
+        const n = Number(r.cnt) || 0;
+        if (act === 'banned') { mode ? cnt['M-Bans'] += n : cnt.B += n; }
+        else if (act === 'disarmed') cnt.D += n;
+        else if (act === 'jailed') cnt.J += n;
+        else if (act === 'kicked') { mode ? cnt['M-Kicks'] += n : cnt.K += n; }
+        else if (act === 'muted') cnt.Mutes += n;
+        else cnt.SubScores += n;
     }
-    const parts = Object.entries(byName).map(([act, list]) => {
-        const total = list.reduce((s, x) => s + x.cnt, 0);
-        const detail = list.map(x => `${x.mode}: ${x.cnt}`).join(', ');
-        return `${act} ${total} (${detail})`;
-    });
-    const summary = parts.join(' | ').slice(0, 200);
-    console.log(`📊 ALOG (guild=${guild.guildId}): q="${q}" -> ${rows.length} satır`);
+    let name = q;
+    if (/^\d+$/.test(q) && rows.length && rows[0].target_name) name = rows[0].target_name;
+    const summary = `ALogs for ${name}: B:${cnt.B} | M-Bans:${cnt['M-Bans']} | D:${cnt.D} | J:${cnt.J} | K:${cnt.K} | M-Kicks:${cnt['M-Kicks']} | Mutes:${cnt.Mutes} | SubScores:${cnt.SubScores}`;
+    console.log(`📊 ALOG (guild=${guild.guildId}): q="${q}" -> ${summary}`);
     return res.json({ success: true, summary });
 });
 app.post('/api/welcome', async (req, res) => {
@@ -1328,7 +1361,10 @@ app.post('/api/groups', async (req, res) => {
         if (!rows.length) return res.json({ success: true, count: 0 });
         await db.query(
             `INSERT INTO gangs (group_name, tag, zones, updated_at) VALUES ?
-             ON DUPLICATE KEY UPDATE tag=VALUES(tag), zones=VALUES(zones), updated_at=VALUES(updated_at)`,
+             ON DUPLICATE KEY UPDATE
+               tag=IF(VALUES(tag) IN ('', '~') AND tag NOT IN ('', '~'), tag, VALUES(tag)),
+               zones=VALUES(zones),
+               updated_at=VALUES(updated_at)`,
             [rows]
         );
         console.log(`🏷️ GROUPS: ${rows.length} grup upsert edildi (kalici zone haritasiyla)`);
@@ -1368,10 +1404,12 @@ app.post('/api/bot/status', async (req, res) => {
     const name = String(body.name || '').trim().slice(0, 64);
     if (!name) return res.json({ success: false, message: "name bekleniyor" });
     const data = (body.data !== undefined) ? JSON.stringify(body.data) : null;
-    const groupName = String(body.groupName || '').slice(0, 255);
 
-    const fields = ['name', 'group_name', 'data', 'updated_at'];
-    const params = [name, groupName, data, new Date()];
+    const fields = ['name', 'data', 'updated_at'];
+    const params = [name, data, new Date()];
+    // group_name opsiyonel: GELMEDIYSE korunur (client acilista bos gonderip
+    // kayitli adi silmesin), GELDİYSE guncellenir (bos dahil - ?gname manuel temizlik).
+    if (body.groupName !== undefined) { fields.push('group_name'); params.push(String(body.groupName || '').slice(0, 255)); }
     if (body.zscan !== undefined) { fields.push('zscan_enabled'); params.push(body.zscan ? 1 : 0); }
     if (body.gzt !== undefined) { fields.push('gzt_enabled'); params.push(body.gzt ? 1 : 0); }
     if (body.zgrp !== undefined) { fields.push('zgrp_enabled'); params.push(body.zgrp ? 1 : 0); }

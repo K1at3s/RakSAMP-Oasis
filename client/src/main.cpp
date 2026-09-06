@@ -7,6 +7,7 @@
 
 RakClientInterface *pRakClient = NULL;
 int iAreWeConnected = 0, iConnectionRequested = 0, iSpawned = 0, iGameInited = 0, iSpawnsAvailable = 0;
+unsigned long g_spawnTick = 0; // son spawn ani (tag harvest 60 sn korumasi)
 int iReconnectTime = 2 * 1000, iNotificationDisplayedBeforeSpawn = 0;
 
 PLAYERID g_myPlayerID;
@@ -21,7 +22,7 @@ DWORD dwAutoRunTick = GetTickCount();
 
 extern int iMoney, iDrunkLevel, iLocalPlayerSkin;
 extern BOOL bIsSpectating;
-// netrpc.cpp: UIF Login dialogu acik mi? Acikken spawn istegi gonderilmez
+// netrpc.cpp: UIF Login dialogu açýk mi? Açýkken spawn istegi gönderilmez
 // (yoksa sunucu tmp hesap spawn eder, gercek hesap kaybedilir).
 extern bool g_loginPending;
 extern unsigned long g_loginPendingUntil;
@@ -135,16 +136,16 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
 		if (iAreWeConnected && iGameInited)
 		{
-			// UIF LOGIN BEKLEMESI: kullanici sifreyle hesabina girene kadar bot
+			// UIF LOGIN BEKLEMESI: kullanýcý þifreyle hesabina girene kadar bot
 			// aksiyonlari (war, ztk, db sync, fr, tarama, discord chat) BASLAMAZ.
 			// Sadece chat kuyrugu ve dialog yakalama ("You logged in" algilama) calisir.
 			// (g_loginPending: InitGame'de true; login dialogu gelirse SAMPRPC korur;
-			//  "You logged in to your account" mesaji gelince false olur.)
+			//  "You logged in to your account" mesajý gelince false olur.)
 			if(g_loginPending)
 			{
 				// Timeout: login dialogu hic gelmezse 10 sn sonra otomatik devam et.
 				// (g_loginPendingUntil: InitGame'de now+10s; login dialogu gelirse
-				// SAMPRPC 0 yapar = kullanici girene kadar bekle, timeout yok.)
+				// SAMPRPC 0 yapar = kullanýcý girene kadar bekle, timeout yok.)
 				if(g_loginPendingUntil != 0 && GetTickCount() > g_loginPendingUntil)
 				{
 					g_loginPending = false;
@@ -164,22 +165,22 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 			// ?gmembers: Google Sheets roster koleksiyonu (uye + astats + gvips)
 			ProcessGmembers();
 
-			// ?ztk zone sniper: hedef zonede savas bitince /gz (isine bekleme)
+			// ?ztk zone sniper: hedef zonede savaþ bitince /gz (isine bekleme)
 			ProcessZtkTick();
 
 			// Cache + grup renklerini backend'e (MySQL) yazar (60 sn'de bir)
 			ProcessDbSync();
 
-			// Cikis chat kuyrugu: bot mesajlari 5 sn arayla gonderilir
+			// Cikis chat kuyrugu: bot mesajlari 5 sn arayla gönderilir
 			ProcessChatOutQueue();
 
 			// ?zgo: zone bekleme suresi dolduysa eski pozisyona don
 			ProcessZgoReturn();
 
-			// Freeroam: /fr'yi sendServerCommand ile aralikli gonder (chat'e yansimaz)
+			// Freeroam: /fr'yi sendServerCommand ile aralikli gönder (chat'e yansimaz)
 			ProcessFrRetry();
 
-			// ?zf renk->grup taramasi: zgo mantigiyla /gzinfo (baglanti sonrasi oto, bir kez)
+			// ?zf renk->grup taramasi: zgo mantigiyla /gzinfo (baðlantý sonrasi oto, bir kez)
 			ProcessZoneScan();
 
 			// ?zf: /gzinfo asenkron oldugu icin flash paketleri geldikten sonra (3 sn) dagilim
@@ -262,8 +263,8 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 				}
 				else
 				{
-					// UIF Login dialogu acikken spawn GONDERME: sunucu tmp hesap
-					// spawn ederdi. Login (kullanici sifreyle girdi) bitene kadar beklenir.
+					// UIF Login dialogu açýkken spawn GONDERME: sunucu tmp hesap
+					// spawn ederdi. Login (kullanýcý þifreyle girdi) bitene kadar beklenir.
 					if(g_loginPending)
 					{
 						if(!iNotificationDisplayedBeforeSpawn)
@@ -278,6 +279,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 						sampSpawn();
 
 						iSpawned = 1;
+						g_spawnTick = GetTickCount(); // harvest 60 sn korumasi
 						iNotificationDisplayedBeforeSpawn = 1;
 					}
 				}
@@ -362,6 +364,9 @@ bare:;
 	return 0;
 }
 
+// Konsol cikis kod sayfasi UTF-8 (Turkce karakterler dogru gorunsun)
+void SetConsoleUtf8() { SetConsoleOutputCP(65001); SetConsoleCP(65001); }
+
 void Log(char *fmt, ...)
 {
 	if(flLog == NULL)
@@ -388,11 +393,14 @@ void Log(char *fmt, ...)
 	vsprintf_s(buffer, 2048, fmt, args);
 	va_end(args);
 
-	fprintf(flLog, "%s", buffer);
+	char utf8buf[4096];
+	SmartToUtf8(buffer, utf8buf, sizeof(utf8buf));
+	fprintf(flLog, "%s", utf8buf);
 
 	if(settings.iConsole)
 	{
-		printf("%s", buffer);
+		// Konsol da UTF-8 (Windows Terminal / chcp 65001 ile dogru gosterir)
+		printf("%s", utf8buf);
 	}
 	else
 	{
@@ -403,9 +411,12 @@ void Log(char *fmt, ...)
 
 		if(IsWindow(loghwnd))
 		{
-			LPTSTR tbuf = new TCHAR[512];
-			memset(tbuf, 0, 512);
-			lstrcpyn(tbuf, buffer, 512); // plain copy, was wsprintf(tbuf, buffer) - format-string UB
+			// Log penceresi UTF-8 metin tutar (SmartToUtf8 zaten dogru donusturdu);
+			// cizim window.cpp WM_DRAWITEM'da Unicode (ExtTextOutW) ile yapilir -
+			// ACP'den bagimsiz dogru Turkce karakterler.
+			TCHAR *tbuf = new TCHAR[1024];
+			memset(tbuf, 0, 1024 * sizeof(TCHAR));
+			lstrcpyn(tbuf, utf8buf, 1024);
 
 			int lbCount = SendMessage(loghwnd, LB_GETCOUNT, 0, 0);
 			WPARAM idx = SendMessage(loghwnd, LB_ADDSTRING, 0, (LPARAM)tbuf);

@@ -65,6 +65,9 @@ struct stVehiclePool
 
 extern int iAreWeConnected, iConnectionRequested, iSpawned, iGameInited, iSpawnsAvailable;
 extern int iReconnectTime;
+extern unsigned long g_spawnTick;
+extern void SmartToUtf8(const char *in, char *out, int outSz);
+extern void SmartToCp1254(const char *in, char *out, int outSz); // son spawn ani (harvest 60 sn korumasi icin)
 extern PLAYERID g_myPlayerID;
 extern char g_szNickName[32];
 

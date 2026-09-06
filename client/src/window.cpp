@@ -155,11 +155,19 @@ LRESULT CALLBACK MainWindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
 				}
 
 				// Draw the text and fill in the background at the same time
-				//  with 5px offset for padding
-				ExtTextOut(lpDrawItem->hDC,
-					lpDrawItem->rcItem.left + 5, lpDrawItem->rcItem.top + 5,
-					ETO_OPAQUE | ETO_CLIPPED, &lpDrawItem->rcItem,
-					lpText, lstrlen(lpText), NULL);
+				//  with 5px offset for padding. UTF-8 -> UTF-16, Unicode cizim:
+				// Turkce karakterler ACP'den bagimsiz dogru gorunur.
+				{
+					int nLen = (int)strlen(lpText);
+					wchar_t wBuf[1024];
+					int nW = MultiByteToWideChar(CP_UTF8, 0, lpText, nLen, wBuf, 1023);
+					if(nW < 0) nW = 0;
+					wBuf[nW] = 0;
+					ExtTextOutW(lpDrawItem->hDC,
+						lpDrawItem->rcItem.left + 5, lpDrawItem->rcItem.top + 5,
+						ETO_OPAQUE | ETO_CLIPPED, &lpDrawItem->rcItem,
+						wBuf, nW, NULL);
+				}
 
 				// If this item has the focus add the focus rect
 				if(lpDrawItem->itemState & ODS_FOCUS)
@@ -397,11 +405,11 @@ DWORD WINAPI windowThread(PVOID)
 	hdcScreen = GetDC(HWND_DESKTOP);
 
 	g_hfText = CreateFont(-MulDiv(11, GetDeviceCaps(hdcScreen, LOGPIXELSY), 72), // 11pt
-		0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, ANSI_CHARSET, OUT_TT_PRECIS,
+		0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_TT_PRECIS,
 		CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, FF_DONTCARE, TEXT("Tahoma"));
 
 	g_hfInfo = CreateFont(-MulDiv(11, GetDeviceCaps(hdcScreen, LOGPIXELSY), 85),
-		0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, ANSI_CHARSET, OUT_TT_PRECIS,
+		0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_TT_PRECIS,
 		CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, FF_DONTCARE, TEXT("Arial"));
 
 	ReleaseDC(HWND_DESKTOP, hdcScreen);

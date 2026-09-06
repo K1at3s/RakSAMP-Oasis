@@ -46,8 +46,8 @@ int RunCommand(char *szCMD, int iFromAutorun)
 		return 1;
 	}
 
-	// /gstats, /stats ve /astats komutlari: sonucu Discord'a iletmek icin bekleme flag'ini set et
-	// (sunucu once ID giris dialogu (INPUT) gonderir, sonra sonuc dialogunu; ikisini de
+	// /gstats, /stats ve /astats komutlarý: sonucu Discord'a iletmek icin bekleme flag'ini set et
+	// (sunucu once ID giriþ dialogu (INPUT) gönderir, sonra sonuc dialogunu; ikisini de
 	// HandleCapturedDialog isler). Parametre varsa (/gstats 5, /stats 5, /astats 5) o deger
 	// ID dialoguna yazilip submit edilir.
 	if((!strncmp(szCMD, "/gstats", 7) && (szCMD[7] == '\0' || szCMD[7] == ' ')) ||
@@ -80,19 +80,19 @@ int RunCommand(char *szCMD, int iFromAutorun)
 		return 0;
 	}
 
-	// ! ile baslayan mesajlar: gruba normal chat olarak gonder.
+	// ! ile baþlayan mesajlar: gruba normal chat olarak gönder.
 	// Boylece oyunda ! ile gruba mesaj atilabilir (Discord koprusune de duser).
 	if(szCMD[0] == '!')
 	{
-		Log("[GROUPCHAT] ! mesaj gruba gonderiliyor: %s", szCMD);
+		Log("[GROUPCHAT] ! mesaj gruba gönderiliyor: %s", szCMD);
 		sendChat(szCMD);
 		return 0;
 	}
 
 	if(szCMD[0] != '!')
 	{
-		// ? ile baslayan grup komutlari (?zf, ?zgo, ?gzt, ?zgrp...) lokal islenir;
-		// chat'e gonderilmez (mute riski + cift islem). HandleGroupCommand'e ver.
+		// ? ile baþlayan grup komutlarý (?zf, ?zgo, ?gzt, ?zgrp...) lokal islenir;
+		// chat'e gönderilmez (mute riski + cift iþlem). HandleGroupCommand'e ver.
 		if(szCMD[0] == '?')
 		{
 			HandleGroupCommand(szCMD, -1);
@@ -424,6 +424,7 @@ int RunCommand(char *szCMD, int iFromAutorun)
 	{
 		sampSpawn();
 		iSpawned = 1;
+		g_spawnTick = GetTickCount();
 		return 1;
 	}
 

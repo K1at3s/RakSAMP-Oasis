@@ -142,7 +142,7 @@ int sampConnect(char *szHostname, int iPort, char *szNickname, char *szPassword,
 	g_waitingForPNetStats = false;
 	g_waitingForGStats = false;
 	g_bridgeSuppressEcho = 0;
-	g_frSentOnce = false; // yeni oturumda /fr tek gonderim icin flag'i sifirla
+	g_frSentOnce = false; // yeni oturumda /fr tek gönderim icin flag'i sifirla
 	LoadPlayerCache();    // ?pl istatistik/adin cache'ini dosyadan yukle
 	InitGroupColorsFromDisk(); // kalici grup rengi/tag kayitlarini dosyadan yukle
 
@@ -192,9 +192,9 @@ void sampSpawn()
 	
 	bIsSpectating = 0;
 
-	// Freeroam'a gecis: /fr'yi BURADA gonderme. Bu erken asama (login/auth oncesi) sunucuyu
+	// Freeroam'a gecis: /fr'yi BURADA gönderme. Bu erken asama (login/auth oncesi) sunucuyu
 	// cok erken tetikler ve g_frSentOnce bayragi yutar; gercek spawn onayi gelince (/fr'nin
-	// gonderilmesi gereken an) SpawnConfirmed'da gonderilmelidir. Bakiniz: netrpc.cpp SpawnConfirmed.
+	// gönderilmesi gereken an) SpawnConfirmed'da gönderilmelidir. Bakiniz: netrpc.cpp SpawnConfirmed.
 	Log("You have been spawned!");
 }
 
@@ -354,20 +354,87 @@ static char g_chatOutQueue[CHAT_OUT_QUEUE_MAX][300];
 static int g_chatOutCount = 0;
 static DWORD g_lastChatOutTick = 0;
 
+// --- UTF-8/cp1254 donusum yardimcilari (Turkce karakterler) ---
+// Log: cp1254 -> UTF-8 (dosya modern editorlerde okunur).
+// Chat gönderimi: UTF-8 -> cp1254 (oyun cp1254 bekler; DB/Discord kaynakli
+// mesajlar UTF-8'dir, kaynak literal/game metni cp1254'tur - akilli gecer).
+static bool IsValidUtf8(const char *s)
+{
+	if(!s) return false;
+	int n = (int)strlen(s);
+	for(int i = 0; i < n; i++)
+	{
+		unsigned char c = (unsigned char)s[i];
+		if(c < 0x80) continue;
+		int len;
+		if((c & 0xE0) == 0xC0) len = 2;
+		else if((c & 0xF0) == 0xE0) len = 3;
+		else if((c & 0xF8) == 0xF0) len = 4;
+		else return false;
+		if(i + len > n) return false;
+		for(int j = 1; j < len; j++)
+			if(((unsigned char)s[i+j] & 0xC0) != 0x80) return false;
+		i += len - 1;
+	}
+	return true;
+}
+
+void SmartToUtf8(const char *in, char *out, int outSz)
+{
+	if(!in || !out || outSz <= 0) return;
+	if(IsValidUtf8(in)) { strncpy_s(out, outSz, in, outSz - 1); return; }
+	int wlen = MultiByteToWideChar(1254, 0, in, -1, NULL, 0);
+	if(wlen > 0)
+	{
+		wchar_t *w = (wchar_t*)malloc(wlen * sizeof(wchar_t));
+		MultiByteToWideChar(1254, 0, in, -1, w, wlen);
+		int ulen = WideCharToMultiByte(CP_UTF8, 0, w, -1, NULL, 0, NULL, NULL);
+		if(ulen > 0 && ulen <= outSz)
+		{
+			WideCharToMultiByte(CP_UTF8, 0, w, -1, out, ulen, NULL, NULL);
+			free(w);
+			return;
+		}
+		free(w);
+	}
+	strncpy_s(out, outSz, in, outSz - 1);
+}
+
+void SmartToCp1254(const char *in, char *out, int outSz)
+{
+	if(!in || !out || outSz <= 0) return;
+	if(!IsValidUtf8(in)) { strncpy_s(out, outSz, in, outSz - 1); return; }
+	int wlen = MultiByteToWideChar(CP_UTF8, 0, in, -1, NULL, 0);
+	if(wlen > 0)
+	{
+		wchar_t *w = (wchar_t*)malloc(wlen * sizeof(wchar_t));
+		MultiByteToWideChar(CP_UTF8, 0, in, -1, w, wlen);
+		int clen = WideCharToMultiByte(1254, 0, w, -1, NULL, 0, NULL, NULL);
+		if(clen > 0 && clen <= outSz)
+		{
+			WideCharToMultiByte(1254, 0, w, -1, out, clen, NULL, NULL);
+			free(w);
+			return;
+		}
+		free(w);
+	}
+	strncpy_s(out, outSz, in, outSz - 1);
+}
+
 void ProcessChatOutQueue()
 {
 	if(g_chatOutCount == 0) return;
 	DWORD dwNow = GetTickCount();
 	if(dwNow - g_lastChatOutTick < CHAT_OUT_INTERVAL_MS) return;
 
-	// En eski mesaji gonder; geri kalanlari sola kaydir.
+	// En eski mesajý gönder; geri kalanlari sola kaydir.
 	RakNet::BitStream bsSend;
 	BYTE byteTextLen = strlen(g_chatOutQueue[0]);
 	bsSend.Write(byteTextLen);
 	bsSend.Write(g_chatOutQueue[0], byteTextLen);
 	pRakClient->RPC(&RPC_Chat, &bsSend, HIGH_PRIORITY, RELIABLE, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
 	g_lastChatOutTick = dwNow;
-	Log("[CHAT] Gonderildi (%d kuyrukta): %s", g_chatOutCount - 1, g_chatOutQueue[0]);
+	Log("[CHAT] Gönderildi (%d kuyrukta): %s", g_chatOutCount - 1, g_chatOutQueue[0]);
 
 	for(int i = 1; i < g_chatOutCount; i++)
 		strcpy_s(g_chatOutQueue[i - 1], sizeof(g_chatOutQueue[0]), g_chatOutQueue[i]);
@@ -376,9 +443,9 @@ void ProcessChatOutQueue()
 
 void sendChat(char *szMessage)
 {
-	// Grup chat komutlari (?help, ?w, ?ping, ?pl, ?gst, ?gstats, ?greet, ?welcomemsg,
+	// Grup chat komutlarý (?help, ?w, ?ping, ?pl, ?gst, ?gstats, ?greet, ?welcomemsg,
 	// ?gzt, ?discordchat, ?1414, ?gz) ve Discord koprusu (!!<mesaj>): UIF sunucusu
-	// kendi mesajimizi (GROUP) olarak geri echo etmedigi icin bu mesajlar ClientMessage
+	// kendi mesajýmizi (GROUP) olarak geri echo etmedigi icin bu mesajlar ClientMessage
 	// yakalamasinda hic tetiklenmez. Bu yuzden oyun ici sohbet kutusundan gelen her
 	// mesaj burada lokal islenir. (HandleGroupCommand'in kendi sendChat cevaplari da
 	// buraya girer; g_bridgeSuppressEcho ile Discord'a gitmeleri engellenir.)
@@ -387,8 +454,8 @@ void sendChat(char *szMessage)
 		HandleGroupCommand(szMessage, g_myPlayerID);
 	}
 
-	// Gonderim artik kuyruktan (5 sn arayla ProcessChatOutQueue). Tasarsa en yenisi
-	// dusurulur â€” anlik acil cevaplar oncelikli olmaz, bot flood yapmaz.
+	// Gönderim artik kuyruktan (5 sn arayla ProcessChatOutQueue). Tasarsa en yenisi
+	// dusurulur â€” anlik acil cevaplar öncelikli olmaz, bot flood yapmaz.
 	if(!szMessage || !szMessage[0]) return;
 	if(g_chatOutCount < CHAT_OUT_QUEUE_MAX)
 	{
@@ -416,7 +483,7 @@ void sendScmEvent(int iEventType, DWORD dwParam1, DWORD dwParam2, DWORD dwParam3
 void sendDialogResponse(WORD wDialogID, BYTE bButtonID, WORD wListBoxItem, char *szInputResp)
 {
 	// Input metni uzunlugu WORD (16-bit): UIF, /gstats submit'inde WORD uzunluk bekler
-	// (SAMPRPC.cpp gstats akisi ile birebir ayni). BYTE uzunluk spawn menusu cevabinin
+	// (SAMPRPC.cpp gstats akisi ile birebir ayni). BYTE uzunluk spawn menüsü cevabinin
 	// yanlis cozumlenmesine yol aciyordu (bot virtual world'de kaliyordu).
 	unsigned short respLen = (unsigned short)strlen(szInputResp);
 	RakNet::BitStream bsSend;
@@ -486,7 +553,7 @@ int getPlayerPos(PLAYERID iPlayerID, float *fPos)
 
 	if(iPlayerID == g_myPlayerID)
 	{
-		// Kendi pozisyonu sunucudan geri gelmez (kendi sync'imizi biz gonderiyoruz);
+		// Kendi pozisyonu sunucudan geri gelmez (kendi sync'imizi biz gönderiyoruz);
 		// gercek konum settings.fCurrentPosition'da tutulur.
 		if(settings.fCurrentPosition[0] == 0.0f
 			&& settings.fCurrentPosition[1] == 0.0f
