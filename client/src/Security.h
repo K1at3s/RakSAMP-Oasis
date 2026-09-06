@@ -77,8 +77,11 @@ void SendWelcomeBack(const char *playerName);
 void PollCommands();
 void SendKillList(const char *redBox, const char *blueBox, const char *redName, const char *blueName,
     const char *redTag, const char *blueTag, int redKills, int blueKills, bool won,
-    const char *mvpName, const char *feederName, int mvpDmg, int mvpKills, int feederDeaths, const char *firstBlood);
+    const char *mvpName, const char *feederName, int mvpDmg, int mvpKills, int feederDeaths,
+    const char *firstBlood, const char *topWeapons);
 void ProcessZoneWarAutoJoin();
+void ProcessGmembers();
+void StartGmembersCollect();
 void ProcessZgoReturn();
 void ProcessZtkTick();
 // ?zgrp grup ogrenme harvester'i: /groups + /gstats <ID> zinciri

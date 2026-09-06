@@ -524,6 +524,29 @@ app.post('/api/warhelp', async (req, res) => {
 
 // GZ sonucu / kill list — oyun içi GZ bittiğinde toplanan sonuç.
 // Embed: kazandı/kaybetti başlığı + kırmızı/mavi takım + skor + iki kutu + MVP/feeder.
+app.post('/api/gmembers/sheet', async (req, res) => {
+    const body = req.body || {};
+    const guild = await resolveGuildForRakSAMP(body);
+    if (!guild) {
+        return res.json({ success: false, message: "Bağlı Discord sunucusu bulunamadı." });
+    }
+    const { writeRoster } = require('./sheets');
+    const group = String(body.group || '').trim();
+    const rows = Array.isArray(body.rows) ? body.rows : [];
+    if (!group || !rows.length) {
+        return res.json({ success: false, message: "Grup adı veya üye satırları eksik." });
+    }
+    try {
+        const spreadsheetId = body.spreadsheetId || config.GOOGLE_SHEETS.spreadsheetId;
+        const result = await writeRoster(spreadsheetId, group, rows);
+        console.log(`📊 GMEMBERS (guild=${guild.guildId}, grup=${group}): ${result.rows} üye yazıldı. Tablo: https://docs.google.com/spreadsheets/d/${result.spreadsheetId}`);
+        return res.json({ success: true, rows: result.rows, spreadsheetId: result.spreadsheetId });
+    } catch (err) {
+        console.error(`📊 GMEMBERS hatası (grup=${group}): ${err.message}`);
+        return res.json({ success: false, message: err.message });
+    }
+});
+
 app.post('/api/killlist', async (req, res) => {
     const body = req.body || {};
     const guild = await resolveGuildForRakSAMP(body);
@@ -549,6 +572,7 @@ const mvpDmg = Number(body.mvpDmg) || 0;
     const mvpKills = Number(body.mvpKills) || 0;
     const feederDeaths = Number(body.feederDeaths) || 0;
     const firstBlood = String(body.firstBlood || '').trim();
+    const topWeapons = String(body.topWeapons || '').trim();
 
     if (!redBox && !blueBox) {
         return res.json({ success: false, message: "Kill list boş." });
@@ -561,6 +585,7 @@ const mvpDmg = Number(body.mvpDmg) || 0;
         mvp: '⭐ MVP',
         feeder: '🎯 Top Feeder',
         firstBlood: isTr ? '🩸 İlk Kan' : '🩸 First Blood',
+        topWeapons: isTr ? '🔫 En Çok Kullanılan Silahlar' : '🔫 Top Weapons',
     
     };
 
@@ -574,7 +599,8 @@ const mvpDmg = Number(body.mvpDmg) || 0;
             { name: `⚔️ **${blueTag || blueName}**`, value: `\`\`\`\n${blueBox}\n\`\`\`` },
             { name: t.mvp, value: `${mvp} (${mvpDmg} dmg, ${mvpKills} kills)`, inline: true },
             { name: t.feeder, value: `${feeder} (${feederDeaths} deaths)`, inline: true },
-            { name: t.firstBlood, value: firstBlood ? `${firstBlood}` : '-', inline: true }
+            { name: t.firstBlood, value: firstBlood ? `${firstBlood}` : '-', inline: true },
+            { name: t.topWeapons, value: topWeapons ? `${topWeapons}` : '-', inline: true }
         );
 
     const channelId = await sendToGuildChannel(guild, 'zoneWarChannelId', { embed });
@@ -1334,23 +1360,29 @@ app.get('/api/groups', async (req, res) => {
 });
 
 // RakSAMP client: her botun XML'deki ismiyle (name) eşleşen satırı upsert eder
-// (her bot için DB'de tek satır). Body: { name, data, groupName, zscan }.
+// (her bot için DB'de tek satır). Body: { name, data, groupName, zscan, gzt, zgrp }.
+// zscan/gzt/zgrp GONDERILMEDIYSE eski deger korunur (client acilisinda henuz
+// DB'den okumadan status yazarsa kayitli tercih silinmesin).
 app.post('/api/bot/status', async (req, res) => {
     const body = req.body || {};
     const name = String(body.name || '').trim().slice(0, 64);
     if (!name) return res.json({ success: false, message: "name bekleniyor" });
     const data = (body.data !== undefined) ? JSON.stringify(body.data) : null;
     const groupName = String(body.groupName || '').slice(0, 255);
-    const zscan = body.zscan ? 1 : 0;
-    const gzt = (body.gzt === undefined) ? 1 : (body.gzt ? 1 : 0);
-    const zgrp = (body.zgrp === undefined) ? 1 : (body.zgrp ? 1 : 0);
+
+    const fields = ['name', 'group_name', 'data', 'updated_at'];
+    const params = [name, groupName, data, new Date()];
+    if (body.zscan !== undefined) { fields.push('zscan_enabled'); params.push(body.zscan ? 1 : 0); }
+    if (body.gzt !== undefined) { fields.push('gzt_enabled'); params.push(body.gzt ? 1 : 0); }
+    if (body.zgrp !== undefined) { fields.push('zgrp_enabled'); params.push(body.zgrp ? 1 : 0); }
     try {
+        const setClause = fields.filter(f => f !== 'name').map(f => `${f}=VALUES(${f})`).join(', ');
         await db.execute(
-            `INSERT INTO bots (name, group_name, zscan_enabled, gzt_enabled, zgrp_enabled, data, updated_at) VALUES (?,?,?,?,?,?,?)
-             ON DUPLICATE KEY UPDATE group_name=VALUES(group_name), zscan_enabled=VALUES(zscan_enabled), gzt_enabled=VALUES(gzt_enabled), zgrp_enabled=VALUES(zgrp_enabled), data=VALUES(data), updated_at=VALUES(updated_at)`,
-            [name, groupName, zscan, gzt, zgrp, data, new Date()]
+            `INSERT INTO bots (${fields.join(',')}) VALUES (${fields.map(() => '?').join(',')})
+             ON DUPLICATE KEY UPDATE ${setClause}`,
+            params
         );
-        console.log(`🤖 BOT-STATUS: '${name}' DB'ye yazildi (zscan=${zscan}, gzt=${gzt}, zgrp=${zgrp})`);
+        console.log(`🤖 BOT-STATUS: '${name}' DB'ye yazildi (zscan=${body.zscan !== undefined ? (body.zscan ? 1 : 0) : 'korundu'}, gzt=${body.gzt !== undefined ? (body.gzt ? 1 : 0) : 'korundu'}, zgrp=${body.zgrp !== undefined ? (body.zgrp ? 1 : 0) : 'korundu'})`);
         return res.json({ success: true });
     } catch (err) {
         console.error('BOT-STATUS hatasi:', err.message);

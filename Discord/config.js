@@ -18,5 +18,14 @@ module.exports = {
         connectionLimit: 5
     },
 
-    AES_SECRET_KEY: crypto.createHash('sha256').update('BURHAN_RAKSAMP_SECRET_2026').digest()
+    AES_SECRET_KEY: crypto.createHash('sha256').update('BURHAN_RAKSAMP_SECRET_2026').digest(),
+
+    // Google Sheets (?gmembers rosters): service account JSON Discord/ klasorunde.
+    // Tablo ID bos = service account yeni tablo olusturur + ownerEmail ile paylasir
+    // (paylasilan tablo Drive'da gorunur). GS_OWNER_EMAIL = sahibin Google adresi.
+    GOOGLE_SHEETS: {
+        serviceAccountFile: process.env.GS_SERVICE_ACCOUNT_FILE || 'avian-computer-500410-j8-c8fb699de46a.json',
+        spreadsheetId: process.env.GS_SPREADSHEET_ID || '1tfS4CF0usW7EdxmmJnnntpzr_yqB-fvphvjKv-aJ_Jc',
+        ownerEmail: process.env.GS_OWNER_EMAIL || 'burhanuzun488@gmail.com'
+    }
 };

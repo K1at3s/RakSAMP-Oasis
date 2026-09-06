@@ -40,3 +40,8 @@ client/bin/stdout.txt
 client/bin/stderr.txt
 log.txt
 out.txt
+*.opencode
+*.rtk
+
+# Google service account (secret - asla commit etme)
+Discord/avian-computer-500410-j8-c8fb699de46a.json

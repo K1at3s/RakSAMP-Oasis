@@ -42,6 +42,19 @@ extern int g_grankListPage;
 extern unsigned long g_grankListStartTime;
 extern void FinishGrankListAndPost();
 
+// ?gmembers (Google Sheets roster) koleksiyonu (netrpc.cpp)
+extern int g_gmPhase;
+extern int g_gmPage;
+extern int g_gmCount;
+extern unsigned long g_gmPhaseAt;
+extern int g_gmAstatsIdx;
+extern bool g_gmAstatsWaiting;
+extern char g_gmAstatsName[64];
+extern bool g_gmGvipsWaiting;
+extern int OnGmMembersPage(const char *szInfo, int *outButton, int *outItem);
+extern void OnGmAstatsResult(const char *szInfo);
+extern void OnGmVipsResult(const char *szInfo);
+
 int RPC_ServerJoin = 137;
 int RPC_ServerQuit = 138;
 int RPC_InitGame = 139;
@@ -659,6 +672,63 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             return 1;
         }
         // Farkli bir dialog geldi (ID giris vs.): bu /groups cevabi degil, beklemede kal
+    }
+
+    // -------------------------------------------------------------
+    // 3.5b ?gmembers KOLEKSIYONU (Google Sheets roster): faz 1 uye listesi sayfalari
+    // -------------------------------------------------------------
+    if (g_gmPhase == 1) {
+        if (sampDialog.bDialogStyle == DIALOG_STYLE_LIST ||
+            sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST ||
+            sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST_HEADERS ||
+            sampDialog.bDialogStyle == DIALOG_STYLE_MSGBOX) {
+            int iBtn = 1, iItem = -1;
+            int r = OnGmMembersPage(szInfo, &iBtn, &iItem);
+            Log("[GM] Uye listesi sayfasi (style %d) -> %s (%d uye)", sampDialog.bDialogStyle,
+                r == 1 ? "sonraki sayfa" : "bitti", g_gmCount);
+
+            RakNet::BitStream bsGM;
+            bsGM.Write((uint16_t)wDialogID);
+            if (r == 1) {
+                bsGM.Write((uint8_t)iBtn);
+                bsGM.Write((uint16_t)(iItem >= 0 ? iItem : 0xFFFF));
+            } else {
+                bsGM.Write((uint8_t)1);
+                bsGM.Write((uint16_t)0xFFFF);
+            }
+            bsGM.Write((uint8_t)0);
+            pRakClient->RPC(&RPC_DialogResponse, &bsGM, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
+            if (r == 1) g_gmPage++;
+            else {
+                Log("[GM] Uye listesi tamam: %d uye. Faz 2: /astats basliyor.", g_gmCount);
+                g_gmPhase = 2;
+                g_gmAstatsIdx = 0;
+                g_gmAstatsWaiting = false;
+                g_gmPhaseAt = GetTickCount();
+            }
+            return 1;
+        }
+        // Uye listesi dialogu degil: beklemede kal (zaman asimini ProcessGmembers isler)
+    }
+
+    // -------------------------------------------------------------
+    // 3.5c ?gmembers faz 3: /gvips dialogu -> VIP parse, sonra gonderim
+    // -------------------------------------------------------------
+    if (g_gmPhase == 3 && g_gmGvipsWaiting) {
+        if (sampDialog.bDialogStyle == DIALOG_STYLE_LIST ||
+            sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST ||
+            sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST_HEADERS ||
+            sampDialog.bDialogStyle == DIALOG_STYLE_MSGBOX) {
+            Log("[GM] /gvips dialogu yakalandi (style %d), VIP'ler parse ediliyor.", sampDialog.bDialogStyle);
+            OnGmVipsResult(szInfo);
+            RakNet::BitStream bsGV;
+            bsGV.Write((uint16_t)wDialogID);
+            bsGV.Write((uint8_t)1);
+            bsGV.Write((uint16_t)0xFFFF);
+            bsGV.Write((uint8_t)0);
+            pRakClient->RPC(&RPC_DialogResponse, &bsGV, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
+            return 1;
+        }
     }
 
     // -------------------------------------------------------------
@@ -1350,6 +1420,19 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             bsResponse.Write((uint8_t)0);
             pRakClient->RPC(&RPC_DialogResponse, &bsResponse, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
             Log("[GHP] gstats sonuc dialogu kapatildi (harvest).");
+            return 1;
+        }
+
+        // ?gmembers koleksiyonu (faz 2): /astats sonucundan account ID parse et
+        if (g_gmPhase == 2 && g_gmAstatsWaiting) {
+            Log("[GM] astats sonuc dialogu yakalandi ('%s').", g_gmAstatsName);
+            OnGmAstatsResult(szInfo);
+            RakNet::BitStream bsGM2;
+            bsGM2.Write((uint16_t)wDialogID);
+            bsGM2.Write((uint8_t)1);
+            bsGM2.Write((uint16_t)0xFFFF);
+            bsGM2.Write((uint8_t)0);
+            pRakClient->RPC(&RPC_DialogResponse, &bsGM2, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
             return 1;
         }
 

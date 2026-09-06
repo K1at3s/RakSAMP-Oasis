@@ -569,7 +569,10 @@ void PollCommands() {
                 std::string cmd = c.value("cmd", "");
                 std::string requesterId = c.value("requesterId", "");
 
-                if (type == "gstats") {
+                if (type == "gmembers") {
+                    std::cout << "[COMMAND] Discord'dan /gmembers harvest istendi.\n";
+                    StartGmembersCollect();
+                } else if (type == "gstats") {
                     g_waitingForGStats = true;
                     g_gstatsReqTime = GetTickCount();
                     g_gstatsRequesterId = requesterId;
@@ -645,7 +648,8 @@ void PollCommands() {
 // 13. GZ sonucu (kill list) - "gz sonucl.txt" dosyasindan okunan metni Discord zonewar kanalina embed olarak yolla
 void SendKillList(const char *redBox, const char *blueBox, const char *redName, const char *blueName,
     const char *redTag, const char *blueTag, int redKills, int blueKills, bool won,
-    const char *mvpName, const char *feederName, int mvpDmg, int mvpKills, int feederDeaths, const char *firstBlood) {
+    const char *mvpName, const char *feederName, int mvpDmg, int mvpKills, int feederDeaths,
+    const char *firstBlood, const char *topWeapons) {
     if (!g_isEngineActive || g_sessionToken.empty()) return;
     if (!redBox || !redBox[0] || !blueBox || !blueBox[0]) return;
 
@@ -669,7 +673,8 @@ void SendKillList(const char *redBox, const char *blueBox, const char *redName, 
         {"mvpKills", mvpKills},
         {"feeder", feederName ? feederName : ""},
         {"feederDeaths", feederDeaths},
-        {"firstBlood", firstBlood ? firstBlood : ""}
+        {"firstBlood", firstBlood ? firstBlood : ""},
+        {"topWeapons", topWeapons ? topWeapons : ""}
     };
 
     auto res = cli.Post("/api/killlist", body.dump(), "application/json");

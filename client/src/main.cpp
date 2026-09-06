@@ -161,6 +161,9 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 			// Zone war: ?pl zaman asimi + GZ sonuc textdraw yakalama (bot GZ'ye girmez)
 			ProcessZoneWarAutoJoin();
 
+			// ?gmembers: Google Sheets roster koleksiyonu (uye + astats + gvips)
+			ProcessGmembers();
+
 			// ?ztk zone sniper: hedef zonede savas bitince /gz (isine bekleme)
 			ProcessZtkTick();
 

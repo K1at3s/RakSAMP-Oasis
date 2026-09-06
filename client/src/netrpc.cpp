@@ -1,4 +1,4 @@
-﻿/*
+/*
 	Updated to 0.3.7 by P3ti
 */
 
@@ -83,6 +83,16 @@ static int g_zwEnemyK = 0, g_zwEnemyA = 0, g_zwEnemyD = 0, g_zwEnemyDmg = 0;
 static bool g_zwWeWon = true; // savas sonucu: biz kazandik mi (war-end blogu kurar)
 static char g_zwFirstBlood[160] = {0}; // GZ ilk kill: "isim (Weapon: X) (Distance: Ym)"
 
+// Top Weapons: RPC 55 (DeathMessage - sagdaki kill feed) savas boyunca toplanir.
+// "ZONE WAR: X vs Y" duyurusundaki konum takimimizi belirler (sol=kirmizi, sag=mavi);
+// finalize'da scoreboard isimleriyle filtrelenir, top 5 silah Discord'a gider.
+static bool g_zwWeAreBlue = false;      // isim eslesmesi: grubumuz "vs" de sagda mi (mavi)
+static bool g_zwWeAreBlueKnown = false; // vs duyurusundan belirlendi mi (renk fallback'i icin)
+#define WAR_KILL_MAX 1024
+struct WarKill { char szKiller[32]; BYTE weapon; };
+static WarKill g_zwWarKills[WAR_KILL_MAX];
+static int g_zwWarKillCount = 0;
+
 // GZ giri-sleri: sava-s ba-s-▒nda tak-▒m rengi --srenmek i-gin k-▒sa giri-s; son 00:02'de kill-list giri-si.
 static bool   g_zwReturnPending = false;   // k-▒sa giri-s aktif ([gz2] -> [fr] ile geri d-n-╝lecek)
 static DWORD  g_zwReturnAt = 0;
@@ -158,6 +168,373 @@ static int   g_snipZone = -1;            // bekleyen hedef zone
 static int   g_snipSenderId = -1;        // komutu atan kullanici (playerInfo'dan ismi alinir)
 bool g_waitingForGmembers = false;       // SAMPRPC.cpp kullanir (extern)
 unsigned long g_gmembersReqTime = 0;     // SAMPRPC.cpp kullanir (extern)
+
+// ?gmembers (Google Sheets roster): /gmembers sayfali liste + /astats (account ID)
+// + /gvips (VIP) toplanir, backend'e POST edilir, ornek tablo formatinda yazilir.
+#define GM_MAX_MEMBERS 160
+struct GmMemberRow {
+	char szName[64];
+	char szRank[32];    // rol/rank (Leader/Co-Leader/Member/Elder/Veteran/Recruit)
+	char szRole[32];    // sheet'te ayri kolon; veri ayri degilse rank ile ayni
+	char szLast[32];    // son aktif (parse edilebilirse)
+	char szAccount[24]; // /astats'tan account ID
+	char szVip[24];     // /gvips'ten VIP tipi
+};
+static GmMemberRow g_gmRows[GM_MAX_MEMBERS];
+int g_gmCount = 0;
+int g_gmPhase = 0;            // 0=kapali 1=uyeler 2=astats 3=gvips 4=gonderim (SAMPRPC extern)
+int g_gmPage = 0;
+unsigned long g_gmPhaseAt = 0;
+int g_gmAstatsIdx = 0;
+bool g_gmAstatsWaiting = false;
+char g_gmAstatsName[64] = {0};
+bool g_gmGvipsWaiting = false;
+static bool g_gmSendDone = false;
+#define GMCOL_RESULT_DONE 0
+#define GMCOL_RESULT_NEXT 1
+static const char *g_szBackendBase = "http://127.0.0.1:3000"; // OnGmSend erken kullanir (sablon: satir 955'teki)
+
+// Renk kodlarini temizle + trim (gmembers/gvips satirlari icin)
+static void GmCleanLine(const char *szIn, char *szOut, int nOut)
+{
+	int c = 0;
+	for(int i = 0; szIn[i] && c < nOut - 1; i++)
+	{
+		if(szIn[i] == '{' && szIn[i + 7] == '}') { i += 7; continue; }
+		szOut[c++] = szIn[i];
+	}
+	szOut[c] = 0;
+	char *s = szOut;
+	while(*s == ' ' || *s == '\t' || *s == '\r') s++;
+	char *e = s + strlen(s) - 1;
+	while(e >= s && (*e == ' ' || *e == '\t' || *e == '\r')) *e-- = 0;
+	if(s != szOut) memmove(szOut, s, strlen(s) + 1);
+}
+
+void StartGmembersCollect()
+{
+	if(g_gmPhase != 0)
+	{
+		Log("[GM] Koleksiyon zaten calisiyor (faz %d).", g_gmPhase);
+		return;
+	}
+	g_gmPhase = 1;
+	g_gmCount = 0; g_gmPage = 0;
+	g_gmAstatsIdx = 0; g_gmAstatsWaiting = false;
+	g_gmGvipsWaiting = false; g_gmSendDone = false;
+	g_gmPhaseAt = GetTickCount();
+	Log("[GM] ?gmembers koleksiyonu basladi (faz 1: uye listesi).");
+	sendServerCommand((char *)"/gmembers");
+}
+
+// Faz 1 (uye listesi) sayfa parse'i: SAMPRPC.cpp cagirir. GMCOL_RESULT_DONE=0 / NEXT=1.
+int OnGmMembersPage(const char *szInfo, int *outButton, int *outItem)
+{
+	*outButton = 1; *outItem = -1;
+	Log("[GM-MEMBERS-DATA] Sayfa %d: %.800s", g_gmPage + 1, szInfo ? szInfo : "");
+	if(!szInfo || !szInfo[0]) return GMCOL_RESULT_DONE;
+
+	const char *pL = szInfo;
+	int iRow = 0;
+	while(pL && *pL && g_gmCount < GM_MAX_MEMBERS)
+	{
+		const char *pE = strchr(pL, '\n');
+		size_t nLen = pE ? (size_t)(pE - pL) : strlen(pL);
+		if(nLen > 0 && nLen < 255)
+		{
+			char szLine[256], szClean[256];
+			memcpy(szLine, pL, nLen); szLine[nLen] = 0;
+			GmCleanLine(szLine, szClean, sizeof(szClean));
+			if(!szClean[0]) { iRow++; if(!pE) break; pL = pE + 1; continue; }
+
+			char szLow[256] = {0};
+			for(int i = 0; szClean[i] && i < 255; i++) szLow[i] = (char)tolower((unsigned char)szClean[i]);
+
+			// Sayfalama isareti: ">>" / next / sonraki
+			if(strstr(szLow, ">>") || strstr(szLow, "next") || strstr(szLow, "sonraki"))
+			{
+				*outItem = iRow;
+				iRow++; if(!pE) break; pL = pE + 1; continue;
+			}
+			// Baslik satiri: "#/ID/Name/Rank" gibi
+			if((strstr(szLow, "id") && strstr(szLow, "name")) || strstr(szLow, "rank") && strstr(szLow, "role"))
+			{ iRow++; if(!pE) break; pL = pE + 1; continue; }
+
+			// Isim: baslangictaki sira numarasini ("1. ", "1: ", "1 ") atla
+			char *p = szClean;
+			while(*p && !((*p >= '0' && *p <= '9') || (*p >= 'A' && *p <= 'Z') || (*p >= 'a' && *p <= 'z') || *p == '_' || *p == '.')) p++;
+			while(*p >= '0' && *p <= '9') p++;
+			while(*p == '.' || *p == ':' || *p == '-' || *p == ' ' || *p == '\t') p++;
+			char szName[64] = {0}; int ni = 0;
+			while(p[ni] && p[ni] != ' ' && p[ni] != '\t' && p[ni] != '-' && p[ni] != '\r' && ni < 63)
+			{ szName[ni] = p[ni]; ni++; }
+			szName[ni] = 0;
+			if(!szName[0])
+			{ // fallback: satirin ilk kelimesi
+				int k = 0;
+				while(szClean[k] && szClean[k] != ' ' && szClean[k] != '\t' && k < 63) { szName[k] = szClean[k]; k++; }
+				szName[k] = 0;
+			}
+			if(!szName[0] || strchr(szName, '>')) { iRow++; if(!pE) break; pL = pE + 1; continue; }
+
+			// Rank/Role anahtar kelimesi tara
+			const char *szRanks[] = { "Co-Leader", "Leader", "Member", "Elder", "Veteran", "Recruit" };
+			char szRank[32] = {0};
+			for(int r = 0; r < 6; r++)
+				if(strstr(szClean, szRanks[r])) { strncpy_s(szRank, sizeof(szRank), szRanks[r], sizeof(szRank) - 1); break; }
+
+			// Son aktif: satirin son kelimesi (tarih ise)
+			char szLast[32] = {0};
+			{
+				const char *pT = strrchr(szClean, ' ');
+				const char *pT2 = strrchr(szClean, '\t');
+				const char *pW = pT && (!pT2 || pT > pT2) ? pT : pT2;
+				if(pW && pW[1] && (isdigit((unsigned char)pW[1]) || pW[1] == '-'))
+					strncpy_s(szLast, sizeof(szLast), pW + 1, sizeof(szLast) - 1);
+			}
+
+			// Tekrar kontrolu
+			bool bDup = false;
+			for(int i = 0; i < g_gmCount; i++)
+				if(_stricmp(g_gmRows[i].szName, szName) == 0) { bDup = true; break; }
+			if(!bDup)
+			{
+				strncpy_s(g_gmRows[g_gmCount].szName, sizeof(g_gmRows[0].szName), szName, sizeof(g_gmRows[0].szName) - 1);
+				strncpy_s(g_gmRows[g_gmCount].szRank, sizeof(g_gmRows[0].szRank), szRank, sizeof(g_gmRows[0].szRank) - 1);
+				strncpy_s(g_gmRows[g_gmCount].szRole, sizeof(g_gmRows[0].szRole), szRank, sizeof(g_gmRows[0].szRole) - 1);
+				strncpy_s(g_gmRows[g_gmCount].szLast, sizeof(g_gmRows[0].szLast), szLast, sizeof(g_gmRows[0].szLast) - 1);
+				g_gmCount++;
+				Log("[GM] Uye #%d: '%s' (rank=%s, son=%s)", g_gmCount, szName, szRank[0] ? szRank : "?", szLast[0] ? szLast : "?");
+			}
+		}
+		iRow++;
+		if(!pE) break;
+		pL = pE + 1;
+	}
+
+	if(*outItem >= 0 && g_gmPage < 12)
+		return GMCOL_RESULT_NEXT;
+	return GMCOL_RESULT_DONE;
+}
+
+// Faz 2: /astats sonuc dialogundan account ID parse et (format dogrulanacak, log basar)
+void OnGmAstatsResult(const char *szInfo)
+{
+	Log("[GM-ASTATS-DATA] '%s' -> %.400s", g_gmAstatsName, szInfo ? szInfo : "");
+	if(!szInfo || !szInfo[0] || g_gmAstatsIdx >= g_gmCount) { g_gmAstatsWaiting = false; g_gmAstatsIdx++; return; }
+
+	char szClean[600];
+	GmCleanLine(szInfo, szClean, sizeof(szClean));
+	char szAcc[24] = {0};
+
+	// "ID: 123456" / "Account ID: 123456" / "Id : 123"
+	const char *pId = strstr(szClean, "ID:");
+	if(!pId) pId = strstr(szClean, "Id:");
+	if(!pId) pId = strstr(szClean, "id:");
+	if(!pId) pId = strstr(szClean, "Account ID");
+	if(pId)
+	{
+		const char *pN = pId + (strstr(szClean, "Account ID") ? strlen("Account ID") : 3);
+		if(*pN == ':') pN++;
+		while(*pN == ' ' || *pN == '\t') pN++;
+		int n = 0;
+		while(pN[n] >= '0' && pN[n] <= '9' && n < 23) { szAcc[n] = pN[n]; n++; }
+	}
+	// Fallback: ilk uzun sayi (>=5 hane)
+	if(!szAcc[0])
+	{
+		const char *pN = szClean;
+		while(*pN)
+		{
+			if(*pN >= '0' && *pN <= '9')
+			{
+				const char *pS = pN; int n = 0;
+				while(pS[n] >= '0' && pS[n] <= '9') n++;
+				if(n >= 5 && n <= 23) { memcpy(szAcc, pS, n); szAcc[n] = 0; break; }
+				pN += n;
+			}
+			else pN++;
+		}
+	}
+	if(g_gmAstatsIdx < g_gmCount)
+		strncpy_s(g_gmRows[g_gmAstatsIdx].szAccount, sizeof(g_gmRows[0].szAccount), szAcc, sizeof(g_gmRows[0].szAccount) - 1);
+	Log("[GM] astats '%s' -> account ID: %s", g_gmAstatsName, szAcc[0] ? szAcc : "(bulunamadi)");
+	g_gmAstatsWaiting = false;
+	g_gmAstatsIdx++;
+}
+
+// Faz 3: /gvips dialogundan isim -> VIP tipi parse et
+void OnGmVipsResult(const char *szInfo)
+{
+	Log("[GM-VIPS-DATA] %.800s", szInfo ? szInfo : "");
+	if(!szInfo) { g_gmGvipsWaiting = false; g_gmPhase = 4; g_gmPhaseAt = GetTickCount(); return; }
+
+	const char *pL = szInfo;
+	while(pL && *pL)
+	{
+		const char *pE = strchr(pL, '\n');
+		size_t nLen = pE ? (size_t)(pE - pL) : strlen(pL);
+		if(nLen > 0 && nLen < 255)
+		{
+			char szLine[256], szClean[256];
+			memcpy(szLine, pL, nLen); szLine[nLen] = 0;
+			GmCleanLine(szLine, szClean, sizeof(szClean));
+			if(!szClean[0]) { if(!pE) break; pL = pE + 1; continue; }
+
+			char szLow[256] = {0};
+			for(int i = 0; szClean[i] && i < 255; i++) szLow[i] = (char)tolower((unsigned char)szClean[i]);
+			if(strstr(szLow, ">>") || strstr(szLow, "next") || strstr(szLow, "sonraki"))
+			{ if(!pE) break; pL = pE + 1; continue; }
+			if(strstr(szLow, "vip") && (strstr(szLow, "name") || strstr(szLow, "isim")))
+			{ if(!pE) break; pL = pE + 1; continue; }
+
+			// Isim (ilk kelime) + VIP tipi (diamond/gold/silver/platinum/bronze)
+			char szName[64] = {0};
+			int k = 0;
+			while(szClean[k] && szClean[k] != ' ' && szClean[k] != '\t' && szClean[k] != '-' && k < 63) { szName[k] = szClean[k]; k++; }
+			szName[k] = 0;
+			const char *szVips[] = { "diamond", "gold", "silver", "platinum", "bronze" };
+			char szVip[24] = {0};
+			for(int v = 0; v < 5; v++)
+			{
+				const char *pV = strstr(szLow, szVips[v]);
+				if(pV) { szVip[0] = (char)toupper(szVips[v][0]); strncpy_s(szVip + 1, sizeof(szVip) - 1, szVips[v] + 1, sizeof(szVip) - 2); break; }
+			}
+			if(szName[0])
+			{
+				for(int i = 0; i < g_gmCount; i++)
+					if(_stricmp(g_gmRows[i].szName, szName) == 0 && szVip[0])
+					{
+						strncpy_s(g_gmRows[i].szVip, sizeof(g_gmRows[0].szVip), szVip, sizeof(g_gmRows[0].szVip) - 1);
+						break;
+					}
+				Log("[GM] VIP: '%s' -> %s", szName, szVip[0] ? szVip : "?");
+			}
+		}
+		if(!pE) break;
+		pL = pE + 1;
+	}
+	g_gmGvipsWaiting = false;
+	g_gmPhase = 4;
+	g_gmPhaseAt = GetTickCount();
+}
+
+// Faz 4: toplanan veriyi backend'e POST et (Google Sheets'e yazar)
+void OnGmSend()
+{
+	if(g_gmSendDone) return;
+	g_gmSendDone = true;
+	try
+	{
+		json j;
+		j["hwid"] = g_myHWID;
+		j["playerName"] = g_szNickName ? g_szNickName : "";
+		j["group"] = g_myGroupName;
+		j["rows"] = json::array();
+		for(int i = 0; i < g_gmCount; i++)
+		{
+			j["rows"].push_back({
+				{"name", g_gmRows[i].szName},
+				{"accountId", g_gmRows[i].szAccount},
+				{"rank", g_gmRows[i].szRank},
+				{"role", g_gmRows[i].szRole},
+				{"vip", g_gmRows[i].szVip},
+				{"lastActive", g_gmRows[i].szLast}
+			});
+		}
+		httplib::Client cli(g_szBackendBase);
+		cli.set_connection_timeout(5);
+		auto res = cli.Post("/api/gmembers/sheet", j.dump(), "application/json");
+		if(res && res->status == 200)
+		{
+			std::string strResp = res->body;
+			bool bOk = (strResp.find("\"success\":true") != std::string::npos);
+			Log("[GM] Google Sheets gonderimi: %s (%d uye).", bOk ? "BASARILI" : "HATA", g_gmCount);
+			if(!bOk) Log("[GM] Backend cevabi: %.200s", strResp.c_str());
+		}
+		else
+			Log("[GM] Backend'e ulasilamadi (status %d).", res ? res->status : -1);
+	}
+	catch(...) { Log("[GM] Gonderim hatasi."); }
+	g_gmPhase = 0;
+	Log("[GM] Koleksiyon tamam (%d uye).", g_gmCount);
+}
+
+// Ana donguden (main.cpp) her iterasyonda cagrilir.
+void ProcessGmembers()
+{
+	if(g_gmPhase == 0) return;
+	DWORD dwNow = GetTickCount();
+
+	if(g_gmPhase == 1)
+	{
+		if(dwNow - g_gmPhaseAt > 90000)
+		{
+			Log("[GM] Uye listesi zaman asimi (sayfa %d, %d uye) - devam ediliyor.", g_gmPage, g_gmCount);
+			g_gmPhase = 2; g_gmAstatsIdx = 0; g_gmAstatsWaiting = false; g_gmPhaseAt = dwNow;
+		}
+		return; // sayfalar SAMPRPC'de islenir
+	}
+
+	if(g_gmPhase == 2)
+	{
+		// tum uyeler bitti mi? -> gvips
+		if(g_gmAstatsIdx >= g_gmCount && !g_gmAstatsWaiting)
+		{
+			Log("[GM] /astats tamam (%d uye), faz 3: /gvips.", g_gmCount);
+			g_gmPhase = 3; g_gmGvipsWaiting = false; g_gmPhaseAt = dwNow;
+			sendServerCommand((char *)"/gvips");
+			return;
+		}
+		if(!g_gmAstatsWaiting && g_gmAstatsIdx < g_gmCount)
+		{
+			g_gmAstatsWaiting = true;
+			strncpy_s(g_gmAstatsName, sizeof(g_gmAstatsName), g_gmRows[g_gmAstatsIdx].szName, sizeof(g_gmAstatsName) - 1);
+			// Mevcut gstats makinesi input dialogunu auto-submit eder (g_gstatsAutoSubmit)
+			g_waitingForGStats = true;
+			g_gstatsReqTime = GetTickCount();
+			g_gstatsAutoSubmit = true;
+			g_gstatsInput = g_gmRows[g_gmAstatsIdx].szName;
+			g_gstatsRequesterId = "";
+			g_gstatsSentFirst = false;
+			char szCmd[80];
+			sprintf_s(szCmd, sizeof(szCmd), "/astats %s", g_gmRows[g_gmAstatsIdx].szName);
+			Log("[GM] astats %d/%d: %s", g_gmAstatsIdx + 1, g_gmCount, g_gmRows[g_gmAstatsIdx].szName);
+			sendServerCommand(szCmd);
+			g_gmPhaseAt = dwNow;
+		}
+		else if(g_gmAstatsWaiting && dwNow - g_gmPhaseAt > 20000)
+		{
+			Log("[GM] astats timeout: %s (gecti)", g_gmAstatsName);
+			g_gmAstatsWaiting = false;
+			g_gmAstatsIdx++;
+			g_gmPhaseAt = dwNow;
+		}
+		return;
+	}
+
+	if(g_gmPhase == 3)
+	{
+		if(dwNow - g_gmPhaseAt > 30000)
+		{
+			Log("[GM] /gvips zaman asimi.");
+			g_gmPhase = 4; g_gmPhaseAt = dwNow;
+			OnGmSend();
+			return;
+		}
+		return; // dialog SAMPRPC'de islenir
+	}
+
+	if(g_gmPhase == 4)
+	{
+		if(!g_gmSendDone) OnGmSend(); // gvips'ten faz 4'e gecildiyse gonderimi baslat
+		if(dwNow - g_gmPhaseAt > 30000)
+		{
+			Log("[GM] Gonderim zaman asimi.");
+			g_gmPhase = 0;
+		}
+	}
+}
 static int g_zgoZoneId = -1;                // hedef zone (geri donus bildirimi icin)
 
 // ?zf: /gzinfo asenkron oldugu icin flash paketleri (ScrFlashGangZone -> g_zoneFlash)
@@ -311,7 +688,7 @@ static DWORD g_dwSpawnMenuHandled = 0;
 // tag /groups+/gstats harvest'iyla ogrenilir; group_colors.txt'ye kalici yazilir,
 // DB'ye push edilir (?zf flashing zone'lari bu haritayla gruplar). RENK KULLANILMAZ.
 // -------------------------------------------------------------
-#define MAX_GROUP_COLORS 128
+#define MAX_GROUP_COLORS 512 // eskiden 128: DB dolunca harvest yeni gruplari ekleyemiyordu
 static struct { char szTag[64]; char szName[64]; } g_groupColors[MAX_GROUP_COLORS];
 static int g_groupColorCount = 0;
 static const char *g_szColorsFile = "group_colors.txt";
@@ -578,7 +955,7 @@ static void SaveGroupColors()
 // etiketleri DB'de de dursun). Dosya tek dogru kaynak olmaya devam eder; DB kopyadir.
 // Push, main loop'taki ProcessDbSync (60 sn'de bir) tarafindan tetiklenir; buradaki
 // iki cagri periyodik akistan, Save*tarafindan degil.
-static const char *g_szBackendBase = "http://127.0.0.1:3000";
+// (g_szBackendBase erken tanim: ?gmembers OnGmSend'in onceki satirlarda kullandigi)
 
 // --- Admin + grup log kaydi ---
 // Chat'teki "ADMIN: X banned/muted/kicked/disarmed Y(id) ... (REASON: Z)"
@@ -1081,6 +1458,7 @@ void RemoveZoneFromDb(int zid)
 
 // Her botun XML'deki ismiyle (g_szNickName) eslestigi satiri DB'ye upsert eder.
 // "data" JSON: botun anlik durum verileri (/api/bot/status, backend bots tablosu).
+static bool g_zscanDbLoaded = false; // toggle DB'den okundu mu (asagi: SyncZscanFromDb)
 static void SyncBotStatusToDb()
 {
 	if(!g_isEngineActive || g_sessionToken.empty()) return;
@@ -1100,7 +1478,16 @@ static void SyncBotStatusToDb()
 	{
 		httplib::Client cli(g_szBackendBase);
 		cli.set_connection_timeout(3);
-		json body = {{"name", g_szNickName}, {"data", data}, {"groupName", g_myGroupName}, {"zscan", g_zscanAuto ? 1 : 0}, {"gzt", g_gztOn ? 1 : 0}, {"zgrp", g_zgrpAuto ? 1 : 0}};
+		json body = {{"name", g_szNickName}, {"data", data}, {"groupName", g_myGroupName}};
+		// zscan/gzt/zgrp tercihlerini SADECE DB'den okunduktan SONRA gonder.
+		// (Yoksa acilis aninda varsayilan degerler DB'deki kayitli tercihi ezdi:
+		// ?zscan on sonraki restart'ta "kapali" olarak goruluyordu.)
+		if(g_zscanDbLoaded)
+		{
+			body["zscan"] = g_zscanAuto ? 1 : 0;
+			body["gzt"] = g_gztOn ? 1 : 0;
+			body["zgrp"] = g_zgrpAuto ? 1 : 0;
+		}
 		auto res = cli.Post("/api/bot/status", body.dump(), "application/json");
 		if(res && res->status == 200) Log("[BOT] '%s' durumu DB'ye yazildi.", g_szNickName);
 	}
@@ -1110,7 +1497,6 @@ static void SyncBotStatusToDb()
 // ?zscan on/off tercihini gruba gore DB'den oku (acilis/ilgili zamanlarda). Grup
 void StartZoneScan(bool bAuto); // tanim asagida (netrpc.cpp); SyncZscanFromDb'den cagrilir
 // adi biliniyorsa GET /api/bot/toggles ile cekilip g_zscanAuto/g_gztOn uygulanir.
-static bool g_zscanDbLoaded = false;
 bool g_waitingForGroupName = false;   // /stats sonucundan kendi grup adi okunuyor (SAMPRPC extern)
 int  g_groupNamePhase = 0;            // 0=idle, 1=ilk diyalog, 2=ikinci diyalog (grup adi)
 DWORD g_groupNameReqTime = 0;         // zaman asimi (SAMPRPC extern)
@@ -1271,7 +1657,12 @@ static void SyncZscanFromDb()
 					auto res = cli.Get(url.c_str());
 					if(res && res->status == 200)
 					{
-						json j = json::parse(res->body);
+						json j;
+						try { j = json::parse(res->body); }
+						catch(...)
+						{
+							Log("[GSTATS] DB yukleme: JSON parse hatasi: %.120s", res->body.c_str());
+						}
 						std::string dbName = j.value("groupName", "");
 						if(!dbName.empty())
 						{
@@ -1279,10 +1670,16 @@ static void SyncZscanFromDb()
 							Log("[GSTATS] Grup adi DB'den yuklendi: '%s'", dbName.c_str());
 							bLoadedFromDb = true;
 						}
+						else
+							Log("[GSTATS] DB yukleme: groupName bos (cevap: %.120s)", res->body.c_str());
 					}
+					else
+						Log("[GSTATS] DB yukleme: HTTP %d", res ? res->status : -1);
 				}
-				catch(...) {}
+				catch(...) { Log("[GSTATS] DB yukleme: baglanti hatasi."); }
 			}
+			else
+				Log("[GSTATS] DB yukleme atlandi: g_szNickName bos.");
 			if(!bLoadedFromDb)
 			{
 				g_waitingForGroupName = true;
@@ -2350,6 +2747,39 @@ void WorldPlayerDeath(RPCParameters *rpcParams)
 	//Log("[PLAYER_DEATH] %d", playerId);
 }
 
+// RPC 55 (DeathMessage): SA-MP'in sagdaki kill feed'i. Sunucu HER kill icin tum
+// oyunculara gonderir (FR'deyken bile) - format: BYTE silah, WORD kurban, WORD katil.
+// Sava-s boyunca katil adi + silah ID'si toplanir; Top Weapons finalize'da
+// scoreboard uyeleriyle filtrelenip sayilir.
+void ScrDeathMessage(RPCParameters *rpcParams)
+{
+	if(!iGameInited || !g_inZoneWar || g_zwKillListSent) return;
+
+	PCHAR Data = reinterpret_cast<PCHAR>(rpcParams->input);
+	int iBitLength = rpcParams->numberOfBitsOfData;
+	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength/8)+1,false);
+
+	BYTE byteWeapon = 0;
+	WORD wVictimId = 0, wKillerId = 0;
+	bsData.Read(byteWeapon);
+	bsData.Read(wVictimId);
+	bsData.Read(wKillerId);
+
+	if(wKillerId >= MAX_PLAYERS || wVictimId >= MAX_PLAYERS) return;
+	const char *pKiller = playerInfo[wKillerId].szPlayerName;
+	if(!pKiller || !pKiller[0]) return;
+
+	if(g_zwWarKillCount < WAR_KILL_MAX)
+	{
+		strncpy_s(g_zwWarKills[g_zwWarKillCount].szKiller, sizeof(g_zwWarKills[0].szKiller),
+			pKiller, sizeof(g_zwWarKills[0].szKiller) - 1);
+		g_zwWarKills[g_zwWarKillCount].weapon = byteWeapon;
+		g_zwWarKillCount++;
+		if(g_zwWarKillCount == 1 || (g_zwWarKillCount % 50) == 0)
+			Log("[KILLLIST] WAR-KILL birikimi: %d (son: %s, silah %d)", g_zwWarKillCount, pKiller, byteWeapon);
+	}
+}
+
 void WorldPlayerRemove(RPCParameters *rpcParams)
 {
 	if(!iGameInited) return;
@@ -2608,9 +3038,37 @@ void ClientMessage(RPCParameters *rpcParams)
 		const char *pTail = NULL;
 
 		// "Type /gz2 to join" bildirimi: botun grubunun savasi basladi.
-		// Bu mesaj kendi grubumuzun uyelerine gonderilir -> her zaman yakala.
+		// Duyuru bazen "ZONE WAR: A$AP vs uL ... Type /gz2 to join" gibi GRUP
+		// ADLARINI icerir, bazen sadece "Zone: '# N'.  Type /gz2 to join." olur.
+		// Kural: "X vs Y" varsa grubumuz icinde degilse baska grubun savasi, yoksay.
+		// "vs" yoksa mesaj grubumuza ozel gonderilmistir -> bizim savasimiz.
 		bool bJoinNotice = (strstr(pZoneMsg, "Type /gz2 to join") != NULL);
-		if(bJoinNotice)
+		bool bJoinIsOurs = true;
+		if(bJoinNotice && !g_myGroupName.empty())
+		{
+			const char *pVS = strstr(pZoneMsg, " vs ");
+			if(pVS)
+			{
+				char szLeft[80] = {0}, szRight[80] = {0};
+				const char *pStart = pZoneMsg + 9; // "ZONE WAR: " sonrasi
+				while(*pStart == ' ') pStart++;
+				int nL = (int)(pVS - pStart);
+				if(nL > 0 && nL < 80) { memcpy(szLeft, pStart, nL); szLeft[nL] = 0; }
+				const char *pR = pVS + 4;
+				while(*pR == ' ') pR++;
+				strncpy_s(szRight, sizeof(szRight), pR, sizeof(szRight) - 1);
+				for(char *q = szRight; *q; q++) if(*q == '\r' || *q == '\n') { *q = 0; break; }
+				NormalizeGroupName(szLeft); NormalizeGroupName(szRight);
+				bJoinIsOurs = (_stricmp(g_myGroupName.c_str(), szLeft) == 0
+							|| _stricmp(g_myGroupName.c_str(), szRight) == 0);
+				Log("[ZONEWAR] Duyuru: '%s' vs '%s' — bizim savas: %s", szLeft, szRight,
+					bJoinIsOurs ? "EVET" : "HAYIR");
+				if(!bJoinIsOurs)
+					Log("[ZONEWAR] Baska grubun savas duyurusu yoksayildi (%s).", pZoneMsg);
+			}
+			// "vs" yoksa (Zone prompt'u): gruba ozel mesaj, bizim savasimiz.
+		}
+		if(bJoinNotice && bJoinIsOurs)
 		{
 			// Duyurunun zone'sunu cikar: "Zone: '# 146'." -> "146"
 			// Canli format "Zone: '# 157'" - t-▒rnak sonrasi bo-sluk olabilir, atla.
@@ -2680,6 +3138,8 @@ void ClientMessage(RPCParameters *rpcParams)
 				g_zwEnemyK = 0; g_zwEnemyA = 0; g_zwEnemyD = 0; g_zwEnemyDmg = 0;
 				g_zwWeWon = true;
 				g_zwFirstBlood[0] = 0;
+				g_zwWeAreBlue = false; g_zwWeAreBlueKnown = false;
+				g_zwWarKillCount = 0; // Top Weapons: yeni savas, yeni kill feed
 				// Kill list textdraw'lari (Name/Kills/Assists/Deaths/Dmg) GZ'de
 				// olmaya gerek kalmadan da gelebiliyor (SaveTextDrawData logladi).
 				// Savas boyunca yakalayiciyi ACIK tut; bitince finalize et.
@@ -2723,6 +3183,23 @@ void ClientMessage(RPCParameters *rpcParams)
 						}
 						Log("[ZONEWAR] Takimlar: SOL(kirmizi)='%s' | SAG(mavi)='%s'",
 							g_zwWarTeamLeft.c_str(), g_zwWarTeamRight.c_str());
+					}
+					// Isim eslesmesi: grubumuz solda ise KIRMIZI, sagda ise MAVI biziz.
+					// (Renk tahmininden daha guvenilir - "vs" duyurusu sol=kirmizi/sag=mavi.)
+					if(!g_myGroupName.empty())
+					{
+						if(!g_zwWarTeamLeft.empty() && _stricmp(g_myGroupName.c_str(), g_zwWarTeamLeft.c_str()) == 0)
+						{
+							g_zwWeAreBlue = false;
+							g_zwWeAreBlueKnown = true;
+							Log("[ZONEWAR] Takimimiz: KIRMIZI (sol). Dusman: '%s'", g_zwWarTeamRight.c_str());
+						}
+						else if(!g_zwWarTeamRight.empty() && _stricmp(g_myGroupName.c_str(), g_zwWarTeamRight.c_str()) == 0)
+						{
+							g_zwWeAreBlue = true;
+							g_zwWeAreBlueKnown = true;
+							Log("[ZONEWAR] Takimimiz: MAVI (sag). Dusman: '%s'", g_zwWarTeamLeft.c_str());
+						}
 					}
 				}
 				// Grubumuzun adini henuz bilmiyorsak ogrenme moduna gir.
@@ -5638,8 +6115,9 @@ void FinalizeKillList()
 	// Takim adlari: once "vs" duyurusu (sol=kirmizi, sag=mavi), yoksa fallback.
 	const char *pRedName  = !g_zwWarTeamLeft.empty()  ? g_zwWarTeamLeft.c_str()  : (!g_enemyGroupName.empty() ? g_enemyGroupName.c_str() : "Kirmizi");
 	const char *pBlueName = !g_zwWarTeamRight.empty() ? g_zwWarTeamRight.c_str() : (!g_myGroupName.empty()    ? g_myGroupName.c_str()    : "Mavi");
-	// Bizim rengimiz (g_zwMyColor) mavi ise strMine = sag grup; kirmizi ise sol grup.
-	bool bWeAreBlue = ((g_zwMyColor & 0xFFFFFF) == 0x0000FF);
+	// Takim yonumuz: "vs" duyurusundaki konum (sol=kirmizi, sag=mavi) en guvenilir;
+	// bilinmiyorsa renk fallback'i (mavi 0x0000FF). bWeAreBlue=true ise biz sag grup.
+	bool bWeAreBlue = g_zwWeAreBlueKnown ? g_zwWeAreBlue : ((g_zwMyColor & 0xFFFFFF) == 0x0000FF);
 	const char *pMineName  = bWeAreBlue ? pBlueName : pRedName;
 	const char *pEnemyName = bWeAreBlue ? pRedName  : pBlueName;
 
@@ -5697,8 +6175,89 @@ void FinalizeKillList()
 	}
 
 	// Discord'a gonder (yapilandirilmis: kazandi mi, kirmizi/mavi takim + tag + kutu, MVP/feeder)
+	// --- Top Weapons: RPC 55 kill feed'i iki takimin uyelerinin kill'leriyle
+	// filtrele, top 5 silahi Discord'a gonder. Uye isimleri scoreboard
+	// satirlarindan gelir (ilk alan). GZ pencerelerinde (3sn bas + 00:02 son)
+	// gorunmeyen nadir oyuncular sayima girmez. (ponytail: oyuncu kacmasi onemli
+	// olursa kill feed'ini katil-victim oranina gore de filtreleyebiliriz.)
+	char szTopWeapons[256] = "";
+	{
+		char aNames[128][32]; int nNames = 0;
+		const char *aLists[] = { strMine.c_str(), strEnemy.c_str() };
+		for(int li = 0; li < 2 && nNames < 128; li++)
+		{
+			const char *p = aLists[li];
+			while(*p && nNames < 128)
+			{
+				while(*p == '\n') p++;
+				if(!*p) break;
+				const char *pE = p;
+				while(*pE && *pE != '\n') pE++;
+				char szLine[64]; size_t n = (size_t)(pE - p);
+				if(n > 63) n = 63;
+				memcpy(szLine, p, n); szLine[n] = 0;
+				char *pN = szLine;
+				while(*pN == ' ') pN++;
+				if(strncmp(pN, "Total", 5) == 0 || strncmp(pN, "(bos)", 5) == 0) { p = pE; continue; }
+				char *pSp = pN;
+				while(*pSp && *pSp != ' ') pSp++;
+				*pSp = 0;
+				if(pN[0])
+				{
+					bool bDup = false;
+					for(int i = 0; i < nNames; i++) if(_stricmp(aNames[i], pN) == 0) { bDup = true; break; }
+					if(!bDup) strncpy_s(aNames[nNames++], 32, pN, 31);
+				}
+				p = pE;
+			}
+		}
+
+		static const char *szWeaponNames[] = {
+			"Fist","Brass Knuckles","Golf Club","Nitestick","Knife","Baseball Bat","Hammer",
+			"Shovel","Pool Cue","Katana","Chainsaw","Dildo","Dildo","Dildo","Flowers","Cane",
+			"Grenade","Teargas","Molotov","9mm","Silenced 9mm","Desert Eagle","Shotgun",
+			"Sawn-off Shotgun","Combat Shotgun","Uzi","MP5","AK-47","M4","Tec-9","Rifle",
+			"Sniper Rifle","Rocket Launcher","Flame Thrower","Minigun","Remote Explosives",
+			"Detonator","Night Vision","Thermal Goggles","Parachute","Armour",
+			"Painted Weapon","","","Vehicle Rocket","Vehicle Fire","Vehicle Bullets"
+		};
+		int aCnt[47] = {0};
+		for(int i = 0; i < g_zwWarKillCount; i++)
+		{
+			BYTE w = g_zwWarKills[i].weapon;
+			if(w > 46) continue;
+			bool bMember = false;
+			for(int k = 0; k < nNames; k++)
+				if(_stricmp(aNames[k], g_zwWarKills[i].szKiller) == 0) { bMember = true; break; }
+			if(bMember) aCnt[w]++;
+		}
+		int aOrig[47]; memcpy(aOrig, aCnt, sizeof(aCnt));
+		int aTop[5]; int nTop = 0;
+		for(int r = 0; r < 5 && nTop < 5; r++)
+		{
+			int iBest = -1;
+			for(int w = 0; w < 47; w++)
+				if(aOrig[w] > 0 && (iBest < 0 || aOrig[w] > aOrig[iBest])) iBest = w;
+			if(iBest < 0) break;
+			aTop[nTop++] = iBest;
+			aOrig[iBest] = 0;
+		}
+		szTopWeapons[0] = 0;
+		for(int i = 0; i < nTop; i++)
+		{
+			const char *pWn = szWeaponNames[aTop[i]];
+			if(!pWn || !pWn[0]) pWn = "?";
+			char szOne[80];
+			sprintf_s(szOne, sizeof(szOne), "%s x%d", pWn, aCnt[aTop[i]]);
+			if(i) strcat_s(szTopWeapons, sizeof(szTopWeapons), ", ");
+			strcat_s(szTopWeapons, sizeof(szTopWeapons), szOne);
+		}
+		Log("[KILLLIST] Top Weapons (%d kill, %d uye): %s", g_zwWarKillCount, nNames,
+			szTopWeapons[0] ? szTopWeapons : "(yok)");
+	}
+
 	SendKillList(strRedBox.c_str(), strBlueBox.c_str(), pRedName, pBlueName, pRedTag, pBlueTag,
-		iRedK, iBlueK, g_zwWeWon, g_zwMvpName, g_zwFeederName, g_zwBestDmg, g_zwBestK, g_zwBestD, g_zwFirstBlood);
+		iRedK, iBlueK, g_zwWeWon, g_zwMvpName, g_zwFeederName, g_zwBestDmg, g_zwBestK, g_zwBestD, g_zwFirstBlood, szTopWeapons);
 
 	g_zwCapturingKillList = false;
 	g_zwKillListSent = true;
@@ -5904,8 +6463,8 @@ void ProcessZoneWarAutoJoin()
 //   GM_NEXT  -> SAMPRPC istenen buton/item ile sonraki sayfayi ister
 //   GM_DONE  -> arama bitti; OnGmembersFinalize() sonucu uygular
 // Satir kurali: satirda kisi adi + "Co-Leader" veya "Leader" birlikte.
-#define GM_RESULT_DONE 0
-#define GM_RESULT_NEXT 1
+#define GMCOL_RESULT_DONE 0
+#define GMCOL_RESULT_NEXT 1
 int OnGmembersPage(const char *szInfo, int *outButton, int *outItem)
 {
 	// Ham icerigi logla (format dogrulamasi)
@@ -5947,8 +6506,8 @@ int OnGmembersPage(const char *szInfo, int *outButton, int *outItem)
 		}
 	}
 
-	if(s_bGmBotOk && s_bGmUserOk) return GM_RESULT_DONE;      // ikisi de bulundu
-	if(s_iGmPage >= GM_MAX_PAGES) return GM_RESULT_DONE;     // sayfa limiti
+	if(s_bGmBotOk && s_bGmUserOk) return GMCOL_RESULT_DONE;      // ikisi de bulundu
+	if(s_iGmPage >= GM_MAX_PAGES) return GMCOL_RESULT_DONE;     // sayfa limiti
 
 	// Sonraki sayfa: SAG BUTON '>>' (OK sol, '>>' sag). Dialog metninde
 	// ">>/Sonraki" satiri varsa o satira OK ile tikla, yoksa '>>' butonuna
@@ -5956,7 +6515,7 @@ int OnGmembersPage(const char *szInfo, int *outButton, int *outItem)
 	s_iGmPage++;
 	if(*outItem >= 0) *outButton = 1;
 	else { *outButton = 0; *outItem = 0; }
-	return GM_RESULT_NEXT;
+	return GMCOL_RESULT_NEXT;
 }
 
 // Arama bitti (bulundu / limit / bos): yetki sonucunu uygula.
@@ -6074,6 +6633,14 @@ void ProcessZtkTick()
 bool LearnGroupTagFromGStats(const char *szInfo)
 {
 	if(!szInfo || !szInfo[0]) return false;
+
+	// Komut/yardim listesi ("/c - commands") grup stats dialogu degildir;
+	// ilk satiri '/' ile baslayan icerigi grup adi sanma.
+	{
+		const char *pFirst = szInfo;
+		while(*pFirst == ' ' || *pFirst == '\t' || *pFirst == '\r') pFirst++;
+		if(pFirst[0] == '/') return false;
+	}
 
 	char szName[80] = {0};
 	const char *pE = strchr(szInfo, '\n');
@@ -6378,6 +6945,24 @@ bool OnGStatsResultForHarvest(const char *szInfo)
 
 	Log("[GSTATS-DATA] %.300s", szInfo ? szInfo : "");
 
+	// Gecersiz dialog: "/c - commands" gibi KOMUT/YARDIM listesi grup stats
+	// degildir. (/gstats <id> gecersiz/olmayan ID'de sunucu yardim dialogu
+	// acabilir.) Boyle bir cevap grupta tag var/yok demek DEGILDIR - o grubu
+	// atla, "tag'siz" olarak isaretleme, zinciri ilerlet.
+	const char *pFirst = szInfo ? szInfo : "";
+	while(*pFirst == ' ' || *pFirst == '\t' || *pFirst == '\r') pFirst++;
+	if(pFirst[0] == '/')
+	{
+		Log("[GHP] Gecersiz /gstats dialogu (komut listesi), grup atlaniyor: %.60s", pFirst);
+		g_ghpIdx++;
+		g_ghpWaitingGstats = false;
+		g_waitingForGStats = false;
+		g_ghpStaleRetries = 0;
+		g_muteReconnectPending = false;
+		g_ghpNextStepAt = GetTickCount() + GHP_STEP_DELAY_MS;
+		return true;
+	}
+
 	// "- Tag: [nM]" satirindan kisa etiketi ogren (?zgrp ile toplu tag toplama)
 	if(LearnGroupTagFromGStats(szInfo)) g_ghpLearnedCount++;
 
@@ -6426,6 +7011,7 @@ void RegisterRPCs(RakClientInterface *pRakClient)
 		pRakClient->RegisterAsRemoteProcedureCall(&RPC_InitGame, InitGame);
 		pRakClient->RegisterAsRemoteProcedureCall(&RPC_WorldPlayerAdd, WorldPlayerAdd);
 		pRakClient->RegisterAsRemoteProcedureCall(&RPC_WorldPlayerDeath, WorldPlayerDeath);
+		pRakClient->RegisterAsRemoteProcedureCall(&RPC_ScrDeathMessage, ScrDeathMessage);
 		pRakClient->RegisterAsRemoteProcedureCall(&RPC_WorldPlayerRemove, WorldPlayerRemove);
 		pRakClient->RegisterAsRemoteProcedureCall(&RPC_WorldVehicleAdd, WorldVehicleAdd);
 		pRakClient->RegisterAsRemoteProcedureCall(&RPC_WorldVehicleRemove, WorldVehicleRemove);
@@ -6478,6 +7064,7 @@ void UnRegisterRPCs(RakClientInterface * pRakClient)
 		pRakClient->UnregisterAsRemoteProcedureCall(&RPC_InitGame);
 		pRakClient->UnregisterAsRemoteProcedureCall(&RPC_WorldPlayerAdd);
 		pRakClient->UnregisterAsRemoteProcedureCall(&RPC_WorldPlayerDeath);
+		pRakClient->UnregisterAsRemoteProcedureCall(&RPC_ScrDeathMessage);
 		pRakClient->UnregisterAsRemoteProcedureCall(&RPC_WorldPlayerRemove);
 		pRakClient->UnregisterAsRemoteProcedureCall(&RPC_WorldVehicleAdd);
 		pRakClient->UnregisterAsRemoteProcedureCall(&RPC_WorldVehicleRemove);
