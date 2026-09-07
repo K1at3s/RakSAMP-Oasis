@@ -3155,9 +3155,33 @@ void ClientMessage(RPCParameters *rpcParams)
 				int nZ2 = atoi(pZ2);
 				if(nZ2 >= 0 && IsSniperTargetZone(nZ2))
 				{
-					g_ztkTargetWar = true;
-					if(g_ztkZoneId < 0) g_ztkZoneId = nZ2;
-					Log("[ZSNIP] Hedef zone #%d savasi basladi, bitisi bekleniyor (mesaj bazli).", nZ2);
+					if(nZ2 == g_ztkZoneId)
+					{
+						if(g_snipZoneCount > 0 && g_snipZoneIdx + 1 < g_snipZoneCount)
+						{
+							g_snipZoneIdx++;
+							int nNext = g_snipZones[g_snipZoneIdx];
+							g_ztkZoneId = nNext;
+							g_ztkTargetWar = false;
+							float fCX = (g_zoneMinX[nNext] + g_zoneMaxX[nNext]) / 2.0f;
+							float fCY = (g_zoneMinY[nNext] + g_zoneMaxY[nNext]) / 2.0f;
+							char szCmd2[128];
+							sprintf_s(szCmd2, sizeof(szCmd2), "/pos %.2f %.2f %.2f", fCX, fCY, ZGO_TELEPORT_Z);
+							sendServerCommand(szCmd2);
+							Log("[ZSNIP] Hedef zone #%d savasta, atlanip #%d'e geciliyor.", nZ2, nNext);
+						}
+						else
+						{
+							g_ztkTargetWar = true;
+							Log("[ZSNIP] Hedef zone #%d savasi basladi, bitisi bekleniyor (mesaj bazli).", nZ2);
+						}
+					}
+					else
+					{
+						g_ztkTargetWar = true;
+						if(g_ztkZoneId < 0) g_ztkZoneId = nZ2;
+						Log("[ZSNIP] Hedef zone #%d savasi basladi, bitisi bekleniyor (mesaj bazli).", nZ2);
+					}
 				}
 			}
 		}
