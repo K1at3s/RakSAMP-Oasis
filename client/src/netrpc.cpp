@@ -164,7 +164,8 @@ static int   g_snipZoneCount = 0;
 static int   g_snipZoneIdx = 0;         // siradaki zone (son saldirilan = idx-1)
 static bool  g_ztkAskNext = false;      // saldiri bitti, ?yes bekleniyor
 static bool  g_ztkAttackPending = false; // /gz gonderildi, won/lost sonucu bekleniyor
-static int   g_ztkOutcome = 0;            // 0=bilinmiyor, 1=kazanildi, 2=kaybedildi
+static int   g_ztkOutcome = 0;            // 0=bilinmiyor, 1=kazanildi, 2=kaybedildi
+static bool  g_ztkTargetWar = false;      // hedef zonede dusman savasi suruyor (mesaj bazli takip)
 static int CollectGroupZones(const char *szGroupName, int *outZones, int maxZones); // ileri bildirim
 
 // ?zsnip yetki kontrolu: /gmembers dialogundan bot + komutu atan kullanıcı
@@ -3142,6 +3143,22 @@ void ClientMessage(RPCParameters *rpcParams)
 				Log("[ZONEWAR] Baska grubun savaş duyurusu yoksayildi (%s).", pZoneMsg);
 		}
 		// Ciplak zone prompt u: savaşimiz AKTIFSE zone no sunu guncelle (yoksa yoksay)
+		// ZSNIP: hedef zonede savas basladi (ciplak zone notice) -> mesaj bazli bekle
+		if(bJoinNotice && !pVS && g_ztkActive)
+		{
+			const char *pZ2 = strstr(pZoneMsg, "Zone: '#");
+			if(pZ2)
+			{
+				pZ2 += strlen("Zone: '#");
+				while(*pZ2 == ' ') pZ2++;
+				int nZ2 = atoi(pZ2);
+				if(nZ2 >= 0 && nZ2 == g_ztkZoneId)
+				{
+					g_ztkTargetWar = true;
+					Log("[ZSNIP] Hedef zone #%d savasi basladi, bitisi bekleniyor (mesaj bazli).", nZ2);
+				}
+			}
+		}
 		if(bJoinNotice && !pVS && g_inZoneWar)
 		{
 			const char *pZ = strstr(pZoneMsg, "Zone: '#");
@@ -3323,7 +3340,15 @@ void ClientMessage(RPCParameters *rpcParams)
 					NormalizeGroupName(szName);
 					int zid = atoi(pCk + (pTakes ? strlen("takes over zone '#") : strlen("keeps zone '#")));
 					if(zid >= 0 && zid < MAX_GANG_ZONES && szName[0])
+					{
 						BindZoneGroup(zid, szName);
+						// ZSNIP: hedef zonede savas bitti ("takes over zone '# N'")
+						if(g_ztkActive && zid == g_ztkZoneId && g_ztkTargetWar)
+						{
+							g_ztkTargetWar = false;
+							Log("[ZSNIP] Hedef zone #%d savasi bitti (takes over), saldiri hazir.", zid);
+						}
+					}
 				}
 			}
 		}
@@ -5607,6 +5632,7 @@ void ScrGameText(RPCParameters *rpcParams)
 	{
 		g_zwWeWon = true;
 		g_ztkOutcome = 1;
+		if(g_ztkActive) g_ztkTargetWar = false;
 		Log("[GAMETEXT] Grubumuz savasi KAZANDI (zsnip sonuc=%d).", g_ztkOutcome);
 		if(g_inZoneWar)
 		{
@@ -5624,6 +5650,7 @@ void ScrGameText(RPCParameters *rpcParams)
 	{
 		g_zwWeWon = false;
 		g_ztkOutcome = 2;
+		if(g_ztkActive) g_ztkTargetWar = false;
 		Log("[GAMETEXT] Grubumuz savasi KAYBETTI (zsnip sonuc=%d).", g_ztkOutcome);
 		if(g_inZoneWar)
 		{
@@ -6964,8 +6991,10 @@ void ProcessZtkTick()
 		return;
 	}
 
-	// Faz 1: savas hala suruyorsa beklemeye devam et (bir kez duyur).
-	if(g_inZoneWar && g_zwWarZone[0] && atoi(g_zwWarZone) == g_ztkZoneId)
+	// Faz 1: hedef zonede savas suruyorsa beklemeye devam et (bir kez duyur).
+	// Hem kendi savasimiz (g_inZoneWar) hem dusmanin savasi (g_ztkTargetWar -
+	// "takes over zone '# N'" mesajiyla biter, zamanlayiciya guvenilmez).
+	if(g_ztkTargetWar || (g_inZoneWar && g_zwWarZone[0] && atoi(g_zwWarZone) == g_ztkZoneId))
 	{
 		if(!g_ztkWaitAnnounced)
 		{
