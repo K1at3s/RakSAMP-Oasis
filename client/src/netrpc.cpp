@@ -162,7 +162,9 @@ static char  g_snipGroupName[96] = {0}; // hedef grubun adi
 static int   g_snipZones[64];           // grubun saldiri sirasi zone listesi
 static int   g_snipZoneCount = 0;
 static int   g_snipZoneIdx = 0;         // siradaki zone (son saldirilan = idx-1)
-static bool  g_ztkAskNext = false;      // saldiri bitti, ?yes bekleniyor
+static bool  g_ztkAskNext = false;      // saldiri bitti, ?yes bekleniyor
+static bool  g_ztkAttackPending = false; // /gz gonderildi, won/lost sonucu bekleniyor
+static int   g_ztkOutcome = 0;            // 0=bilinmiyor, 1=kazanildi, 2=kaybedildi
 static int CollectGroupZones(const char *szGroupName, int *outZones, int maxZones); // ileri bildirim
 
 // ?zsnip yetki kontrolu: /gmembers dialogundan bot + komutu atan kullanýcý
@@ -5578,6 +5580,8 @@ void ScrGameText(RPCParameters *rpcParams)
 	// savaþ yok. Savaþ durumunu sifirla ve kontrol etmeyi BIRAK.
 	if(strstr(szMessage, "not in a zone war"))
 	{
+		if(g_ztkAttackPending)
+			g_ztkOutcome = 2; // zsnip /gz saldirisi savas baslatamadi -> kaybedildi say
 		if(g_inZoneWar)
 			Log("[GAMETEXT] not in a zone war - savaþ durumu temizleniyor, kontroller durduruluyor.");
 		g_inZoneWar = false;
@@ -5594,6 +5598,44 @@ void ScrGameText(RPCParameters *rpcParams)
 		g_zwCapturingKillList = false;
 		g_zwKillListSent = false;
 		g_zwWarZone[0] = 0;
+	}
+
+	// "Your group won/lost the zone war": kendi grubumuzun savasi bitti.
+	// Chat war-end tespiti ("loses to" vb.) paket kaybinda kacabilir; game text
+	// guvenilir ek sinyal. Sonuc zsnip zincirine islenir + war durumu temizlenir.
+	if(strstr(szMessage, "won the zone war"))
+	{
+		g_zwWeWon = true;
+		g_ztkOutcome = 1;
+		Log("[GAMETEXT] Grubumuz savasi KAZANDI (zsnip sonuc=%d).", g_ztkOutcome);
+		if(g_inZoneWar)
+		{
+			g_inZoneWar = false;
+			g_zoneWarStartTick = 0;
+			g_warRemainingSec = -1;
+			g_warTimerTick = 0;
+			g_warTimerViaTdw = false;
+			g_gztCountdownAnnounced = 999;
+			g_gztLastRem = -1;
+			g_zwWarZone[0] = 0;
+		}
+	}
+	else if(strstr(szMessage, "lost the zone war"))
+	{
+		g_zwWeWon = false;
+		g_ztkOutcome = 2;
+		Log("[GAMETEXT] Grubumuz savasi KAYBETTI (zsnip sonuc=%d).", g_ztkOutcome);
+		if(g_inZoneWar)
+		{
+			g_inZoneWar = false;
+			g_zoneWarStartTick = 0;
+			g_warRemainingSec = -1;
+			g_warTimerTick = 0;
+			g_warTimerViaTdw = false;
+			g_gztCountdownAnnounced = 999;
+			g_gztLastRem = -1;
+			g_zwWarZone[0] = 0;
+		}
 	}
 }
 
@@ -6884,37 +6926,33 @@ void ProcessZtkTick()
 {
 	if(!g_ztkActive) return;
 
-	// Savaþ hala suruyorsa beklemeye devam et (bir kez duyur).
-	if(g_inZoneWar && g_zwWarZone[0] && atoi(g_zwWarZone) == g_ztkZoneId)
+	// Faz 2: /gz gonderildi, kendi savasimizin sonucu bekleniyor (won/lost game text
+	// veya chat war-end). Sonuc gelince zincir kararini ver.
+	if(g_ztkAttackPending)
 	{
-		if(!g_ztkWaitAnnounced)
-		{
-			g_ztkWaitAnnounced = true;
-			Log("[ZSNIP] Zone #%d savaþi suruyor, bitisi bekleniyor.", g_ztkZoneId);
-			g_bridgeSuppressEcho++;
-			sendChat((char *)LM("!Zone #%d savaþi devam ediyor, sniper bitisini bekliyor.",
-				"!War in zone #%d is ongoing, sniper waiting for it to end."));
-		}
-		return;
-	}
-
-	// Savaþ bitti ya da hic yoktu: hedef hala elimizdeyse saldir.
-	if(g_ztkZoneId >= 0 && g_ztkZoneId < g_zoneCount)
-	{
-		Log("[ZSNIP] Zone #%d bosaldi (savaþ yok), /gz gönderiliyor.", g_ztkZoneId);
+		if(g_inZoneWar) return; // bizim savasimiz hala suruyor
+		bool bWon = (g_ztkOutcome == 1) || (g_ztkOutcome == 0 && g_zwWeWon);
+		g_ztkAttackPending = false;
+		g_ztkOutcome = 0;
 		g_ztkActive = false;
 		g_ztkZoneId = -1;
 		g_ztkWaitAnnounced = false;
-		sendServerCommand((char *)"/gz");
+		g_zwWeWon = true; // siradaki saldiri icin sifirla
+		Log("[ZSNIP] Sonuc: %s (%s).", bWon ? "KAZANILDI" : "KAZANILAMADI", g_snipGroupName);
+		g_bridgeSuppressEcho++;
+		if(bWon)
+			sendChat((char *)LM("!Zone kazanildi!", "!Zone captured!"));
+		else
+			sendChat((char *)LM("!Zone alinamadi...", "!Zone could not be captured..."));
 		// Zincir: daha fazla zone varsa kullaniciya sor (uL.Hold gibi)
 		if(g_snipZoneCount > 0 && g_snipZoneIdx + 1 < g_snipZoneCount)
 		{
 			g_snipZoneIdx++;
 			g_ztkAskNext = true;
-			Log("[ZSNIP] Saldiri basladi, ?yes ile zone #%d'e devam edilecek.", g_snipZones[g_snipZoneIdx]);
+			Log("[ZSNIP] ?yes ile zone #%d'e devam edilecek.", g_snipZones[g_snipZoneIdx]);
 			g_bridgeSuppressEcho++;
-			sendChat((char *)LM("!Saldiri basladi. Diger zone'a da saldirayim mi? (?yes)",
-				"!Attack started. Attack the next zone too? (?yes)"));
+			sendChat((char *)LM("!Diger zone'a da saldirayim mi? (?yes)",
+				"!Attack the next zone too? (?yes)"));
 		}
 		else
 		{
@@ -6923,13 +6961,34 @@ void ProcessZtkTick()
 			g_ztkAskNext = false;
 			g_snipGroupName[0] = 0;
 		}
+		return;
+	}
+
+	// Faz 1: savas hala suruyorsa beklemeye devam et (bir kez duyur).
+	if(g_inZoneWar && g_zwWarZone[0] && atoi(g_zwWarZone) == g_ztkZoneId)
+	{
+		if(!g_ztkWaitAnnounced)
+		{
+			g_ztkWaitAnnounced = true;
+			Log("[ZSNIP] Zone #%d savasi suruyor, bitisi bekleniyor.", g_ztkZoneId);
+			g_bridgeSuppressEcho++;
+			sendChat((char *)LM("!Zone #%d savasi devam ediyor, sniper bitisini bekliyor.",
+				"!War in zone #%d is ongoing, sniper waiting for it to end."));
+		}
+		return;
+	}
+
+	// Faz 1 bitti: savas bitti ya da hic yoktu -> /gz ile saldir, sonucu bekle.
+	if(g_ztkZoneId >= 0 && g_ztkZoneId < g_zoneCount)
+	{
+		Log("[ZSNIP] Zone #%d bosaldi (savas yok), /gz gonderiliyor.", g_ztkZoneId);
+		g_ztkAttackPending = true;
+		g_ztkOutcome = 0;
+		g_zwWeWon = true; // yeni saldiri: sonuc bilinmiyor
+		sendServerCommand((char *)"/gz");
+		Log("[ZSNIP] /gz gonderildi, won/lost sonucu bekleniyor.");
 	}
 }
-
-// Her /gstats sonucundan "- Tag: [XX]" satirini cekip o grubun kisa etiketini
-// gunceller (kullanýcý: "etiketleri gstats'dan tag olarak al"). "Tag:" bulunamazsa
-// grup adi (ilk satir) biliniyorsa yine öðrenilir.
-// /gstats "- Tag: [XX]" satirindan kisa etiketi öðrenir. true = tag öðrenildi/guncellendi.
 bool LearnGroupTagFromGStats(const char *szInfo)
 {
 	if(!szInfo || !szInfo[0]) return false;
