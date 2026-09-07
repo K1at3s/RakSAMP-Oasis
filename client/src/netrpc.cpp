@@ -157,6 +157,13 @@ static DWORD g_zaPermUntil = 0;
 static bool  g_ztkActive = false;
 static int   g_ztkZoneId = -1;
 static bool  g_ztkWaitAnnounced = false;
+// Zincir saldiri (?zsnip + ?yes): grubun diger zone'larina sirasiyla saldir.
+static char  g_snipGroupName[96] = {0}; // hedef grubun adi
+static int   g_snipZones[64];           // grubun saldiri sirasi zone listesi
+static int   g_snipZoneCount = 0;
+static int   g_snipZoneIdx = 0;         // siradaki zone (son saldirilan = idx-1)
+static bool  g_ztkAskNext = false;      // saldiri bitti, ?yes bekleniyor
+static int CollectGroupZones(const char *szGroupName, int *outZones, int maxZones); // ileri bildirim
 
 // ?zsnip yetki kontrolu: /gmembers dialogundan bot + komutu atan kullanýcý
 // Co-Leader/Leader rolune sahip mi? Degilse sniper (baþlatma ve off) CALISTIRILMAZ.
@@ -4444,10 +4451,26 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 				const char *pArg = pGroupMsg + 4;
 				while(*pArg == ' ' || *pArg == '#') pArg++;
 				int iZone = -1;
+				g_snipZoneCount = 0; g_snipZoneIdx = 0; g_snipGroupName[0] = 0;
 				if(pArg[0] >= '0' && pArg[0] <= '9')
 					iZone = atoi(pArg);
 				else
+				{
 					iZone = FindZoneByGroupTag(pArg);
+					// Zincir icin grubu ve TUM zone'larini yakala
+					int gi = FindGroupColorByName(pArg);
+					if(gi < 0)
+					{
+						for(int i = 0; i < g_groupColorCount; i++)
+							if(g_groupColors[i].szTag[0] && _stricmp(g_groupColors[i].szTag, pArg) == 0) { gi = i; break; }
+					}
+					if(gi >= 0)
+					{
+						strncpy_s(g_snipGroupName, sizeof(g_snipGroupName), g_groupColors[gi].szName, sizeof(g_snipGroupName) - 1);
+						g_snipZoneCount = CollectGroupZones(g_groupColors[gi].szName, g_snipZones, 64);
+						Log("[ZSNIP] Zincir icin %d zone bulundu (grup: %s).", g_snipZoneCount, g_snipGroupName);
+					}
+				}
 				if(iZone == -2)
 				{
 					// TAG CAKISMASI: bu tag birden fazla gruba ait (orn. dEV ->
@@ -4601,10 +4624,26 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 					return;
 				}
 				int iZone = -1;
+				g_snipZoneCount = 0; g_snipZoneIdx = 0; g_snipGroupName[0] = 0;
 				if(pArg[0] >= '0' && pArg[0] <= '9')
 					iZone = atoi(pArg);
 				else
+				{
 					iZone = FindZoneByGroupTag(pArg);
+					// Zincir icin grubu ve TUM zone'larini yakala
+					int gi = FindGroupColorByName(pArg);
+					if(gi < 0)
+					{
+						for(int i = 0; i < g_groupColorCount; i++)
+							if(g_groupColors[i].szTag[0] && _stricmp(g_groupColors[i].szTag, pArg) == 0) { gi = i; break; }
+					}
+					if(gi >= 0)
+					{
+						strncpy_s(g_snipGroupName, sizeof(g_snipGroupName), g_groupColors[gi].szName, sizeof(g_snipGroupName) - 1);
+						g_snipZoneCount = CollectGroupZones(g_groupColors[gi].szName, g_snipZones, 64);
+						Log("[ZSNIP] Zincir icin %d zone bulundu (grup: %s).", g_snipZoneCount, g_snipGroupName);
+					}
+				}
 				if(iZone == -2)
 				{
 					// TAG CAKISMASI: yanlis gruba sniper - isimle netlestir.
@@ -4639,6 +4678,40 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 				g_bridgeSuppressEcho++;
 				sendChat((char *)LM("!Yetki kontrol ediliyor (/gmembers)...", "!Checking permission (/gmembers)..."));
 				sendServerCommand((char *)"/gmembers");
+			}
+			// --- ?yes : zsnip zincirinde siradaki zone'a saldir ---
+			else if(!strncmp(pGroupMsg, "?yes", 4) && (pGroupMsg[4] == '\0' || pGroupMsg[4] == ' '))
+			{
+				if(g_ztkAskNext && g_snipZoneCount > 0 && g_snipZoneIdx < g_snipZoneCount)
+				{
+					g_ztkAskNext = false;
+					int iZone = g_snipZones[g_snipZoneIdx];
+					float fCenterX = (g_zoneMinX[iZone] + g_zoneMaxX[iZone]) / 2.0f;
+					float fCenterY = (g_zoneMinY[iZone] + g_zoneMaxY[iZone]) / 2.0f;
+					char szCmd[128];
+					sprintf_s(szCmd, sizeof(szCmd), "/pos %.2f %.2f %.2f", fCenterX, fCenterY, ZGO_TELEPORT_Z);
+					sendServerCommand(szCmd);
+					g_ztkActive = true;
+					g_ztkZoneId = iZone;
+					g_ztkWaitAnnounced = false;
+					Log("[ZSNIP] ?yes: siradaki zone #%d hedeflendi.", iZone);
+					g_bridgeSuppressEcho++;
+					char szMsg[128];
+					sprintf_s(szMsg, sizeof(szMsg),
+						LM("!Zone #%d hedeflendi, savas bitisi bekleniyor...", "!Zone #%d targeted, waiting for the war to end..."), iZone);
+					sendChat(szMsg);
+				}
+			}
+			// --- ?no : zsnip zincirini iptal et ---
+			else if(!strncmp(pGroupMsg, "?no", 3) && (pGroupMsg[3] == '\0' || pGroupMsg[3] == ' ') && g_ztkAskNext)
+			{
+				g_ztkAskNext = false;
+				g_snipZoneCount = 0;
+				g_snipZoneIdx = 0;
+				g_snipGroupName[0] = 0;
+				Log("[ZSNIP] ?no: zincir iptal edildi.");
+				g_bridgeSuppressEcho++;
+				sendChat((char *)LM("!Sniper zinciri iptal edildi.", "!Sniper chain cancelled."));
 			}
 			// --- ?zgrp [on|off] / ?tagscan : grup taglarini /groups + /gstats <ID> ile
 			// öðrenir (manuel tag taramasi). "on/off" oto harvest anahtari (DB'de kalici);
@@ -6716,6 +6789,8 @@ void OnGmembersFinalize()
 	}
 
 	int iZone = g_snipZone;
+	if(g_snipZoneCount > 0 && g_snipZoneIdx < g_snipZoneCount)
+		iZone = g_snipZones[g_snipZoneIdx]; // zincir baslangici
 	if(iZone < 0 || iZone >= g_zoneCount) { Log("[ZSNIP] Hedef zone gecersiz, iptal."); return; }
 	DWORD dwNow = GetTickCount();
 	int iWaitSec = 0;
@@ -6751,6 +6826,60 @@ void OnGmembersFinalize()
 
 // ?zsnip (zone sniper): hedef zonede savaþ SURUYORSA bitisini bekle; bitince
 // (ya da savaþ yoksa) /gz ile saldiri baþlat. Savaþ bitisi g_inZoneWar=false ile anlasilir.
+// Grubun TUM zone'larini topla (bellek haritasi + DB fallback). Donus: zone sayisi.
+static int CollectGroupZones(const char *szGroupName, int *outZones, int maxZones)
+{
+	int n = 0;
+	if(!szGroupName || !szGroupName[0] || !outZones || maxZones <= 0) return 0;
+	char szNeed[96]; strncpy_s(szNeed, sizeof(szNeed), szGroupName, sizeof(szNeed) - 1);
+	NormalizeGroupName(szNeed);
+	for(int zid = 0; zid < g_zoneCount && n < maxZones; zid++)
+	{
+		if(!g_zoneOwnerName[zid][0]) continue;
+		char szHave[96]; strncpy_s(szHave, sizeof(szHave), g_zoneOwnerName[zid], sizeof(szHave) - 1);
+		NormalizeGroupName(szHave);
+		if(_stricmp(szHave, szNeed) != 0) continue;
+		bool bDup = false;
+		for(int i = 0; i < n; i++) if(outZones[i] == zid) { bDup = true; break; }
+		if(!bDup) outZones[n++] = zid;
+	}
+	// DB fallback (bellek restore paket kaybinda eksik olabilir)
+	if(n < maxZones)
+	{
+		try
+		{
+			std::string url = std::string("/api/groups/zone?name=") + szGroupName;
+			for(size_t i = 0; i < url.size(); i++)
+				if(url[i] == ' ') url.replace(i, 1, "%20");
+			httplib::Client cli(g_szBackendBase);
+			cli.set_connection_timeout(4);
+			auto res = cli.Get(url.c_str());
+			if(res && res->status == 200)
+			{
+				json j = json::parse(res->body);
+				if(j.contains("zones") && j["zones"].is_array())
+				{
+					for(const auto &z : j["zones"])
+					{
+						int zid = z.is_number() ? z.get<int>() : atoi(z.get<std::string>().c_str());
+						if(zid < 0 || zid >= MAX_GANG_ZONES) continue;
+						bool bDup = false;
+						for(int i = 0; i < n; i++) if(outZones[i] == zid) { bDup = true; break; }
+						if(!bDup && n < maxZones)
+						{
+							outZones[n++] = zid;
+							strncpy_s(g_zoneOwnerName[zid], sizeof(g_zoneOwnerName[0]),
+								szGroupName, sizeof(g_zoneOwnerName[0]) - 1);
+						}
+					}
+				}
+			}
+		}
+		catch(...) {}
+	}
+	return n;
+}
+
 void ProcessZtkTick()
 {
 	if(!g_ztkActive) return;
@@ -6777,6 +6906,23 @@ void ProcessZtkTick()
 		g_ztkZoneId = -1;
 		g_ztkWaitAnnounced = false;
 		sendServerCommand((char *)"/gz");
+		// Zincir: daha fazla zone varsa kullaniciya sor (uL.Hold gibi)
+		if(g_snipZoneCount > 0 && g_snipZoneIdx + 1 < g_snipZoneCount)
+		{
+			g_snipZoneIdx++;
+			g_ztkAskNext = true;
+			Log("[ZSNIP] Saldiri basladi, ?yes ile zone #%d'e devam edilecek.", g_snipZones[g_snipZoneIdx]);
+			g_bridgeSuppressEcho++;
+			sendChat((char *)LM("!Saldiri basladi. Diger zone'a da saldirayim mi? (?yes)",
+				"!Attack started. Attack the next zone too? (?yes)"));
+		}
+		else
+		{
+			g_snipZoneCount = 0;
+			g_snipZoneIdx = 0;
+			g_ztkAskNext = false;
+			g_snipGroupName[0] = 0;
+		}
 	}
 }
 
