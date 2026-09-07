@@ -1,4 +1,4 @@
-# beta — 2025-09-07 (beta branch)
+# beta — 2026-09-07 (beta branch)
 
 ## Türkçe
 - `/pm` hedef çözümü + yanıt: `playerInfo` + `g_playerCache`; `g_pmId` ile ID eşleşmesi; Discord embed `targetName` ile güncellenir
