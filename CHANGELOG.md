@@ -1,3 +1,22 @@
+# beta — 2025-09-07 (beta branch)
+
+## Türkçe
+- `/pm` hedef çözümü + yanıt: `playerInfo` + `g_playerCache`; `g_pmId` ile ID eşleşmesi; Discord embed `targetName` ile güncellenir
+- Console/listbox UTF-8 (SmartToUtf8/SmartToCp1254, `DEFAULT_CHARSET` + `ExtTextOutW`, kod sayfası 65001)
+- `?zsnip` tag→zone DB fallback bozulduğunda `/api/groups/zone`
+- `?alog`/`?alogs` DB sorgusu `MAX(target_name)` + uL.Hold formatı `ALogs for X: B:0 | M-Bans:1 | D:0 ...`
+- `?zf` tag placeholder (`tag=isim`) → `tag=""`, `/api/groups` upsert boş tag ile ezmez, `?zf` isim yerine tag gösterir
+- Bozuk gruplar temizlendi (`-`, `.`, `...`, `GS` duplicate vb. — 7 satır), renk kodu parantezli `(RRGGBB)` sızıntısı kapatıldı
+- `g_spawnTick` → tag harvest spawn'dan 60 sn koruma; `?zgrp on` doğrudan harvest başlatır
+- `ScrGameText` `not in a zone war` → savaş durumu tam sıfırlanır
+- `IsSniperTargetZone()` + `takes over zone '# N'` mesaj bazlı hedef savaş takibi (timer'a güvenmez), savaştaki zone atlasınır
+- `MAX_GROUP_COLORS` 128→512, servis hesabı tek `models.js`
+
+## English
+- `/pm` target resolve + reply via name/ID; Discord embed shows resolved in-game name
+- Console/listbox UTF-8, Turkish chars fixed
+- `?zsnip` DB fallback for zones, `?alogs` uL.Hold format, tag placeholder fixes, upsert guard, junk groups removed, spawn protection, war tracking via messages
+
 # v1.6.1
 
 ## Türkçe
