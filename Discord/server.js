@@ -589,19 +589,22 @@ const mvpDmg = Number(body.mvpDmg) || 0;
     
     };
 
+    // Veri yoksa alan GÖSTERILMEZ (MVP '?' / feeder '?' / firstBlood-topWeapons bos)
+    const fields = [
+        { name: `⚔️ **${redName}**`, value: `\`\`\`\n${redBox}\n\`\`\`` },
+        { name: `⚔️ **${blueTag || blueName}**`, value: `\`\`\`\n${blueBox}\n\`\`\`` }
+    ];
+    if (mvp && mvp !== '?') fields.push({ name: t.mvp, value: `${mvp} (${mvpDmg} dmg, ${mvpKills} kills)`, inline: true });
+    if (feeder && feeder !== '?') fields.push({ name: t.feeder, value: `${feeder} (${feederDeaths} deaths)`, inline: true });
+    if (firstBlood) fields.push({ name: t.firstBlood, value: `${firstBlood}`, inline: true });
+    if (topWeapons) fields.push({ name: t.topWeapons, value: `${topWeapons}`, inline: true });
+
     const embed = new EmbedBuilder()
         .setTitle(won ? t.wonTitle : t.lostTitle)
         .setDescription(`${redName} vs **${blueName}**\n*${isTr ? 'Grup zone savaşı' : 'Group zone war'}*\n${t.scoreKills}: ${redTag || redName}:${redKills} ${blueTag || blueName}:${blueKills}`)
         .setColor(won ? 0x00FF00 : 0xFF0000)
         .setTimestamp()
-.addFields(
-            { name: `⚔️ **${redName}**`, value: `\`\`\`\n${redBox}\n\`\`\`` },
-            { name: `⚔️ **${blueTag || blueName}**`, value: `\`\`\`\n${blueBox}\n\`\`\`` },
-            { name: t.mvp, value: `${mvp} (${mvpDmg} dmg, ${mvpKills} kills)`, inline: true },
-            { name: t.feeder, value: `${feeder} (${feederDeaths} deaths)`, inline: true },
-            { name: t.firstBlood, value: firstBlood ? `${firstBlood}` : '-', inline: true },
-            { name: t.topWeapons, value: topWeapons ? `${topWeapons}` : '-', inline: true }
-        );
+        .addFields(fields);
 
     const channelId = await sendToGuildChannel(guild, 'zoneWarChannelId', { embed });
     console.log(`⚔️ KILLLIST (guild=${guild.guildId}, kanal=${channelId || 'null'}, dil=${guild.lang}): ${won ? 'WIN' : 'LOSE'} ${redName} vs ${blueName} (${redKills}-${blueKills})`);

@@ -166,6 +166,7 @@ static bool  g_ztkAskNext = false;      // saldiri bitti, ?yes bekleniyor
 static bool  g_ztkAttackPending = false; // /gz gonderildi, won/lost sonucu bekleniyor
 static int   g_ztkOutcome = 0;            // 0=bilinmiyor, 1=kazanildi, 2=kaybedildi
 static bool  g_ztkTargetWar = false;      // hedef zonede dusman savasi suruyor (mesaj bazli takip)
+static bool IsSniperTargetZone(int zid); // ileri bildirim (zsnip zone eslesmesi)
 static int CollectGroupZones(const char *szGroupName, int *outZones, int maxZones); // ileri bildirim
 
 // ?zsnip yetki kontrolu: /gmembers dialogundan bot + komutu atan kullanýcý
@@ -3152,9 +3153,10 @@ void ClientMessage(RPCParameters *rpcParams)
 				pZ2 += strlen("Zone: '#");
 				while(*pZ2 == ' ') pZ2++;
 				int nZ2 = atoi(pZ2);
-				if(nZ2 >= 0 && nZ2 == g_ztkZoneId)
+				if(nZ2 >= 0 && IsSniperTargetZone(nZ2))
 				{
 					g_ztkTargetWar = true;
+					if(g_ztkZoneId < 0) g_ztkZoneId = nZ2;
 					Log("[ZSNIP] Hedef zone #%d savasi basladi, bitisi bekleniyor (mesaj bazli).", nZ2);
 				}
 			}
@@ -3343,9 +3345,10 @@ void ClientMessage(RPCParameters *rpcParams)
 					{
 						BindZoneGroup(zid, szName);
 						// ZSNIP: hedef zonede savas bitti ("takes over zone '# N'")
-						if(g_ztkActive && zid == g_ztkZoneId && g_ztkTargetWar)
+						if(g_ztkActive && IsSniperTargetZone(zid) && g_ztkTargetWar)
 						{
 							g_ztkTargetWar = false;
+							g_ztkZoneId = zid; // savasi biten zone'a saldir
 							Log("[ZSNIP] Hedef zone #%d savasi bitti (takes over), saldiri hazir.", zid);
 						}
 					}
@@ -6947,6 +6950,18 @@ static int CollectGroupZones(const char *szGroupName, int *outZones, int maxZone
 		catch(...) {}
 	}
 	return n;
+}
+
+// ZSNIP: bu zone hedef grubun zone listesinde mi? (hedef zonede baska grubun
+// savasi surerken takip icin - sadece ilk zone degil, grubun tum zone'lari)
+static bool IsSniperTargetZone(int zid)
+{
+	if(!g_ztkActive) return false;
+	if(zid == g_ztkZoneId) return true;
+	if(g_snipZoneCount > 0)
+		for(int i = 0; i < g_snipZoneCount; i++)
+			if(g_snipZones[i] == zid) return true;
+	return false;
 }
 
 void ProcessZtkTick()
