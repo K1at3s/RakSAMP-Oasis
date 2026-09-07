@@ -1375,6 +1375,23 @@ app.post('/api/groups', async (req, res) => {
     }
 });
 
+// Grup adi -> DB'deki zone listesi. Client bellek restore basarisiz olunca
+// (paket kaybi) ?zgo/?zsnip zone bulamaz; buradan dogrudan DB zone'lari alinir.
+app.get('/api/groups/zone', async (req, res) => {
+    const name = String(req.query.name || '').trim().slice(0, 96);
+    if (!name) return res.json({ success: false, zones: [] });
+    try {
+        const rows = await db.execute('SELECT zones FROM gangs WHERE group_name=? LIMIT 1', [name]);
+        let zones = [];
+        if (rows && rows[0] && rows[0].zones) {
+            try { zones = JSON.parse(rows[0].zones); } catch { /* bos */ }
+        }
+        return res.json({ success: true, zones: Array.isArray(zones) ? zones : [] });
+    } catch (err) {
+        return res.status(500).json({ success: false, zones: [], message: err.message });
+    }
+});
+
 // Client acilista BUGUNKU grup+tag+zone haritasini buradan geri yükler.
 // DATE(updated_at)=CURDATE() filtresi sayesinde dunun verisi otomatik elenir.
 app.get('/api/groups', async (req, res) => {

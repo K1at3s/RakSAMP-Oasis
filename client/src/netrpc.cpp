@@ -798,6 +798,43 @@ static int FindZoneByGroupTag(const char *szTag)
 		if(g_zoneFlash[zid]) return zid;   // flashlanan zone öncelikli
 		if(iFallback < 0) iFallback = zid;
 	}
+	if(iFallback < 0)
+	{
+		// Bellek restore basarisiz olabilir (paket kaybi / saldiri): grubun
+		// DB deki zone listesini dogrudan backend den iste (geri yazilir).
+		const char *pDbName = (iFirst >= 0 && iFirst < g_groupColorCount) ? g_groupColors[iFirst].szName : szNeed;
+		if(pDbName && pDbName[0])
+		{
+			try
+			{
+				std::string url = std::string("/api/groups/zone?name=") + pDbName;
+				for(size_t i = 0; i < url.size(); i++)
+					if(url[i] == ' ') url.replace(i, 1, "%20");
+				httplib::Client cli(g_szBackendBase);
+				cli.set_connection_timeout(4);
+				auto res = cli.Get(url.c_str());
+				if(res && res->status == 200)
+				{
+					json j = json::parse(res->body);
+					if(j.contains("zones") && j["zones"].is_array())
+					{
+						for(const auto &z : j["zones"])
+						{
+							int zid = z.is_number() ? z.get<int>() : atoi(z.get<std::string>().c_str());
+							if(zid >= 0 && zid < MAX_GANG_ZONES)
+							{
+								strncpy_s(g_zoneOwnerName[zid], sizeof(g_zoneOwnerName[0]),
+									pDbName, sizeof(g_zoneOwnerName[0]) - 1);
+								Log("[ZONE] %s zone DB den bulundu: #%d", pDbName, zid);
+								return zid;
+							}
+						}
+					}
+				}
+			}
+			catch(...) {}
+		}
+	}
 	return iFallback;
 }
 
