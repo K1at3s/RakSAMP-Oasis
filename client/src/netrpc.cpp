@@ -3345,7 +3345,7 @@ void ClientMessage(RPCParameters *rpcParams)
 					{
 						BindZoneGroup(zid, szName);
 						// ZSNIP: hedef zonede savas bitti ("takes over zone '# N'")
-						if(g_ztkActive && IsSniperTargetZone(zid))
+						if(g_ztkActive && zid == g_ztkZoneId)
 						{
 							g_ztkTargetWar = false;
 							// O zone bitti (kim alirsa alsin - grubun datasindan duser):
