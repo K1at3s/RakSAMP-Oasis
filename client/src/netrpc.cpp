@@ -6882,6 +6882,13 @@ void OnGmembersFinalize()
 		g_ztkActive = false;
 		g_ztkZoneId = -1;
 		g_ztkWaitAnnounced = false;
+		g_ztkAttackPending = false;
+		g_ztkOutcome = 0;
+		g_ztkTargetWar = false;
+		g_ztkAskNext = false;
+		g_snipGroupName[0] = 0;
+		g_snipZoneCount = 0;
+		g_snipZoneIdx = 0;
 		Log("[ZSNIP] Kullanýcý iptal etti (yetki dogrulandi), sniper kapatýldý.");
 		g_bridgeSuppressEcho++;
 		sendChat((char *)LM("!Sniper iptal edildi.", "!Sniper aborted by user."));
