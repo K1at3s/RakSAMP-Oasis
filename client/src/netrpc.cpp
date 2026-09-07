@@ -3348,8 +3348,36 @@ void ClientMessage(RPCParameters *rpcParams)
 						if(g_ztkActive && IsSniperTargetZone(zid) && g_ztkTargetWar)
 						{
 							g_ztkTargetWar = false;
-							g_ztkZoneId = zid; // savasi biten zone'a saldir
-							Log("[ZSNIP] Hedef zone #%d savasi bitti (takes over), saldiri hazir.", zid);
+							// O zone bitti (kim alirsa alsin - grubun datasindan duser):
+							// SONRAKI zone'a aninda gec + saldir (Faz1 /gz atar).
+							Log("[ZSNIP] Hedef zone #%d savasi bitti (takes over), sonraki zone'a geciliyor.", zid);
+							if(g_snipZoneCount > 0 && g_snipZoneIdx + 1 < g_snipZoneCount)
+							{
+								g_snipZoneIdx++;
+								int nNext = g_snipZones[g_snipZoneIdx];
+								g_ztkZoneId = nNext;
+								g_ztkWaitAnnounced = false;
+								float fCX = (g_zoneMinX[nNext] + g_zoneMaxX[nNext]) / 2.0f;
+								float fCY = (g_zoneMinY[nNext] + g_zoneMaxY[nNext]) / 2.0f;
+								char szCmd[128];
+								sprintf_s(szCmd, sizeof(szCmd), "/pos %.2f %.2f %.2f", fCX, fCY, ZGO_TELEPORT_Z);
+								sendServerCommand(szCmd);
+								g_bridgeSuppressEcho++;
+								char szMsg[128];
+								sprintf_s(szMsg, sizeof(szMsg),
+									LM("!Zone #%d bitti, sonraki zone #%d saldiriliyor...",
+										"!Zone #%d ended, attacking next zone #%d..."), zid, nNext);
+								sendChat(szMsg);
+							}
+							else
+							{
+								g_ztkActive = false;
+								g_ztkZoneId = -1;
+								g_snipZoneCount = 0;
+								g_snipZoneIdx = 0;
+								g_snipGroupName[0] = 0;
+								Log("[ZSNIP] Zincir tamamlandi (baska zone yok).");
+							}
 						}
 					}
 				}
