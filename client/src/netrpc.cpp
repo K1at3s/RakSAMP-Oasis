@@ -491,6 +491,33 @@ void OnGmSend()
 }
 
 // Ana donguden (main.cpp) her iterasyonda cagrilir.
+void SendGmembersPartial()
+{
+	try
+	{
+		json j;
+		j["hwid"] = g_myHWID;
+		j["playerName"] = g_szNickName ? g_szNickName : "";
+		j["group"] = g_myGroupName;
+		j["rows"] = json::array();
+		for(int i = 0; i < g_gmCount; i++)
+		{
+			j["rows"].push_back({
+				{"name", g_gmRows[i].szName},
+				{"accountId", g_gmRows[i].szAccount},
+				{"rank", g_gmRows[i].szRank},
+				{"role", g_gmRows[i].szRole},
+				{"vip", g_gmRows[i].szVip},
+				{"lastActive", g_gmRows[i].szLast}
+			});
+		}
+		httplib::Client cli(g_szBackendBase);
+		cli.set_connection_timeout(5);
+		cli.Post("/api/gmembers/sheet", j.dump(), "application/json");
+	}
+	catch(...){}
+}
+
 void ProcessGmembers()
 {
 	if(g_gmPhase == 0) return;
@@ -502,6 +529,7 @@ void ProcessGmembers()
 		{
 			Log("[GM] Uye listesi zaman asimi (sayfa %d, %d uye) - devam ediliyor.", g_gmPage, g_gmCount);
 			g_gmPhase = 2; g_gmAstatsIdx = 0; g_gmAstatsWaiting = false; g_gmPhaseAt = dwNow;
+			SendGmembersPartial();
 		}
 		return; // sayfalar SAMPRPC'de islenir
 	}
@@ -512,6 +540,7 @@ void ProcessGmembers()
 		if(g_gmAstatsIdx >= g_gmCount && !g_gmAstatsWaiting)
 		{
 			Log("[GM] /astats tamam (%d uye), faz 3: /gvips.", g_gmCount);
+			SendGmembersPartial();
 			g_gmPhase = 3; g_gmGvipsWaiting = false; g_gmPhaseAt = dwNow;
 			sendServerCommand((char *)"/gvips");
 			return;

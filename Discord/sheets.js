@@ -90,7 +90,8 @@ const COLORS = {
     white:    { red: 1, green: 1, blue: 1 }
 };
 
-async function applyRosterFormatting(sheets, spreadsheetId, dataRowCount) {
+async function applyRosterFormatting(sheets, spreadsheetId, rows) {
+    const dataRowCount = Array.isArray(rows) ? rows.length : rows;
     const requests = [
         // Kolon genislikleri (ornek tablodan birebir: # 50, Name 170, Account ID 110,
         // Rank 150, Role 110, VIP 90, Last Active 120)
@@ -174,6 +175,13 @@ async function applyRosterFormatting(sheets, spreadsheetId, dataRowCount) {
     // Veri satirlari: cift satirlar acik mor, tek satirlar beyaz; koyu metin;
     // Role (4) ve VIP (5) kolonlari kalin + ortali (ornek tablodaki gibi)
     const dataText = { red: 0.11764706, green: 0.12941177, blue: 0.14901961 };
+    const VIP_COLORS = {
+        bronze: { red: 0.8039, green: 0.4980, blue: 0.1961 },
+        silver: { red: 0.7529, green: 0.7529, blue: 0.7529 },
+        gold: { red: 1.0, green: 0.8431, blue: 0.0 },
+        diamond: { red: 0.725, green: 0.949, blue: 1.0 },
+        platinum: { red: 0.898, green: 0.894, blue: 0.886 }
+    };
     for (let i = 0; i < dataRowCount; i++) {
         requests.push({
             repeatCell: {
@@ -189,6 +197,18 @@ async function applyRosterFormatting(sheets, spreadsheetId, dataRowCount) {
                 fields: 'userEnteredFormat.textFormat.bold,userEnteredFormat.horizontalAlignment'
             }
         });
+        // VIP hücresini VIP tipine göre renklendir (bronze, silver, gold, diamond, platinum)
+        const vipRaw = Array.isArray(rows) && rows[i] ? String(rows[i].vip || '').toLowerCase().split(' ')[0].split('(')[0].trim() : '';
+        const vipColor = VIP_COLORS[vipRaw];
+        if (vipColor) {
+            requests.push({
+                repeatCell: {
+                    range: { startRowIndex: 3 + i, endRowIndex: 4 + i, startColumnIndex: 5, endColumnIndex: 6 },
+                    cell: { userEnteredFormat: { backgroundColor: vipColor } },
+                    fields: 'userEnteredFormat.backgroundColor'
+                }
+            });
+        }
     }
     await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests } });
 }
@@ -270,7 +290,7 @@ async function writeRoster(spreadsheetId, group, rows) {
         valueInputOption: 'USER_ENTERED',
         requestBody: { values }
     });
-    await applyRosterFormatting(sheets, id, finalRows.length);
+    await applyRosterFormatting(sheets, id, finalRows);
     return { rows: finalRows.length, spreadsheetId: id };
 }
 
