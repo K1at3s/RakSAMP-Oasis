@@ -226,8 +226,36 @@ async function writeRoster(spreadsheetId, group, rows) {
     const stamp = m ? `${m[2]} ${m[3]} ${m[4]}, ${m[5]}:${m[6]} UTC` : d.toISOString();
 
     const header = ['#', 'Name', 'Account ID', 'Rank', 'Role', 'VIP', 'Last Active'];
-    const values = [[`${group} Roster`], [`${rows.length} members -- Updated ${stamp}`], header];
-    rows.forEach((r, i) => {
+    // For /gmembers updates: preserve existing accountIds, delete missing users
+    let existingMap = new Map();
+    let isUpdate = false;
+    try {
+        const existing = await sheets.spreadsheets.values.get({ spreadsheetId: id, range: 'A4:G500' });
+        const existingValues = existing.data.values || [];
+        if (existingValues.length > 0) {
+            isUpdate = true;
+            for (const row of existingValues) {
+                const name = (row[1] || '').trim();
+                if (name) existingMap.set(name.toLowerCase(), { accountId: row[2] || '' });
+            }
+        }
+    } catch (e) { /* new sheet */ }
+    let finalRows = rows;
+    if (isUpdate) {
+        // Preserve accountIds for existing users, delete users not in new list
+        const newNames = new Set(rows.map(r => (r.name || '').toLowerCase()));
+        finalRows = [];
+        for (const r of rows) {
+            const key = (r.name || '').toLowerCase();
+            const existing = existingMap.get(key);
+            let accountId = r.accountId || '';
+            if (existing && existing.accountId && !accountId) accountId = existing.accountId;
+            finalRows.push({ ...r, accountId });
+        }
+        // Users in existing but not in new are automatically deleted (not included)
+    }
+    const values = [[`${group} Roster`], [`${finalRows.length} members -- Updated ${stamp}`], header];
+    finalRows.forEach((r, i) => {
         values.push([
             String(i + 1), r.name || '', r.accountId || '', r.rank || '', r.role || '',
             r.vip || '', r.lastActive || ''
@@ -242,8 +270,8 @@ async function writeRoster(spreadsheetId, group, rows) {
         valueInputOption: 'USER_ENTERED',
         requestBody: { values }
     });
-    await applyRosterFormatting(sheets, id, rows.length);
-    return { rows: rows.length, spreadsheetId: id };
+    await applyRosterFormatting(sheets, id, finalRows.length);
+    return { rows: finalRows.length, spreadsheetId: id };
 }
 
 module.exports = { writeRoster };

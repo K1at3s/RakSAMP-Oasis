@@ -516,7 +516,7 @@ void ProcessGmembers()
 			sendServerCommand((char *)"/gvips");
 			return;
 		}
-		if(!g_gmAstatsWaiting && g_gmAstatsIdx < g_gmCount)
+		if(!g_gmAstatsWaiting && g_gmAstatsIdx < g_gmCount && dwNow - g_gmPhaseAt >= 3000)
 		{
 			g_gmAstatsWaiting = true;
 			strncpy_s(g_gmAstatsName, sizeof(g_gmAstatsName), g_gmRows[g_gmAstatsIdx].szName, sizeof(g_gmAstatsName) - 1);
@@ -6128,9 +6128,13 @@ void ScrShowTextDraw(RPCParameters *rpcParams)
 	// server-side kalkar; 60 sn beklemeye gerek yok). Scan/harvest state korunur;
 	// yeniden spawn'da kalinan adimdan devam edilir. Ayni mute penceresindeki tekrar
 	// textdraw'lar yeniden tetiklemesin diye bayrak ile bir kez.
-	if((g_zoneScanIdx >= 0 || g_ghpActive) && strstr(cText, "MUTED") && !g_muteReconnectPending && iSpawned)
+	if((g_zoneScanIdx >= 0 || g_ghpActive || g_gmPhase != 0) && strstr(cText, "MUTED") && !g_muteReconnectPending && iSpawned)
 	{
 		g_muteReconnectPending = true;
+		if(g_gmPhase != 0){
+			Log("[GM] Mute - gmembers harvest yeniden baslatilacak (reconnect sonrasi).");
+			g_gmPhase = 1; g_gmCount = 0; g_gmPage = 0; g_gmAstatsIdx = 0; g_gmAstatsWaiting = false; g_gmGvipsWaiting = false; g_gmSendDone = false;
+		}
 		Log("[MUTE] Komut mutesi yakalandi (%s) - hemen yeniden baglanilip iþlem surdurulecek.", cText);
 		resetPools(1, 0); // aninda reconnect; cmd mute reconnect ile kalkar
 	}
