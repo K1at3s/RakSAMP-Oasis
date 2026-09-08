@@ -2567,7 +2567,7 @@ void ProcessZoneScan()
 		// GRUP ADI GATE: tarama da kendi grup adi öðrenilmeden baþlamaz (öðrenme
 		// önceliklidir, sonra harvest/zscan devam eder).
 		// HARVEST SONRASI OTOMATIK: harvest bitti, yeni veri varsa zone scan tetikle (zscan off olsa bile).
-		else if(s_bGroupDbRestored && !g_myGroupName.empty() && iSpawned && !g_ghpActive && !g_inZoneWar && !g_zgoActive && (g_zscanAuto || g_forceZscanAfterHarvest))
+		else if(s_bGroupDbRestored && !g_myGroupName.empty() && iSpawned && !g_ghpActive && !g_inZoneWar && !g_zgoActive && g_zscanAuto)
 		{
 			bool bForce = g_forceZscanAfterHarvest;
 			g_forceZscanAfterHarvest = false;
