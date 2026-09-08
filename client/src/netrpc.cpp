@@ -2308,7 +2308,7 @@ void StartZoneScan(bool bAuto)
 	for(int zid = 0; zid < g_zoneCount && g_zoneScanQ < MAX_GANG_ZONES; zid++)
 	{
 		if(!g_zoneFlash[zid]) continue; // YALNIZCA flashing zone'lar
-		if(g_zoneOwnerName[zid][0] != 0) continue; // DB'de var olani atla, sadece yeni flashlanan
+		if(!bFullVerify && g_zoneOwnerName[zid][0] != 0) continue; // bilinen: normal turda atla
 		g_zoneScanQueue[g_zoneScanQ++] = zid;
 	}
 	if(g_zoneScanQ == 0)
