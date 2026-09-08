@@ -288,11 +288,30 @@ int OnGmMembersPage(const char *szInfo, int *outButton, int *outItem)
 			}
 			if(!szName[0] || strchr(szName, '>')) { iRow++; if(!pE) break; pL = pE + 1; continue; }
 
-			// Rank/Role anahtar kelimesi tara
+			// Rank/Role: TABLIST ise kolonlara ayir (Name | Rank | Role | Last Active)
 			const char *szRanks[] = { "Co-Leader", "Leader", "Member", "Elder", "Veteran", "Recruit" };
-			char szRank[32] = {0};
-			for(int r = 0; r < 6; r++)
-				if(strstr(szClean, szRanks[r])) { strncpy_s(szRank, sizeof(szRank), szRanks[r], sizeof(szRank) - 1); break; }
+			char szRank[32] = {0}, szRole[32] = {0};
+			{
+				char szCopy[256]; strncpy_s(szCopy, sizeof(szCopy), szClean, sizeof(szCopy)-1);
+				char *ctx = NULL;
+				char *tok = strtok_s(szCopy, "\t", &ctx);
+				char *cols[8] = {0}; int nCol = 0;
+				while(tok && nCol < 8) { cols[nCol++] = tok; tok = strtok_s(NULL, "\t", &ctx); }
+				if(nCol >= 3)
+				{
+					const char *pRankCol = cols[1] ? cols[1] : "";
+					const char *pRoleCol = cols[2] ? cols[2] : "";
+					for(int r=0; r<6; r++) if(pRankCol && strstr(pRankCol, szRanks[r])) { strncpy_s(szRank, sizeof(szRank), szRanks[r], sizeof(szRank)-1); break; }
+					for(int r=0; r<6; r++) if(pRoleCol && strstr(pRoleCol, szRanks[r])) { strncpy_s(szRole, sizeof(szRole), szRanks[r], sizeof(szRole)-1); break; }
+					if(!szRank[0] && szRole[0]) strncpy_s(szRank, sizeof(szRank), szRole, sizeof(szRank)-1);
+					if(!szRole[0] && szRank[0]) strncpy_s(szRole, sizeof(szRole), szRank, sizeof(szRole)-1);
+				}
+				else
+				{
+					for(int r=0; r<6; r++) if(strstr(szClean, szRanks[r])) { strncpy_s(szRank, sizeof(szRank), szRanks[r], sizeof(szRank)-1); break; }
+					strncpy_s(szRole, sizeof(szRole), szRank, sizeof(szRole)-1);
+				}
+			}
 
 			// Son aktif: satirin son kelimesi (tarih ise)
 			char szLast[32] = {0};
@@ -312,7 +331,7 @@ int OnGmMembersPage(const char *szInfo, int *outButton, int *outItem)
 			{
 				strncpy_s(g_gmRows[g_gmCount].szName, sizeof(g_gmRows[0].szName), szName, sizeof(g_gmRows[0].szName) - 1);
 				strncpy_s(g_gmRows[g_gmCount].szRank, sizeof(g_gmRows[0].szRank), szRank, sizeof(g_gmRows[0].szRank) - 1);
-				strncpy_s(g_gmRows[g_gmCount].szRole, sizeof(g_gmRows[0].szRole), szRank, sizeof(g_gmRows[0].szRole) - 1);
+				strncpy_s(g_gmRows[g_gmCount].szRole, sizeof(g_gmRows[0].szRole), szRole, sizeof(g_gmRows[0].szRole) - 1);
 				strncpy_s(g_gmRows[g_gmCount].szLast, sizeof(g_gmRows[0].szLast), szLast, sizeof(g_gmRows[0].szLast) - 1);
 				g_gmCount++;
 				Log("[GM] Uye #%d: '%s' (rank=%s, son=%s)", g_gmCount, szName, szRank[0] ? szRank : "?", szLast[0] ? szLast : "?");
