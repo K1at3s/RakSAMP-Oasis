@@ -2300,7 +2300,7 @@ void StartZoneScan(bool bAuto)
 	// ILK GIRIS: s_iScanPass=1'den baþlar -> ilk tur bilinmeyen-only (DB'de var
 	// olanlar atlanir, sadece eksikler öðrenilir). Yarinki giriþ gun degisince
 	// LoadGroupsFromDb bos donecek, tum zone'lar "bilinmeyen" sayilip taraniacak.
-	static int s_iScanPass = 1;
+	static int s_iScanPass = 0; // ilk tur tam kontrol olsun
 	bool bFullVerify = (s_iScanPass % 4 == 0);
 	s_iScanPass++;
 
