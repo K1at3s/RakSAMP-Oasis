@@ -3400,6 +3400,8 @@ void ClientMessage(RPCParameters *rpcParams)
 								g_snipZoneCount = 0;
 								g_snipZoneIdx = 0;
 								g_snipGroupName[0] = 0;
+								g_bridgeSuppressEcho++;
+								sendChat((char *)LM("!Sniper bitti.", "!Sniper finished."));
 								Log("[ZSNIP] Zincir tamamlandi (baska zone yok).");
 							}
 						}
@@ -7061,6 +7063,8 @@ void ProcessZtkTick()
 			g_snipZoneIdx = 0;
 			g_ztkAskNext = false;
 			g_snipGroupName[0] = 0;
+			g_bridgeSuppressEcho++;
+			sendChat((char *)LM("!Sniper bitti.", "!Sniper finished."));
 		}
 		return;
 	}
