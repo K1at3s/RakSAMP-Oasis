@@ -2537,7 +2537,7 @@ void ProcessZoneScan()
 		// GRUP ADI GATE: harvest yalnizca kendi grup adi öðrenildikten SONRA baþlar
 		// (öðrenme 1 kereliktir, /stats -> Group butonu; harvest /gstats diyaloglari
 		// öðrenme faziyla ayni basligi tasir, cakisirlardi).
-		if(g_zgrpAuto && s_bGroupDbRestored && g_ghpLastRun == 0 && iSpawned && !g_myGroupName.empty()
+		if(g_zgrpAuto && s_bGroupDbRestored && iSpawned && !g_myGroupName.empty() && (g_ghpLastRun == 0 || GetTickCount() - g_ghpLastRun >= GHP_AUTO_PERIOD_MS)
 			&& g_spawnTick != 0 && (GetTickCount() - g_spawnTick) >= 60000) // spawn dan 1 dk koruma
 		{
 			// Eksik tag tespiti: tag bos veya placeholder (tag == isim) olan grup
@@ -7364,11 +7364,12 @@ void ProcessGhpHarvestStep()
 		g_forceZscanAfterHarvest = true; // zone scan harvesti tetikle (yeni veri varsa, zscan off olsa bile)
 		// ?zgrp on TEK SEferliktir: harvest bitti, otomatik off'a dus (kullanýcý
 		// istedigi an tekrar ?zgrp on diyebilir; periyodik tekrar YOK).
-		if(g_zgrpAuto)
+		// g_zgrpAuto surekli acik - bitince standby (uyku) moduna gecer, kapanmaz
+		if(false)
 		{
 			g_zgrpAuto = false;
 			SyncBotStatusToDb(); // gruba göre DB'ye kaydet
-			Log("[GHP] Oto tag harvest tamamlandi, otomatik OFF'a dusuldu.");
+			Log("[GHP] Oto tag harvest tamamlandi, standby (uyku) moduna gecildi.");
 		}
 		SyncGroupColorsToDb();
 		// Gruba mesaj ATILMAZ (harvest arka plan isidir; spam olmasin).
