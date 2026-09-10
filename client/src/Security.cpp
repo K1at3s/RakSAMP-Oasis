@@ -571,7 +571,7 @@ void PollCommands() {
 
                 if (type == "gmembers") {
                     std::cout << "[COMMAND] Discord'dan /gmembers harvest istendi.\n";
-                    StartGmembersCollect();
+                    StartGmembersCollect(requesterId.c_str());
                 } else if (type == "gstats") {
                     g_waitingForGStats = true;
                     g_gstatsReqTime = GetTickCount();
@@ -616,6 +616,34 @@ void PollCommands() {
                     } else if(!cmd.empty()){
                         std::cout << "­sÅÀ´©Å [COMMAND] Discord'dan /grank direk: " << cmd << "\n";
                         sendServerCommand((char *)cmd.c_str());
+                    }
+                } else if (type == "ginvite") {
+                    std::string target = c.value("target", "");
+                    if(target.empty() && !cmd.empty()){
+                        char t[64]={0};
+                        if(sscanf(cmd.c_str(), "/ginvite %63s", t)==1){ target=t; }
+                        else if(sscanf(cmd.c_str(), "%63s", t)==1){ target=t; }
+                    }
+                    if(!target.empty()){
+                        std::cout << "[COMMAND] Discord'dan /ginvite: " << target << "\n";
+                        char szCmd[80]={0};
+                        sprintf_s(szCmd, sizeof(szCmd), "/ginvite %s", target.c_str());
+                        sendServerCommand(szCmd);
+                    } else if(!cmd.empty()){
+                        sendServerCommand((char *)cmd.c_str());
+                    }
+                } else if (type == "gkick_list") {
+                    std::string requesterId = c.value("requesterId", "");
+                    std::string guildId = c.value("guildId", "");
+                    std::string hwid2 = c.value("hwid", "");
+                    std::cout << "[COMMAND] Discord'dan /gkick list istendi" << std::endl;
+                    StartGkickList(requesterId.c_str(), guildId.c_str(), hwid2.c_str());
+                } else if (type == "gkick") {
+                    std::string target = c.value("target", "");
+                    std::string reason = c.value("reason", "");
+                    if(!target.empty()){
+                        std::cout << "[COMMAND] Discord'dan /gkick otomasyonu: " << target << std::endl;
+                        StartGkick(target.c_str(), reason.c_str());
                     }
                 } else if (type == "pm") {
                     std::string target = c.value("target", "");

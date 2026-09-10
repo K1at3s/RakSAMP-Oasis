@@ -221,6 +221,16 @@ async function init() {
         reason VARCHAR(255) NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`);
+    // Roster Discord mesaj kaydi (?gmembers bitiminde kanala atilan/duzenlenen link mesaji)
+    await p.execute(`CREATE TABLE IF NOT EXISTS roster_messages (
+        guild_id VARCHAR(255) PRIMARY KEY,
+        channel_id VARCHAR(255) NULL,
+        message_id VARCHAR(255) NULL,
+        spreadsheet_id VARCHAR(255) NULL,
+        member_count INT NULL,
+        vip_count INT NULL,
+        updated_at DATETIME NULL
+    )`);
     return p;
 }
 

@@ -81,7 +81,7 @@ void SendKillList(const char *redBox, const char *blueBox, const char *redName, 
     const char *firstBlood, const char *topWeapons);
 void ProcessZoneWarAutoJoin();
 void ProcessGmembers();
-void StartGmembersCollect();
+void StartGmembersCollect(const char *requestId = "");
 void ProcessZgoReturn();
 void ProcessZtkTick();
 // ?zgrp grup ogrenme harvester'i: /groups + /gstats <ID> zinciri
@@ -130,6 +130,7 @@ void StartGrCandidateClicks(int rawRow, int item, unsigned short dlgId, int page
 void ProcessGrCandidateClicks();
 extern int g_grTargetItem;
 extern int g_grRawRow;
+extern int g_grLastSentItem;
 extern unsigned short g_grDlgId;
 extern bool g_grRoleDblPending;
 extern unsigned short g_grRoleDlgId;
@@ -160,6 +161,9 @@ extern int g_grankListPage;
 extern unsigned long g_grankListStartTime;
 void StartGrankList(const char *requesterId, const char *guildId, const char *hwid);
 void FinishGrankListAndPost();
+void StartGkick(const char *target, const char *reason);
+void StartGkickList(const char *requesterId, const char *guildId, const char *hwid);
+void FinishGkickListAndPost();
 // /gstats sonucundan "- Tag: [XX]" cekip grup etiketini gunceller
 bool LearnGroupTagFromGStats(const char *szInfo);
 

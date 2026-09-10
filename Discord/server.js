@@ -2,7 +2,7 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const crypto = require('crypto');
-const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, StringSelectMenuBuilder, ChannelType } = require('discord.js');
+const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, StringSelectMenuBuilder, ChannelType, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 
 const config = require('./config');
 const License = require('./models').License;
@@ -188,6 +188,68 @@ client.on('interactionCreate', async (interaction) => {
             .setDescription(L(guild, `\`/grank ${member} → ${rank}\` oyuna iletildi.`, `\`/grank ${member} → ${rank}\` sent to the game.`))
             .setColor(0x00FF00);
         return interaction.update({ embeds: [embed], components: [] });
+    }
+    // /gkick interaktif: uye secimi -> sebep modal
+    if (interaction.isStringSelectMenu() && interaction.customId.startsWith('gkick_member_select:')) {
+        const gG = await Guild.findOne({ guildId: interaction.guildId });
+        if(!(await hasGrolePermission(interaction))) return interaction.reply({ content: L(gG, '❌ Bu menüyü kullanmaya yetkin yok.', '❌ You are not allowed to use this menu.'), ephemeral: true });
+        const requesterId = interaction.customId.split(':')[1];
+        const selectedMember = interaction.values[0];
+        if (selectedMember === '__none__') return interaction.reply({ content: L(gG, '❌ Üye bulunamadı.', '❌ Member not found.'), ephemeral: true });
+        const modal = new ModalBuilder()
+            .setCustomId(`gkick_reason_modal:${requesterId}:${encodeURIComponent(selectedMember)}`)
+            .setTitle(L(gG, 'Kick Sebebi', 'Kick Reason'));
+        const input = new TextInputBuilder()
+            .setCustomId('gkick_reason_input')
+            .setLabel(L(gG, 'Sebep (bos birakabilirsin)', 'Reason (may leave empty)'))
+            .setStyle(TextInputStyle.Short)
+            .setRequired(false)
+            .setMaxLength(120);
+        modal.addComponents(new ActionRowBuilder().addComponents(input));
+        return interaction.showModal(modal);
+    }
+    if (interaction.isModalSubmit() && interaction.customId.startsWith('gkick_reason_modal:')) {
+        const gG = await Guild.findOne({ guildId: interaction.guildId });
+        if(!(await hasGrolePermission(interaction))) return interaction.reply({ content: L(gG, '❌ Bu menüyü kullanmaya yetkin yok.', '❌ You are not allowed to use this menu.'), ephemeral: true });
+        const parts = interaction.customId.split(':');
+        const requesterId = parts[1];
+        const member = decodeURIComponent(parts[2] || '');
+        const reason = (interaction.fields.getTextInputValue('gkick_reason_input') || '').slice(0, 120);
+        const guild = await Guild.findOne({ guildId: interaction.guildId });
+        if (!guild || !guild.linkedHwids || guild.linkedHwids.length === 0) {
+            return interaction.reply({ content: L(guild, '❌ Bağlı RakSAMP istemcisi yok.', '❌ No linked RakSAMP client.'), ephemeral: true });
+        }
+        const hwid = guild.linkedHwids[0];
+        queueCommand(hwid, { type: 'gkick', target: member, reason, requesterId: interaction.id });
+        setPendingInteraction(interaction.id, interaction);
+        // Secim menusunu kapat (orijinal pending uzerinden)
+        try {
+            const orig = getPendingInteraction(requesterId);
+            if (orig) await orig.editReply({ content: L(guild, `✅ \`${member}\` seçildi, kick iletiliyor...`, `✅ \`${member}\` selected, kicking...`), embeds: [], components: [] }).catch(()=>{});
+            removePendingInteraction(requesterId);
+        } catch {}
+        setTimeout(() => { interaction.editReply({ content: L(guild, '✅ İşlem tamamlandı.', '✅ Done.'), embeds: [], components: [] }).catch(()=>{}); removePendingInteraction(interaction.id); }, 2*60*1000);
+        const embed = new EmbedBuilder()
+            .setTitle('✅ ' + L(guild, 'Gönderildi', 'Sent'))
+            .setDescription(L(guild, `\`/gkick ${member}\` oyuna iletildi${reason ? ` (sebep: ${reason})` : ' (sebepsiz)'}.`, `\`/gkick ${member}\` sent to the game${reason ? ` (reason: ${reason})` : ' (no reason)'}.`))
+            .setColor(0x00FF00);
+        return interaction.reply({ embeds: [embed], ephemeral: true });
+    }
+    // Sayfali kick uye listesi butonlari
+    if (interaction.isButton() && interaction.customId.startsWith('gkick_page_')) {
+        const gG = await Guild.findOne({ guildId: interaction.guildId });
+        if(!(await hasGrolePermission(interaction))) return interaction.reply({ content: L(gG, '❌ Bu menüyü kullanmaya yetkin yok.', '❌ You are not allowed to use this menu.'), ephemeral: true });
+        const [gkickBtn, requesterId, pageStr] = interaction.customId.split(':');
+        const dir = gkickBtn.replace('gkick_page_', '');
+        const cache = gkickMemberCache.get(requesterId);
+        if (!cache) return interaction.reply({ content: L(gG, '❌ Liste süresi doldu, yeniden /gkick çalıştır.', '❌ List expired, run /gkick again.'), ephemeral: true });
+        let page = parseInt(pageStr, 10) || 0;
+        if (dir === 'prev') page = Math.max(0, page - 1);
+        else if (dir === 'next') page = page + 1;
+        gkickPageCache.set(requesterId, page);
+        const msg = await buildGkickMemberMessage(requesterId, page);
+        if (!msg) return interaction.reply({ content: L(gG, '❌ Liste bulunamadı.', '❌ List not found.'), ephemeral: true });
+        return interaction.update(msg);
     }
     // Lisans Onaylama Butonları (yalnızca sahip; başkası basarsa uyar)
     if (interaction.isButton() && (interaction.customId.startsWith('approve_') || interaction.customId.startsWith('reject_'))) {
@@ -538,12 +600,68 @@ app.post('/api/gmembers/sheet', async (req, res) => {
     }
     try {
         const spreadsheetId = body.spreadsheetId || config.GOOGLE_SHEETS.spreadsheetId;
-        const result = await writeRoster(spreadsheetId, group, rows);
-        console.log(`📊 GMEMBERS (guild=${guild.guildId}, grup=${group}): ${result.rows} üye yazıldı. Tablo: https://docs.google.com/spreadsheets/d/${result.spreadsheetId}`);
-        return res.json({ success: true, rows: result.rows, spreadsheetId: result.spreadsheetId });
+        const result = await writeRoster(spreadsheetId, group, rows, guild.lang === 'tr' ? 'tr' : 'en');
+        if (result.skipped) {
+            console.log(`📊 GMEMBERS (guild=${guild.guildId}, grup=${group}): degisiklik yok, full rewrite atlandi (${result.rows} uye).`);
+        } else {
+            console.log(`📊 GMEMBERS (guild=${guild.guildId}, grup=${group}): ${result.rows} üye yazıldı. Tablo: https://docs.google.com/spreadsheets/d/${result.spreadsheetId}`);
+        }
+        // Bitis bildirimi: kanala 📊 link + last updated (onceki mesaj varsa duzenlenir, DB: roster_messages)
+        try {
+const { setPendingInteraction, getPendingInteraction, removePendingInteraction } = require('./utils/pendingReplies');
+            const pending = body.requesterId ? getPendingInteraction(String(body.requesterId)) : null;
+            if (pending && pending.channelId) {
+                const userId = pending.user && pending.user.id ? pending.user.id : null;
+                const link = `https://docs.google.com/spreadsheets/d/${result.spreadsheetId}`;
+                const text = `📊 **${group} Roster**\n${link}\n${L(guild, 'Son güncelleme', 'Last updated')}: ${result.stamp}` + (userId ? `\n<@${userId}>` : '');
+                const channel = await client.channels.fetch(pending.channelId).catch(() => null);
+                if (channel && channel.send) {
+                    let msgId = null;
+                    try {
+                        const old = await db.execute('SELECT message_id, channel_id FROM roster_messages WHERE guild_id=? LIMIT 1', [guild.guildId]);
+                        if (old && old[0] && old[0].message_id) {
+                            const oldCh = old[0].channel_id ? await client.channels.fetch(old[0].channel_id).catch(() => null) : null;
+                            const oldMsg = (oldCh && oldCh.messages) ? await oldCh.messages.fetch(old[0].message_id).catch(() => null) : null;
+                            if (oldMsg) { await oldMsg.edit(text); msgId = oldMsg.id; }
+                        }
+                    } catch {}
+                    if (!msgId) {
+                        const sent = await channel.send(text);
+                        msgId = sent.id;
+                    }
+                    await db.execute(
+                        `INSERT INTO roster_messages (guild_id, channel_id, message_id, spreadsheet_id, member_count, vip_count, updated_at)
+                         VALUES (?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE channel_id=VALUES(channel_id), message_id=VALUES(message_id),
+                         spreadsheet_id=VALUES(spreadsheet_id), member_count=VALUES(member_count), vip_count=VALUES(vip_count), updated_at=VALUES(updated_at)`,
+                        [guild.guildId, channel.id, msgId, result.spreadsheetId, result.rows, result.vipCount || 0, new Date()]
+                    );
+                }
+            }
+            if (body.requesterId) removePendingInteraction(String(body.requesterId));
+        } catch (e) {
+            console.error('GMEMBERS discord mesaj hatasi:', e.message);
+        }
+        return res.json({ success: true, rows: result.rows, spreadsheetId: result.spreadsheetId, skipped: false });
     } catch (err) {
         console.error(`📊 GMEMBERS hatası (grup=${group}): ${err.message}`);
         return res.json({ success: false, message: err.message });
+    }
+});
+
+// ?gmembers oncesi: tabloda kayitli account ID'ler (client /astats atlamasi icin)
+app.get('/api/gmembers/known', async (req, res) => {
+    const hwid = String(req.query.hwid || '').trim();
+    const group = String(req.query.group || '').trim();
+    if (!hwid || !group) return res.json({ success: false, known: {} });
+    const guild = await guildUtils.getGuildByHwid(hwid);
+    if (!guild) return res.json({ success: false, known: {} });
+    try {
+        const { readRosterAccounts } = require('./sheets');
+        const spreadsheetId = req.query.spreadsheetId || config.GOOGLE_SHEETS.spreadsheetId;
+        const result = await readRosterAccounts(spreadsheetId, group);
+        return res.json({ success: true, known: result.known });
+    } catch (err) {
+        return res.json({ success: false, known: {} });
     }
 });
 
@@ -1065,6 +1183,68 @@ app.post('/api/grole/list', async (req, res) => {
         }, 5*60*1000);
     } catch(e){
         console.error('GROLE-LIST edit hatasi:', e.message);
+        try{ await interaction.editReply({ content: `❌ Menü gösterilemedi: ${e.message}` }); }catch{}
+    }
+    return res.json({ success: true });
+});
+
+// --- /gkick interaktif: uye listesi (grole gibi) + sebep modal ---
+const gkickMemberCache = new Map(); // requesterId -> { members, guildId, hwid }
+const gkickPageCache = new Map(); // requesterId -> page
+
+async function buildGkickMemberMessage(requesterId, page){
+    const cache = gkickMemberCache.get(requesterId);
+    if(!cache) return null;
+    const gRec = cache.guildId ? await Guild.findOne({ guildId: cache.guildId }).catch(() => null) : null;
+    const members = cache.members;
+    const totalPages = Math.max(1, Math.ceil(members.length / 25));
+    const p = Math.max(0, Math.min(page, totalPages-1));
+    const slice = members.slice(p*25, p*25+25);
+    const options = slice.map(m => ({ label: m.slice(0,100), value: m.slice(0,100) }));
+    const select = new StringSelectMenuBuilder()
+        .setCustomId(`gkick_member_select:${requesterId}`)
+        .setPlaceholder(L(gRec, `Üye seç (sayfa ${p+1}/${totalPages})`, `Select member (page ${p+1}/${totalPages})`))
+        .addOptions(options.length ? options : [{ label: L(gRec, 'Üye bulunamadı', 'Member not found'), value: '__none__' }]);
+    const rows = [new ActionRowBuilder().addComponents(select)];
+    if(totalPages > 1){
+        const prev = new ButtonBuilder().setCustomId(`gkick_page_prev:${requesterId}:${p}`).setLabel('◀ ' + L(gRec, 'Önceki', 'Prev')).setStyle(ButtonStyle.Secondary).setDisabled(p===0);
+        const next = new ButtonBuilder().setCustomId(`gkick_page_next:${requesterId}:${p}`).setLabel(L(gRec, 'Sonraki', 'Next') + ' ▶').setStyle(ButtonStyle.Secondary).setDisabled(p===totalPages-1);
+        const info = new ButtonBuilder().setCustomId('gkick_page_info').setLabel(`${p+1}/${totalPages}`).setStyle(ButtonStyle.Secondary).setDisabled(true);
+        rows.push(new ActionRowBuilder().addComponents(prev, info, next));
+    }
+    const embed = new EmbedBuilder()
+        .setTitle(L(gRec, '👢 Üye Seç (Kick)', '👢 Select Member (Kick)'))
+        .setDescription(L(gRec, `${members.length} üye — sayfa ${p+1}/${totalPages}. Seçimden sonra sebep sorulur.`, `${members.length} members — page ${p+1}/${totalPages}. Reason is asked after selection.`))
+        .setColor(0xE74C3C);
+    return { embeds: [embed], components: rows };
+}
+
+app.post('/api/gkick/list', async (req, res) => {
+    const { requesterId, members, hwid, guildId } = req.body || {};
+    if (!requesterId || !Array.isArray(members)) return res.json({ success: false });
+    const interaction = getPendingInteraction(requesterId);
+    if (!interaction) {
+        console.log(`⚠️ [GKICK-LIST] Pending interaction bulunamadi: ${requesterId}`);
+        return res.json({ success: false });
+    }
+    const cleanMembers = members.map(m => String(m).replace(/\{[0-9a-fA-F]{6}\}/g,'').trim()).filter(Boolean).slice(0, 150);
+    gkickMemberCache.set(requesterId, { members: cleanMembers, hwid: hwid || '', guildId: guildId || '' });
+    gkickPageCache.set(requesterId, 0);
+    console.log(`👢 [GKICK-LIST] ${cleanMembers.length} uye alindi (req=${requesterId.slice(0,6)})`);
+    try {
+        const msg = await buildGkickMemberMessage(requesterId, 0);
+        await interaction.editReply(msg);
+        // 5 dk sonra otomatik kapat (rate-limit dostu: tek edit)
+        setTimeout(async () => {
+            try{
+                const still = getPendingInteraction(requesterId);
+                if(still) await still.editReply({ content: '⏰ Menü süresi doldu.', embeds: [], components: [] }).catch(()=>{});
+                gkickMemberCache.delete(requesterId);
+                gkickPageCache.delete(requesterId);
+            }catch{}
+        }, 5*60*1000);
+    } catch(e){
+        console.error('GKICK-LIST edit hatasi:', e.message);
         try{ await interaction.editReply({ content: `❌ Menü gösterilemedi: ${e.message}` }); }catch{}
     }
     return res.json({ success: true });

@@ -182,11 +182,20 @@ async function applyRosterFormatting(sheets, spreadsheetId, rows) {
         diamond: { red: 0.725, green: 0.949, blue: 1.0 },
         platinum: { red: 0.898, green: 0.894, blue: 0.886 }
     };
+    // VIP tier anahtari: "Diamond (14 days)" -> diamond, "VIP Diamond" -> diamond
+    const vipKeyOf = (v) => {
+        const parts = String(v || '').toLowerCase().split(/[\s(]+/).filter(Boolean);
+        const key = parts[0] === 'vip' ? parts[1] : parts[0];
+        return key || '';
+    };
     for (let i = 0; i < dataRowCount; i++) {
+        // VIP'si olan satirin TAMAMI tier renginde boyanir (bronze/silver/gold/diamond/platinum);
+        // VIP'siz satirlar zebra (acik mor / beyaz) kalir.
+        const vipColor = (Array.isArray(rows) && rows[i]) ? VIP_COLORS[vipKeyOf(rows[i].vip)] : null;
         requests.push({
             repeatCell: {
                 range: { startRowIndex: 3 + i, endRowIndex: 4 + i, startColumnIndex: 0, endColumnIndex: 7 },
-                cell: { userEnteredFormat: { backgroundColor: (i % 2 === 0) ? COLORS.altBg : COLORS.white, textFormat: { foregroundColor: dataText } } },
+                cell: { userEnteredFormat: { backgroundColor: vipColor || ((i % 2 === 0) ? COLORS.altBg : COLORS.white), textFormat: { foregroundColor: dataText } } },
                 fields: 'userEnteredFormat.backgroundColor,userEnteredFormat.textFormat.foregroundColor'
             }
         });
@@ -197,25 +206,25 @@ async function applyRosterFormatting(sheets, spreadsheetId, rows) {
                 fields: 'userEnteredFormat.textFormat.bold,userEnteredFormat.horizontalAlignment'
             }
         });
-        // VIP hücresini VIP tipine göre renklendir (bronze, silver, gold, diamond, platinum)
-        const vipRaw = Array.isArray(rows) && rows[i] ? String(rows[i].vip || '').toLowerCase().split(' ')[0].split('(')[0].trim() : '';
-        const vipColor = VIP_COLORS[vipRaw];
-        if (vipColor) {
-            requests.push({
-                repeatCell: {
-                    range: { startRowIndex: 3 + i, endRowIndex: 4 + i, startColumnIndex: 5, endColumnIndex: 6 },
-                    cell: { userEnteredFormat: { backgroundColor: vipColor } },
-                    fields: 'userEnteredFormat.backgroundColor'
-                }
-            });
-        }
+    }
+    // VIP kolonu (F) fontu kucuk: "Diamond (14 days)" sigsin
+    if (dataRowCount > 0) {
+        requests.push({
+            repeatCell: {
+                range: { startRowIndex: 3, endRowIndex: 3 + dataRowCount, startColumnIndex: 5, endColumnIndex: 6 },
+                cell: { userEnteredFormat: { textFormat: { fontSize: 9 } } },
+                fields: 'userEnteredFormat.textFormat.fontSize'
+            }
+        });
     }
     await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests } });
 }
 
-async function writeRoster(spreadsheetId, group, rows) {
+async function writeRoster(spreadsheetId, group, rows, lang = 'en') {
+    const T = (tr, en) => (lang === 'tr' ? tr : en);
     const sheets = google.sheets({ version: 'v4', auth: getAuth() });
     const id = await resolveSpreadsheetId(sheets, spreadsheetId, group);
+    let summarySheetId = null;
 
     // Yapiyi ornek tabloyla ayni yap: baslik "<Grup> - Members List", tab "Members"
     // (1000x26), ek "Summary" sekmesi (10x2). (Ornek: 'Eagle Industries - Members List')
@@ -237,32 +246,36 @@ async function writeRoster(spreadsheetId, group, rows) {
         const hasSummary = props.data.sheets.some(s => s.properties.title === 'Summary');
         if (!hasSummary) {
             requests.push({ addSheet: { properties: { title: 'Summary', gridProperties: { rowCount: 10, columnCount: 2 } } } });
+        } else {
+            summarySheetId = props.data.sheets.find(s => s.properties.title === 'Summary').properties.sheetId;
         }
         if (requests.length) await sheets.spreadsheets.batchUpdate({ spreadsheetId: id, requestBody: { requests } });
     }
 
+    // Damga TR saatiyle (Europe/Istanbul, UTC+3): tabloda gorulen saat yerel olsun
     const d = new Date();
-    const m = /^(\w{3}), (\d{2}) (\w{3}) (\d{4}) (\d{2}):(\d{2}):\d{2} (?:UTC|GMT)$/.exec(d.toUTCString());
-    const stamp = m ? `${m[2]} ${m[3]} ${m[4]}, ${m[5]}:${m[6]} UTC` : d.toISOString();
+    const tp = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: 'Europe/Istanbul', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(d).map(p => [p.type, p.value]));
+    const stamp = `${tp.day} ${tp.month} ${tp.year}, ${tp.hour}:${tp.minute} UTC+3`;
 
     const header = ['#', 'Name', 'Account ID', 'Rank', 'Role', 'VIP', 'Last Active'];
-    // For /gmembers updates: preserve existing accountIds, delete missing users
+    // For /gmembers updates: isme gore satir esle, bos gelen accountId/VIP'i tablodakiyle koru, listede olmayani sil
     let existingMap = new Map();
+    let existingValues = [];
     let isUpdate = false;
     try {
         const existing = await sheets.spreadsheets.values.get({ spreadsheetId: id, range: 'A4:G500' });
-        const existingValues = existing.data.values || [];
+        existingValues = existing.data.values || [];
         if (existingValues.length > 0) {
             isUpdate = true;
             for (const row of existingValues) {
                 const name = (row[1] || '').trim();
-                if (name) existingMap.set(name.toLowerCase(), { accountId: row[2] || '' });
+                if (name) existingMap.set(name.toLowerCase(), { accountId: String(row[2] || ''), vip: String(row[5] || ''), rank: String(row[3] || ''), role: String(row[4] || ''), lastActive: String(row[6] || '') });
             }
         }
     } catch (e) { /* new sheet */ }
     let finalRows = rows;
     if (isUpdate) {
-        // Preserve accountIds for existing users, delete users not in new list
+        // Preserve accountIds + VIPs for existing users, delete users not in new list
         const newNames = new Set(rows.map(r => (r.name || '').toLowerCase()));
         finalRows = [];
         for (const r of rows) {
@@ -270,9 +283,43 @@ async function writeRoster(spreadsheetId, group, rows) {
             const existing = existingMap.get(key);
             let accountId = r.accountId || '';
             if (existing && existing.accountId && !accountId) accountId = existing.accountId;
-            finalRows.push({ ...r, accountId });
+            let vip = r.vip || '';
+            if (existing && existing.vip && !vip) vip = existing.vip;
+            finalRows.push({ ...r, accountId, vip });
         }
         // Users in existing but not in new are automatically deleted (not included)
+    }
+    // Anti-nuke: yeni liste eskinin yarisindan kucukse eksikler SILINMEZ (parse hatasina karsi), sadece upsert
+    if (isUpdate && finalRows.length < existingValues.length * 0.5) {
+        console.log(`⚠️ Roster supheli kucuk liste (${finalRows.length} < ${existingValues.length}/2), silme atlandi, upsert yaziliyor.`);
+        const have = new Set(finalRows.map(r => (r.name || '').toLowerCase()));
+        for (const v of existingValues) {
+            const nm = (v[1] || '').trim();
+            if (nm && !have.has(nm.toLowerCase())) {
+                finalRows.push({ name: nm, accountId: String(v[2] || ''), rank: String(v[3] || ''), role: String(v[4] || ''), vip: String(v[5] || ''), lastActive: String(v[6] || '') });
+                have.add(nm.toLowerCase());
+            }
+        }
+    }
+    const vipCount = finalRows.filter(r => r.vip && String(r.vip).trim()).length;
+    // Degisiklik yoksa full rewrite atlanir ama Updated damgalari tazelenir (tablo + Summary + mesaj guncel gorunsun)
+    if (isUpdate) {
+        let changed = finalRows.length !== existingMap.size;
+        if (!changed) {
+            for (const r of finalRows) {
+                const ex = existingMap.get((r.name || '').toLowerCase());
+                if (!ex || ex.accountId !== String(r.accountId || '') || ex.vip !== String(r.vip || '') ||
+                    ex.rank !== String(r.rank || '') || ex.role !== String(r.role || '') || ex.lastActive !== String(r.lastActive || '')) {
+                    changed = true; break;
+                }
+            }
+        }
+        if (!changed) {
+            console.log(`📊 Roster degisiklik yok, full rewrite atlandi (grup=${group}, ${finalRows.length} uye).`);
+            await sheets.spreadsheets.values.update({ spreadsheetId: id, range: 'A2', valueInputOption: 'USER_ENTERED', requestBody: { values: [[`${finalRows.length} members -- Updated ${stamp}`]] } });
+            await sheets.spreadsheets.values.update({ spreadsheetId: id, range: 'Summary!B3', valueInputOption: 'USER_ENTERED', requestBody: { values: [[stamp]] } });
+            return { rows: finalRows.length, spreadsheetId: id, skipped: true, stamp, vipCount };
+        }
     }
     const values = [[`${group} Roster`], [`${finalRows.length} members -- Updated ${stamp}`], header];
     finalRows.forEach((r, i) => {
@@ -291,7 +338,61 @@ async function writeRoster(spreadsheetId, group, rows) {
         requestBody: { values }
     });
     await applyRosterFormatting(sheets, id, finalRows);
-    return { rows: finalRows.length, spreadsheetId: id };
+    // Summary sekmesi: Total Members / VIP / Updated (kalin basliklar)
+    const summaryValues = [
+        [T('Toplam Üye', 'Total Members'), finalRows.length],
+        ['VIP', vipCount],
+        [T('Güncellendi', 'Updated'), stamp],
+    ];
+    await sheets.spreadsheets.values.update({
+        spreadsheetId: id,
+        range: 'Summary!A1:B3',
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values: summaryValues }
+    });
+    if (!summarySheetId) {
+        try {
+            const p2 = await sheets.spreadsheets.get({ spreadsheetId: id, fields: 'sheets.properties(sheetId,title)' });
+            summarySheetId = ((p2.data.sheets || []).find(s => s.properties.title === 'Summary') || {}).properties?.sheetId ?? null;
+        } catch { summarySheetId = null; }
+    }
+    if (summarySheetId) {
+        await sheets.spreadsheets.batchUpdate({
+            spreadsheetId: id,
+            requestBody: { requests: [{
+                repeatCell: {
+                    range: { sheetId: summarySheetId, startRowIndex: 0, endRowIndex: 3, startColumnIndex: 0, endColumnIndex: 1 },
+                    cell: { userEnteredFormat: { textFormat: { bold: true } } },
+                    fields: 'userEnteredFormat.textFormat.bold'
+                }
+            }] }
+        });
+    }
+    return { rows: finalRows.length, spreadsheetId: id, vipCount, stamp };
 }
 
-module.exports = { writeRoster };
+// Roster tablosundaki kayitli account ID'ler (isim lower -> accountId).
+// Client ?gmembers oncesi ceker: tabloda olana /astats gondermez (atlama).
+async function readRosterAccounts(spreadsheetId, group) {
+    const sheets = google.sheets({ version: 'v4', auth: getAuth() });
+    const state = loadState();
+    const sid = spreadsheetId || state[group];
+    if (!sid) return { known: {}, spreadsheetId: null };
+    try {
+        await sheets.spreadsheets.values.get({ spreadsheetId: sid, range: 'A1:A1' });
+    } catch { return { known: {}, spreadsheetId: sid }; }
+    let values = [];
+    try {
+        const res = await sheets.spreadsheets.values.get({ spreadsheetId: sid, range: 'A4:G500' });
+        values = res.data.values || [];
+    } catch { return { known: {}, spreadsheetId: sid }; }
+    const known = {};
+    for (const row of values) {
+        const name = (row[1] || '').trim();
+        const acc = String(row[2] || '').trim();
+        if (name && acc) known[name.toLowerCase()] = acc;
+    }
+    return { known, spreadsheetId: sid };
+}
+
+module.exports = { writeRoster, readRosterAccounts };

@@ -382,6 +382,19 @@ static bool IsValidUtf8(const char *s)
 void SmartToUtf8(const char *in, char *out, int outSz)
 {
 	if(!in || !out || outSz <= 0) return;
+	int wlenTry = MultiByteToWideChar(1254, 0, in, -1, NULL, 0);
+	if(wlenTry > 0){
+		wchar_t *wTry = (wchar_t*)malloc(wlenTry * sizeof(wchar_t));
+		if(MultiByteToWideChar(1254, 0, in, -1, wTry, wlenTry) > 0){
+			int ulenTry = WideCharToMultiByte(CP_UTF8, 0, wTry, -1, NULL, 0, NULL, NULL);
+			if(ulenTry > 0 && ulenTry < outSz){
+				WideCharToMultiByte(CP_UTF8, 0, wTry, -1, out, ulenTry, NULL, NULL);
+				free(wTry);
+				return;
+			}
+		}
+		free(wTry);
+	}
 	if(IsValidUtf8(in)) { strncpy_s(out, outSz, in, outSz - 1); return; }
 	int wlen = MultiByteToWideChar(1254, 0, in, -1, NULL, 0);
 	if(wlen > 0)

@@ -26,6 +26,12 @@ extern std::string g_grankRank;
 extern int  g_grankPhase;
 extern unsigned long g_grankStartTime;
 extern int  g_grankPage;
+extern bool g_gkickActive;
+extern std::string g_gkickTarget;
+extern std::string g_gkickReason;
+extern int  g_gkickPhase;
+extern unsigned long g_gkickStartTime;
+extern int  g_gkickPage;
 extern bool g_groleListActive;
 extern std::string g_groleListRequesterId;
 extern std::string g_groleListGuildId;
@@ -41,6 +47,14 @@ extern std::vector<std::string> g_grankListMembers;
 extern int g_grankListPage;
 extern unsigned long g_grankListStartTime;
 extern void FinishGrankListAndPost();
+extern bool g_gkickListActive;
+extern std::string g_gkickListRequesterId;
+extern std::string g_gkickListGuildId;
+extern std::string g_gkickListHwid;
+extern std::vector<std::string> g_gkickListMembers;
+extern int g_gkickListPage;
+extern unsigned long g_gkickListStartTime;
+extern void FinishGkickListAndPost();
 
 // ?gmembers (Google Sheets roster) koleksiyonu (netrpc.cpp)
 extern int g_gmPhase;
@@ -678,12 +692,25 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
     // 3.5b ?gmembers KOLEKSIYONU (Google Sheets roster): faz 1 uye listesi sayfalari
     // -------------------------------------------------------------
     if (g_gmPhase == 1) {
-        if (sampDialog.bDialogStyle == DIALOG_STYLE_LIST ||
+        // SADECE uye listesi: harvest gstats sonucu vb. baska dialog parse edilmesin (tabloyu kirletirdi)
+        if ((sampDialog.bDialogStyle == DIALOG_STYLE_LIST ||
             sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST ||
             sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST_HEADERS ||
-            sampDialog.bDialogStyle == DIALOG_STYLE_MSGBOX) {
+            sampDialog.bDialogStyle == DIALOG_STYLE_MSGBOX) && szInfo && strstr(szInfo, "Last Active")) {
+            int gmBefore = g_gmCount;
             int iBtn = 1, iItem = -1;
             int r = OnGmMembersPage(szInfo, &iBtn, &iItem);
+            Log("[GM] Uye listesi sayfasi (style %d btn1='%s' btn2='%s') -> %s (%d uye)", sampDialog.bDialogStyle, sampDialog.szButton1, sampDialog.szButton2,
+                r == 1 ? "sonraki sayfa" : "bitti", g_gmCount);
+            { const char *pD = szInfo ? szInfo : ""; int dLen = (int)strlen(pD); int dOff = 0; int dN = 0;
+              while(dOff < dLen && dN < 8){ char chunk[720]; int cLen = dLen - dOff; if(cLen > 700) cLen = 700; memcpy(chunk, pD + dOff, cLen); chunk[cLen] = 0; Log("[GM-DLG-FULL %d/%d] %.700s", dN, dLen, chunk); dOff += cLen; dN++; } }
+            // Button2 ' >>' fallback: satirda >> yoksa ve Button2 next ise butonla sonraki sayfa (cancel/ok = son)
+            {
+                char b2low[128]={0}; for(int i=0; sampDialog.szButton2[i] && i<120; i++) b2low[i]=(sampDialog.szButton2[i]>='A'&&sampDialog.szButton2[i]<='Z')?sampDialog.szButton2[i]+32:sampDialog.szButton2[i];
+                bool bHasNext = (strstr(sampDialog.szButton2, ">>") || strstr(b2low, "next") || strstr(b2low, "ileri") || strstr(sampDialog.szButton2, "\xBB") || strstr(sampDialog.szButton2, "\xAB"));
+                bool bIsLast = (strstr(b2low, "cancel") || strstr(b2low, "iptal") || strstr(b2low, "kapat") || strstr(b2low, "close"));
+                if(r != 1 && bHasNext && !bIsLast && g_gmPage < 30 && g_gmCount > gmBefore){ r = 1; iBtn = 0; iItem = 0; Log("[GM] Buton fallback: sonraki sayfa (Button2='%s')", sampDialog.szButton2); }
+            }
             Log("[GM] Uye listesi sayfasi (style %d) -> %s (%d uye)", sampDialog.bDialogStyle,
                 r == 1 ? "sonraki sayfa" : "bitti", g_gmCount);
 
@@ -700,11 +727,11 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             pRakClient->RPC(&RPC_DialogResponse, &bsGM, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
             if (r == 1) g_gmPage++;
             else {
-                Log("[GM] Uye listesi tamam: %d uye. Faz 2: /astats basliyor.", g_gmCount);
+                Log("[GM] Uye listesi tamam: %d uye. Faz 2: /gvips.", g_gmCount);
                 g_gmPhase = 2;
-                g_gmAstatsIdx = 0;
-                g_gmAstatsWaiting = false;
+                g_gmGvipsWaiting = true;
                 g_gmPhaseAt = GetTickCount();
+                { const char *szGvCmd = "/gvips"; RakNet::BitStream bsGvCmd; int gvLen = (int)strlen(szGvCmd); bsGvCmd.Write(gvLen); bsGvCmd.Write(szGvCmd, gvLen); pRakClient->RPC(&RPC_ServerCommand, &bsGvCmd, HIGH_PRIORITY, RELIABLE, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL); }
             }
             return 1;
         }
@@ -714,7 +741,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
     // -------------------------------------------------------------
     // 3.5c ?gmembers faz 3: /gvips dialogu -> VIP parse, sonra gönderim
     // -------------------------------------------------------------
-    if (g_gmPhase == 3 && g_gmGvipsWaiting) {
+    if (g_gmPhase == 2 && g_gmGvipsWaiting) {
         if (sampDialog.bDialogStyle == DIALOG_STYLE_LIST ||
             sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST ||
             sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST_HEADERS ||
@@ -744,12 +771,18 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
         // UIF /gmembers cevabi LIST/TABLIST olabilir; bazi sunucularda MSGBOX.
         // SAYFALI: her sayfa OnGmembersPage'e beslenir; GM_NEXT donerse istenen
         // buton/item ile sonraki sayfa istenir (uye sayisina göre sayfa degisir).
-        if (sampDialog.bDialogStyle == DIALOG_STYLE_LIST ||
+        if ((sampDialog.bDialogStyle == DIALOG_STYLE_LIST ||
             sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST ||
             sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST_HEADERS ||
-            sampDialog.bDialogStyle == DIALOG_STYLE_MSGBOX) {
+            sampDialog.bDialogStyle == DIALOG_STYLE_MSGBOX) && szInfo && strstr(szInfo, "Last Active")) {
             int iBtn = 0, iItem = -1;
             int r = OnGmembersPage(szInfo, &iBtn, &iItem);
+            {
+                char b2low[128]={0}; for(int i=0; sampDialog.szButton2[i] && i<120; i++) b2low[i]=(sampDialog.szButton2[i]>='A'&&sampDialog.szButton2[i]<='Z')?sampDialog.szButton2[i]+32:sampDialog.szButton2[i];
+                bool bHasNext = (strstr(sampDialog.szButton2, ">>") || strstr(b2low, "next") || strstr(b2low, "ileri") || strstr(sampDialog.szButton2, "\xBB") || strstr(sampDialog.szButton2, "\xAB"));
+                bool bIsLast = (strstr(b2low, "cancel") || strstr(b2low, "iptal") || strstr(b2low, "kapat") || strstr(b2low, "close"));
+                if(r != 1 && bHasNext && !bIsLast){ r = 1; iBtn = 0; iItem = 0; Log("[GHP] Buton fallback: sonraki sayfa (Button2='%s')", sampDialog.szButton2); }
+            }
             Log("[GHP] /gmembers sayfa yakalandi (style %d, baslik: %s) -> %s",
                 sampDialog.bDialogStyle, szTitle, (r == 1) ? "sonraki sayfa" : "finaliz");
 
@@ -783,7 +816,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
         }
         if (sampDialog.bDialogStyle == DIALOG_STYLE_LIST ||
             sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST ||
-            sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST_HEADERS) {
+            sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST_HEADERS && szInfo && strstr(szInfo, "Last Active")) {
             Log("[GROLE-LIST] Dialog yakalandi (page=%d baslik='%s')", g_groleListPage, szTitle);
             Log("[GROLE-LIST-DATA] %.1600s", szInfo ? szInfo : "");
             { size_t nD = szInfo ? strlen(szInfo) : 0; if(nD > 700) Log("[GROLE-LIST-TAIL] %.700s", szInfo + nD - 700); }
@@ -804,7 +837,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                     char *s = szClean; while(*s==' '||*s=='\t'||*s=='\r') s++;
                     char *e = s + strlen(s) -1; while(e>=s && (*e==' '||*e=='\t'||*e=='\r')) *e--=0;
                     // pagination marker
-                    char szLow[512]={0}; for(int i=0; s[i] && i<500; i++) szLow[i]=tolower((unsigned char)s[i]);
+                    char szLow[512]={0}; for(int i=0; s[i] && i<500; i++) szLow[i]=((s[i]>='A'&&s[i]<='Z')?s[i]+32:s[i]);
                     if(strstr(szLow, ">>") || strstr(szLow, "next") || strstr(szLow, "sonraki")){
                         nextRow = row;
                     } else if(s[0]){
@@ -875,7 +908,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
         }
         if (sampDialog.bDialogStyle == DIALOG_STYLE_LIST ||
             sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST ||
-            sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST_HEADERS) {
+            sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST_HEADERS && szInfo && strstr(szInfo, "Last Active")) {
             Log("[GRANK-LIST] Dialog yakalandi (page=%d baslik='%s')", g_grankListPage, szTitle);
             Log("[GRANK-LIST-DATA] %.500s", szInfo ? szInfo : "");
             int nextRow = -1;
@@ -893,7 +926,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                     } szClean[c]=0;
                     char *s = szClean; while(*s==' '||*s=='\t'||*s=='\r') s++;
                     char *e = s + strlen(s) -1; while(e>=s && (*e==' '||*e=='\t'||*e=='\r')) *e--=0;
-                    char szLow[512]={0}; for(int i=0; s[i] && i<500; i++) szLow[i]=tolower((unsigned char)s[i]);
+                    char szLow[512]={0}; for(int i=0; s[i] && i<500; i++) szLow[i]=((s[i]>='A'&&s[i]<='Z')?s[i]+32:s[i]);
                     if(strstr(szLow, ">>") || strstr(szLow, "next") || strstr(szLow, "sonraki")){
                         nextRow = row;
                     } else if(s[0]){
@@ -951,6 +984,97 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
     }
 
     // -------------------------------------------------------------
+    // -------------------------------------------------------------
+    // 3.7c /gkick LIST FETCH (uye listesi, sebep modal oncesi)
+    // -------------------------------------------------------------
+    if (g_gkickListActive) {
+        if (g_gkickListStartTime != 0 && GetTickCount() - g_gkickListStartTime > 20000) {
+            Log("[GKICK-LIST] Zaman asimi, %d uye ile gonderiliyor.", (int)g_gkickListMembers.size());
+            FinishGkickListAndPost();
+            return 0;
+        }
+        if (sampDialog.bDialogStyle == DIALOG_STYLE_LIST ||
+            sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST ||
+            sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST_HEADERS && szInfo && strstr(szInfo, "Last Active")) {
+            Log("[GKICK-LIST] Dialog yakalandi (page=%d baslik='%s')", g_gkickListPage, szTitle);
+            int nextRow = -1;
+            const char *pL = szInfo;
+            int row = 0;
+            while(pL && *pL){
+                const char *pE = strchr(pL, '\n');
+                size_t nLen = pE ? (size_t)(pE - pL) : strlen(pL);
+                if(nLen>0 && nLen<300){
+                    char szLine[512]; memcpy(szLine, pL, nLen); szLine[nLen]=0;
+                    char szClean[512]={0}; int c=0;
+                    for(size_t i=0; szLine[i] && c<500; i++){
+                        if(szLine[i]=='{' && szLine[i+7]=='}'){ i+=7; continue; }
+                        szClean[c++]=szLine[i];
+                    } szClean[c]=0;
+                    char *s = szClean; while(*s==' '||*s=='\t'||*s=='\r') s++;
+                    char *e = s + strlen(s) -1; while(e>=s && (*e==' '||*e=='\t'||*e=='\r')) *e--=0;
+                    char szLow[512]={0}; for(int i=0; s[i] && i<500; i++) szLow[i]=((s[i]>='A'&&s[i]<='Z')?s[i]+32:s[i]);
+                    if(strstr(szLow, ">>") || strstr(szLow, "next") || strstr(szLow, "sonraki") || strstr(szLow, "ileri") || strstr(szLow, "devam")){
+                        nextRow = row;
+                    } else if(s[0]){
+                        if(strstr(szLow, "id") && strstr(szLow, "name")) { }
+                        else {
+                            char *pn = s;
+                            while(*pn && (*pn<'0' || *pn>'9')){ if(*pn=='.'||*pn==':'||*pn=='-'||*pn==' ') {pn++; continue;} break; }
+                            while(*pn>='0' && *pn<='9') pn++;
+                            while(*pn=='.'||*pn==':'||*pn=='-'||*pn==' '||*pn=='\t') pn++;
+                            char name[64]={0}; int ni=0;
+                            while(pn[ni] && pn[ni]!=' ' && pn[ni]!='\t' && pn[ni]!='-' && ni<63){ name[ni]=pn[ni]; ni++; }
+                            name[ni]=0;
+                            if(!name[0]){ int k=0; while(s[k] && s[k]!=' ' && s[k]!='\t' && k<63){ name[k]=s[k]; k++; } name[k]=0; }
+                            if(name[0] && strchr(name, '>')==NULL){
+                                bool dup=false; for(auto &m: g_gkickListMembers) if(_stricmp(m.c_str(), name)==0) dup=true;
+                                if(!dup) g_gkickListMembers.push_back(std::string(name));
+                            }
+                        }
+                    }
+                }
+                row++;
+                if(!pE) break;
+                pL = pE + 1;
+            }
+            {
+                char b2low[128]={0}; for(int i=0; sampDialog.szButton2[i] && i<120; i++) b2low[i]=(sampDialog.szButton2[i]>='A'&&sampDialog.szButton2[i]<='Z')?sampDialog.szButton2[i]+32:sampDialog.szButton2[i];
+                bool bIsLast = (strstr(b2low, "cancel") || strstr(b2low, "iptal") || strstr(b2low, "kapat") || strstr(b2low, "close"));
+                if(bIsLast) nextRow = -1;
+                else if(nextRow < 0){
+                    bool bNextBtn = (strstr(b2low, ">>") || strstr(b2low, "next") || strstr(b2low, "sonraki") || strstr(b2low, "ileri") || strstr(b2low, "devam"));
+                    if(bNextBtn) nextRow = -2;
+                }
+            }
+            RakNet::BitStream bs;
+            bs.Write((uint16_t)wDialogID);
+            if(nextRow >= 0 && g_gkickListPage < 30){
+                Log("[GKICK-LIST] Sonraki sayfa (%d) -> satir %d, toplanan %d", g_gkickListPage+1, nextRow, (int)g_gkickListMembers.size());
+                bs.Write((uint8_t)1);
+                bs.Write((uint16_t)nextRow);
+                bs.Write((uint8_t)0);
+                g_gkickListPage++;
+                pRakClient->RPC(&RPC_DialogResponse, &bs, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
+                return 1;
+            } else if(g_gkickListPage < 30 && nextRow == -2){
+                Log("[GKICK-LIST] '>>' butonu tiklaniyor, sayfa (%d) -> toplanan %d", g_gkickListPage+1, (int)g_gkickListMembers.size());
+                bs.Write((uint8_t)0);
+                bs.Write((uint16_t)0);
+                bs.Write((uint8_t)0);
+                g_gkickListPage++;
+                pRakClient->RPC(&RPC_DialogResponse, &bs, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
+                return 1;
+            } else {
+                Log("[GKICK-LIST] Liste tamamlandi (%d uye)", (int)g_gkickListMembers.size());
+                bs.Write((uint8_t)1);
+                bs.Write((uint16_t)0xFFFF);
+                bs.Write((uint8_t)0);
+                pRakClient->RPC(&RPC_DialogResponse, &bs, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
+                FinishGkickListAndPost();
+                return 1;
+            }
+        }
+    }
     // 3.7 /grole PAGINATED OTOMASYONU (Discord -> sayfali uye listesinde ara + rol sec)
     // /grole komutu: sayfali uye listesi (25/sayfa) -> hedefi bul -> tikla -> rol listesi -> sec
     // -------------------------------------------------------------
@@ -990,7 +1114,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                 g_grolePhase = 2;
                 g_grolePage = 0;
             }
-            if (g_grolePhase == 1) {
+            if (g_grolePhase == 1 && szInfo && strstr(szInfo, "Last Active")) {
                 // Uye listesi: hedefi ara
                 int targetRow = -1, targetItem = -1, nextRow = -1, nextItem = -1;
                 char firstCol[128] = {0}; // hedef satirin ilk sutunu (renksiz) â€” TABLIST inputtext
@@ -1012,7 +1136,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                         } szClean[c]=0;
                         // lower
                         char szLow[512]={0};
-                        for(int i=0; szClean[i] && i<500; i++) szLow[i]=tolower((unsigned char)szClean[i]);
+                        for(int i=0; szClean[i] && i<500; i++) szLow[i]=((szClean[i]>='A'&&szClean[i]<='Z')?szClean[i]+32:szClean[i]);
                         // isim sutununu cikar: "12  washe\tProgrom\tLeader\tNow" -> "washe"
                         char *pN = szClean;
                         while(*pN==' '||*pN=='\t'||*pN=='\r') pN++;
@@ -1079,7 +1203,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                 int iHeaderRows = (sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST_HEADERS) ? 1 : 0;
                 int dataRow = -1;
                 char roleLow[64]={0};
-                for(size_t i=0; i<g_groleRole.size() && i<63; i++) roleLow[i]=tolower((unsigned char)g_groleRole[i]);
+                for(size_t i=0; i<g_groleRole.size() && i<63; i++) roleLow[i]=((g_groleRole[i]>='A'&&g_groleRole[i]<='Z')?g_groleRole[i]+32:g_groleRole[i]);
                 while(pL && *pL){
                     const char *pE = strchr(pL, '\n');
                     size_t nLen = pE ? (size_t)(pE - pL) : strlen(pL);
@@ -1092,7 +1216,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                             szClean[c++]=szLine[i];
                         } szClean[c]=0;
                         char szLow[512]={0};
-                        for(int i=0; szClean[i] && i<500; i++) szLow[i]=tolower((unsigned char)szClean[i]);
+                        for(int i=0; szClean[i] && i<500; i++) szLow[i]=((szClean[i]>='A'&&szClean[i]<='Z')?szClean[i]+32:szClean[i]);
                         if(roleLow[0] && strstr(szLow, roleLow)){ roleRow = row; roleItem = dataRow; }
                     }
                     row++;
@@ -1144,13 +1268,13 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             Log("[GRANK] Dialog yakalandi (phase=%d page=%d baslik='%s')", g_grankPhase, g_grankPage, szTitle);
             Log("[GRANK-DATA] %.400s", szInfo ? szInfo : "");
             // Rank diyalogu geldi (baslik "Group Role"/"Rank"): uye cift tiklamasi baþarýlý, faz 2.
-            if(g_grankPhase == 1 && (strstr(szTitle, "Role") || strstr(szTitle, "Rank")) && (strstr(szInfo, "Co-Leader") || strstr(szInfo, "Member")))
+            if(g_grankPhase == 1 && (strstr(szTitle, "Role") || strstr(szTitle, "Rank")) && (g_grTargetItem >= 0 || strstr(szInfo, "Co-Leader") || strstr(szInfo, "Member")))
             {
                 Log("[GRANK] Rank diyalogu algilandi ('%s'), faz 2'ye gecilir.", szTitle);
                 g_grankPhase = 2;
                 g_grankPage = 0;
             }
-            if (g_grankPhase == 1) {
+            if (g_grankPhase == 1 && szInfo && strstr(szInfo, "Last Active")) {
                 int targetRow = -1, targetItem = -1, nextRow = -1, nextItem = -1;
                 char firstColG[128] = {0}; // grank hedef satirin ilk sutunu
                 const char *pL = szInfo;
@@ -1169,7 +1293,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                             szClean[c++]=szLine[i];
                         } szClean[c]=0;
                         char szLow[512]={0};
-                        for(int i=0; szClean[i] && i<500; i++) szLow[i]=tolower((unsigned char)szClean[i]);
+                        for(int i=0; szClean[i] && i<500; i++) szLow[i]=((szClean[i]>='A'&&szClean[i]<='Z')?szClean[i]+32:szClean[i]);
                         // isim sutununu cikar: "12  washe\tProgrom\tLeader\tNow" -> "washe"
                         char *pN = szClean;
                         while(*pN==' '||*pN=='\t'||*pN=='\r') pN++;
@@ -1227,13 +1351,13 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             } else if (g_grankPhase == 2) {
                 g_grTargetItem = -1; g_grDlgId = 0; // uye tiklamalari durdu
                 // (Buraya yalnizca aday tiklama sonrasi gelen rank diyalogu ile girilir.)
-                int rankRow = -1, rankItem = -1;
+                int rankRow = -1, rankItem = -1, rankSubRow = -1, rankSubItem = -1;
                 const char *pL = szInfo;
                 int row = 0;
                 int iHeaderRows = (sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST_HEADERS) ? 1 : 0;
                 int dataRow = -1;
                 char rankLow[64]={0};
-                for(size_t i=0; i<g_grankRank.size() && i<63; i++) rankLow[i]=tolower((unsigned char)g_grankRank[i]);
+                for(size_t i=0; i<g_grankRank.size() && i<63; i++) rankLow[i]=((g_grankRank[i]>='A'&&g_grankRank[i]<='Z')?g_grankRank[i]+32:g_grankRank[i]);
                 while(pL && *pL){
                     const char *pE = strchr(pL, '\n');
                     size_t nLen = pE ? (size_t)(pE - pL) : strlen(pL);
@@ -1246,13 +1370,24 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                             szClean[c++]=szLine[i];
                         } szClean[c]=0;
                         char szLow[512]={0};
-                        for(int i=0; szClean[i] && i<500; i++) szLow[i]=tolower((unsigned char)szClean[i]);
-                        if(rankLow[0] && strstr(szLow, rankLow)){ rankRow = row; rankItem = dataRow; }
+                        for(int i=0; szClean[i] && i<500; i++) szLow[i]=((szClean[i]>='A'&&szClean[i]<='Z')?szClean[i]+32:szClean[i]);
+                        if(rankLow[0] && rankRow < 0){
+                            // ONCE prefix: satir basi rank adi inputla BASLIYORSA al ("mans" -> "Manslaughter")
+                            char *pS = szClean;
+                            while(*pS==' '||*pS=='\t'||*pS=='\r') pS++;
+                            while(*pS>='0' && *pS<='9') pS++;
+                            while(*pS=='.'||*pS==':'||*pS=='-'||*pS==' '||*pS=='\t') pS++;
+                            char rTok[64]={0}; int ri=0;
+                            while(pS[ri] && pS[ri]!=' ' && pS[ri]!='\t' && pS[ri]!='\r' && ri<63){ char cc=pS[ri]; rTok[ri]=(cc>='A'&&cc<='Z')?cc+32:cc; ri++; } rTok[ri]=0;
+                            if(rTok[0] && strncmp(rTok, rankLow, strlen(rankLow))==0){ rankRow = row; rankItem = dataRow; }
+                            else if(rankSubRow < 0 && strstr(szLow, rankLow)){ rankSubRow = row; rankSubItem = dataRow; }
+                        }
                     }
                     row++;
                     if(!pE) break;
                     pL = pE + 1;
                 }
+                if(rankRow < 0){ rankRow = rankSubRow; rankItem = rankSubItem; }
                 RakNet::BitStream bs;
                 bs.Write((uint16_t)wDialogID);
                 if(rankRow >= 0){
@@ -1279,6 +1414,119 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                 pRakClient->RPC(&RPC_DialogResponse, &bs, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
                 g_grankActive = false;
                 g_grankPhase = 0;
+                return 1;
+            }
+        }
+    }
+
+    // -------------------------------------------------------------
+    // 3.9 /gkick PAGINATED OTOMASYONU (uye listesinde ara + sebep gonder)
+    // -------------------------------------------------------------
+    if (g_gkickActive) {
+        if (g_gkickStartTime != 0 && GetTickCount() - g_gkickStartTime > 45000) {
+            g_gkickActive = false;
+            g_gkickPhase = 0;
+            Log("[GKICK] Zaman asimi (45sn), otomasyon iptal.");
+            return 0;
+        }
+        if (sampDialog.bDialogStyle == DIALOG_STYLE_LIST ||
+            sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST ||
+            sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST_HEADERS ||
+            sampDialog.bDialogStyle == DIALOG_STYLE_MSGBOX ||
+            sampDialog.bDialogStyle == DIALOG_STYLE_INPUT ||
+            sampDialog.bDialogStyle == DIALOG_STYLE_PASSWORD) {
+            Log("[GKICK] Dialog yakalandi (phase=%d page=%d baslik='%s')", g_gkickPhase, g_gkickPage, szTitle);
+            Log("[GKICK-DATA] %.500s", szInfo ? szInfo : "");
+            Log("[GKICK-BTN] btn1='%s' btn2='%s' style=%d", sampDialog.szButton1, sampDialog.szButton2, sampDialog.bDialogStyle);
+            // Sebep diyalogu: aday tiklamasi sonrasi gelen, basliginda Kick/Reason/Sebep gecen dialog -> faz 2
+            // (yalin stil yetmez: baska INPUT dialog olabilir; Last Active kapisi faz-1'i korur)
+            if(g_gkickPhase == 1 && g_grTargetItem >= 0 &&
+               (strstr(szTitle, "Kick") || strstr(szTitle, "kick") || strstr(szTitle, "KICK") || strstr(szTitle, "Reason") || strstr(szTitle, "reason") || strstr(szTitle, "Sebep") || strstr(szTitle, "sebep")))
+            {
+                Log("[GKICK] Sebep diyalogu algilandi ('%s'), faz 2'ye gecilir.", szTitle);
+                g_gkickPhase = 2;
+                g_gkickPage = 0;
+            }
+            if (g_gkickPhase == 1 && szInfo && strstr(szInfo, "Last Active")) {
+                int targetRow = -1, targetItem = -1, nextRow = -1, nextItem = -1;
+                char firstCol[128] = {0};
+                const char *pL = szInfo;
+                int row = 0;
+                int iHeaderRows = (sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST_HEADERS) ? 1 : 0;
+                int dataRow = -1;
+                while(pL && *pL){
+                    const char *pE = strchr(pL, '\n');
+                    size_t nLen = pE ? (size_t)(pE - pL) : strlen(pL);
+                    if(nLen > 0 && nLen < 300){
+                        if(row >= iHeaderRows) dataRow++;
+                        char szLine[512]; memcpy(szLine, pL, nLen); szLine[nLen]=0;
+                        char szClean[512]={0}; int c=0;
+                        for(size_t i=0; szLine[i] && c<500; i++){
+                            if(szLine[i]=='{' && szLine[i+7]=='}'){ i+=7; continue; }
+                            szClean[c++]=szLine[i];
+                        } szClean[c]=0;
+                        char szLow[512]={0};
+                        for(int i=0; szClean[i] && i<500; i++) szLow[i]=((szClean[i]>='A'&&szClean[i]<='Z')?szClean[i]+32:szClean[i]);
+                        char *pN = szClean;
+                        while(*pN==' '||*pN=='\t'||*pN=='\r') pN++;
+                        while(*pN>='0' && *pN<='9') pN++;
+                        while(*pN=='.'||*pN==':'||*pN=='-'||*pN==' '||*pN=='\t') pN++;
+                        char name[64]={0}; int ni=0;
+                        while(pN[ni] && pN[ni]!=' ' && pN[ni]!='\t' && pN[ni]!='\r' && ni<63){ name[ni]=pN[ni]; ni++; }
+                        name[ni]=0;
+                        if(name[0] && !_stricmp(name, g_gkickTarget.c_str())){
+                            targetRow = row; targetItem = dataRow;
+                            int fc = 0;
+                            for(fc = 0; szClean[fc] && szClean[fc] != '\t' && fc < 127; fc++) firstCol[fc] = szClean[fc];
+                            firstCol[fc] = 0;
+                        }
+                        if(strstr(szLow, ">>") || strstr(szLow, "next") || strstr(szLow, "sonraki") || strstr(szLow, "ileri") || strstr(szLow, "devam")){ nextRow = row; nextItem = dataRow; }
+                    }
+                    row++;
+                    if(!pE) break;
+                    pL = pE + 1;
+                }
+                bool bGkickIsLast=false; { char b2low[128]={0}; for(int i=0; sampDialog.szButton2[i] && i<120; i++) b2low[i]=(sampDialog.szButton2[i]>='A'&&sampDialog.szButton2[i]<='Z')?sampDialog.szButton2[i]+32:sampDialog.szButton2[i]; bGkickIsLast = (strstr(b2low, "cancel") || strstr(b2low, "iptal") || strstr(b2low, "kapat") || strstr(b2low, "close")); if(bGkickIsLast) nextRow = -1; }
+                RakNet::BitStream bs;
+                bs.Write((uint16_t)wDialogID);
+                if(targetRow >= 0){
+                    Log("[GKICK] Hedef '%s' bulundu (satir %d, item %d).", g_gkickTarget.c_str(), targetRow, targetItem);
+                    StartGrCandidateClicks(targetRow, targetItem >= 0 ? targetItem : targetRow, (unsigned short)wDialogID, g_gkickPage, firstCol);
+                    return 1;
+                } else if(nextRow >= 0 && g_gkickPage < 30){
+                    Log("[GKICK] Hedef bu sayfada yok, sonraki sayfa (%d) -> item %d", g_gkickPage+1, nextItem);
+                    bs.Write((uint8_t)1);
+                    bs.Write((uint16_t)(nextItem >= 0 ? nextItem : nextRow));
+                    bs.Write((uint8_t)0);
+                    g_gkickPage++;
+                    pRakClient->RPC(&RPC_DialogResponse, &bs, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
+                    return 1;
+                } else if(!bGkickIsLast && g_gkickPage < 30){
+                    Log("[GKICK] Hedef bulunamadi, '>>' butonu tiklaniyor (sayfa %d)", g_gkickPage+1);
+                    bs.Write((uint8_t)0);
+                    bs.Write((uint16_t)0);
+                    bs.Write((uint8_t)0);
+                    g_gkickPage++;
+                    pRakClient->RPC(&RPC_DialogResponse, &bs, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
+                    return 1;
+                }
+                Log("[GKICK] Hedef '%s' bulunamadi, iptal.", g_gkickTarget.c_str());
+                bs.Write((uint8_t)1);
+                bs.Write((uint16_t)0xFFFF);
+                bs.Write((uint8_t)0);
+                pRakClient->RPC(&RPC_DialogResponse, &bs, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
+                g_gkickActive = false;
+                g_gkickPhase = 0;
+                return 1;
+            } else if (g_gkickPhase == 2) {
+                int sentItem = (g_grLastSentItem >= 0) ? g_grLastSentItem : 0xFFFF;
+                g_grTargetItem = -1; g_grDlgId = 0;
+                char szReason[128] = {0};
+                strncpy_s(szReason, sizeof(szReason), g_gkickReason.c_str(), sizeof(szReason) - 1);
+                sendDialogResponse(wDialogID, 1, (WORD)sentItem, szReason);
+                Log("[GKICK] Sebep gonderildi ('%s', item %d), otomasyon tamam.", szReason[0] ? szReason : "-", sentItem);
+                g_gkickActive = false;
+                g_gkickPhase = 0;
                 return 1;
             }
         }
@@ -1423,8 +1671,8 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             return 1;
         }
 
-        // ?gmembers koleksiyonu (faz 2): /astats sonucundan account ID parse et
-        if (g_gmPhase == 2 && g_gmAstatsWaiting) {
+        // ?gmembers koleksiyonu (faz 3): /astats sonucundan account ID parse et
+        if (g_gmPhase == 3 && g_gmAstatsWaiting) {
             Log("[GM] astats sonuc dialogu yakalandi ('%s').", g_gmAstatsName);
             OnGmAstatsResult(szInfo);
             RakNet::BitStream bsGM2;

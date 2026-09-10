@@ -1,6 +1,7 @@
 const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 const Guild = require('../models').Guild;
 const { queueCommand } = require('../utils/commandOutbox');
+const { setPendingInteraction } = require('../utils/pendingReplies');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -18,9 +19,14 @@ module.exports = {
             });
         }
 
+        const L = (tr, en) => (guild.lang === 'tr' ? tr : en);
         const hwid = guild.linkedHwids[0];
-        queueCommand(hwid, { type: 'gmembers' });
+        queueCommand(hwid, { type: 'gmembers', requesterId: interaction.id });
+        setPendingInteraction(interaction.id, interaction);
 
-        await interaction.reply(`✅ GMembers harvest baslatildi. **\`${hwid}\`** istemcisi uye listesi + /astats (account ID) + /gvips (VIP) toplayip Google Sheets'e yazacak. Tamamlaninca tabloyu gunceller.`);
+        await interaction.reply({
+            content: `✅ ${L('GMembers harvest başlatıldı. Bitince tablo linki bu kanala gelecek.', 'GMembers harvest started. The sheet link will be posted in this channel when done.')}`,
+            ephemeral: true
+        });
     }
 };

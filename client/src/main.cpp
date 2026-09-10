@@ -371,10 +371,16 @@ void Log(char *fmt, ...)
 {
 	if(flLog == NULL)
 	{
+		bool isNew = false;
+		FILE *test = fopen("RakSAMPClient.log", "r");
+		if(test){ fclose(test); } else { isNew = true; }
 		flLog = fopen("RakSAMPClient.log", "a");
-
 		if(flLog == NULL)
 			return;
+		if(isNew){
+			unsigned char bom[3] = {0xEF, 0xBB, 0xBF};
+			fwrite(bom, 1, 3, flLog);
+		}
 	}
 
 	SYSTEMTIME time;

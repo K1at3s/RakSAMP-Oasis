@@ -1,3 +1,33 @@
+# v1.7.0 - 2026-09-11 (beta branch)
+
+## Türkçe
+- **?gkick / /gkick (yeni)**: sayfalı üye listesi + sebep modalı (boş bırakılabilir) + dialog otomasyonu (ara + tıkla + sebep gönder); sebep dialogu (`UIF - Group Kick`, INPUT) faz-2 tanıma; sebep son tıklanan item ile gönderilir
+- **?ginv / /ginv (yeni)**: `/ginvite id` ile davet (oyun içi + Discord, aynı yetki kapısı)
+- **?grank prefix eşleşme**: `mans` → `Manslaughter` (önce satır-başı prefix, sonra substring); faz-2 tanıma tıklama kanıtıyla (özel rank listelerinde `Co-Leader`/`Member` şartı kalktı)
+- **gmembers sayfalama**: `Button2 ' >>'` fallback + `cancel/ok` = son sayfa (25 yerine 127 üyenin tamamı); sıra üyeler → gvips (tabloya yaz) → astats → gönderim
+- **gmembers parse**: rank/role/last active/VIP generic (çok kelimeli rank, `Non GZ`, `Diamond (14 days)`, son kolon last active); account ID case-insensitive; tabloda kaydı olan atlanır (`/api/gmembers/known`)
+- **Sheet**: VIP satırı tier renginde boyanır, VIP kolonu 9px font; değişiklik yoksa skip ama `Updated` damgası her koşulda tazelenir; anti-nuke (yarıdan küçük listede silme yok); damga TR saati (UTC+3)
+- **Summary sekmesi**: Total Members / VIP / Updated + sayılar (dilli: TR/EN)
+- **Discord**: `/gmembers` ephemeral ack + bitince kanala 📊 link + last updated (aynı mesaj düzenlenir, `roster_messages` tablosu)
+- **Admin/grup log ayrımı** (`ADMIN:` ↔ `GROUP:`) + kick actor parse düzeltmesi (`Name(acc)`)
+- **Mute**: gametext + chat tespiti (griefer korumalı `Isim(id):` filtresi), anında reconnect; `LearnGroupTag` kirlilik koruması (üye/rol listeleri gangs'e yazılmaz)
+- **?zgrp bootstrap** (boş listede keşif), scan/harvest sırası + 30sn spawn koruması, restore-path race fix
+- UTF-8 log koruması (cp1254 kaynaklar bayt-güvenli düzenlenir)
+
+## English
+- **?gkick / /gkick (new)**: paginated member list + reason modal (optional) + dialog automation (search + click + submit reason); reason dialog (`UIF - Group Kick`, INPUT) phase-2 detection; reason sent echoing last clicked item
+- **?ginv / /ginv (new)**: invite via `/ginvite id` (in-game + Discord, same permission gate)
+- **?grank prefix matching**: `mans` → `Manslaughter` (line-start prefix first, substring fallback); phase-2 detection via click evidence (no more `Co-Leader`/`Member` body requirement on custom rank lists)
+- **gmembers pagination**: `Button2 ' >>'` fallback + `cancel/ok` = last page (all 127 members, not 25); order members → gvips (write) → astats → send
+- **gmembers parsing**: generic rank/role/last-active/VIP (multi-word ranks, `Non GZ`, `Diamond (14 days)`, last column last-active); case-insensitive account ID; skip `/astats` for table-known IDs (`/api/gmembers/known`)
+- **Sheet**: full-row VIP tier colors, 9px VIP font; skip-if-unchanged but `Updated` stamp always refreshes; anti-nuke (no deletes when new list < half of old); TR-time stamps (UTC+3)
+- **Summary tab**: Total Members / VIP / Updated + counts (localized TR/EN)
+- **Discord**: ephemeral `/gmembers` ack + 📊 link + last updated posted to channel on completion (same message edited, `roster_messages` table)
+- **Admin/group log split** (`ADMIN:` ↔ `GROUP:`) + kick actor parse fix (`Name(acc)`)
+- **Mute**: gametext + chat detection (griefer-safe `Name(id):` filter), instant reconnect; `LearnGroupTag` pollution guards
+- **?zgrp bootstrap** (discovery on empty list), scan/harvest ordering + 30s spawn guard, restore-path race fix
+- UTF-8 log safety (cp1254 sources edited byte-safe)
+
 # beta — 2026-09-07 (beta branch)
 
 ## Türkçe
