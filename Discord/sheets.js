@@ -252,10 +252,14 @@ async function writeRoster(spreadsheetId, group, rows, lang = 'en') {
         if (requests.length) await sheets.spreadsheets.batchUpdate({ spreadsheetId: id, requestBody: { requests } });
     }
 
-    // Damga TR saatiyle (Europe/Istanbul, UTC+3): tabloda gorulen saat yerel olsun
-    const d = new Date();
-    const tp = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: 'Europe/Istanbul', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(d).map(p => [p.type, p.value]));
-    const stamp = `${tp.day} ${tp.month} ${tp.year}, ${tp.hour}:${tp.minute} UTC+3`;
+    // Damga TR saatiyle (Europe/Istanbul, UTC+3): Turkiye yil boyu sabit UTC+3 kullanir
+    // (DST uygulamaz). Intl.DateTimeFormat timeZone'i, runtime'da timezone verisi yoksa
+    // sessizce UTC'ye dusup saati 3 saat geriye yaziyordu (orn. 23:20 -> 20:20). Bunun
+    // yerine sabit UTC+3 offset ile deterministik hesapla (sunucu saat diliminden bagimsiz).
+    const MONTHS_IST = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const nowIST = new Date(Date.now() + 3 * 3600 * 1000); // UTC+3 sabit offset
+    const p2d = (n) => String(n).padStart(2, '0');
+    const stamp = `${p2d(nowIST.getUTCDate())} ${MONTHS_IST[nowIST.getUTCMonth()]} ${nowIST.getUTCFullYear()}, ${p2d(nowIST.getUTCHours())}:${p2d(nowIST.getUTCMinutes())} UTC+3`;
 
     const header = ['#', 'Name', 'Account ID', 'Rank', 'Role', 'VIP', 'Last Active'];
     // For /gmembers updates: isme gore satir esle, bos gelen accountId/VIP'i tablodakiyle koru, listede olmayani sil

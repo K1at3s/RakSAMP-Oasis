@@ -13,6 +13,8 @@
 - **Mute**: gametext + chat tespiti (griefer korumalı `Isim(id):` filtresi), anında reconnect; `LearnGroupTag` kirlilik koruması (üye/rol listeleri gangs'e yazılmaz)
 - **?zgrp bootstrap** (boş listede keşif), scan/harvest sırası + 30sn spawn koruması, restore-path race fix
 - UTF-8 log koruması (cp1254 kaynaklar bayt-güvenli düzenlenir)
+- **?zf tag yükleme**: DB tek kaynak; `LoadGroupsFromDb` artık sadece açılışta değil, periyodik sync'te **ve her `?zf` isteğinde** yeniden çekiliyor → DB'de var olan ama tek seferlik GET'e denk gelmeyen tag'ler de hafızaya yükleniyor; `?zf` isim yerine kısa tag gösterir
+- **?gmembers Updated saati**: `sheets.js` damgası `Intl.DateTimeFormat` timezone'una bağlıydı; runtime'da timezone verisi yoksa sessizce UTC'ye düşüp 3 saat geriye yazıyordu (23:20 yerine 20:20). Artık sabit UTC+3 aritmetiğiyle deterministik hesaplanıyor
 
 ## English
 - **?gkick / /gkick (new)**: paginated member list + reason modal (optional) + dialog automation (search + click + submit reason); reason dialog (`UIF - Group Kick`, INPUT) phase-2 detection; reason sent echoing last clicked item
@@ -27,6 +29,8 @@
 - **Mute**: gametext + chat detection (griefer-safe `Name(id):` filter), instant reconnect; `LearnGroupTag` pollution guards
 - **?zgrp bootstrap** (discovery on empty list), scan/harvest ordering + 30s spawn guard, restore-path race fix
 - UTF-8 log safety (cp1254 sources edited byte-safe)
+- **?zf tag loading**: DB is the single source; `LoadGroupsFromDb` now re-pulls not only at startup but on every periodic sync **and on every `?zf` request** → tags that exist in the DB but missed the one-shot GET also get loaded into memory; `?zf` shows the short tag instead of the full name
+- **?gmembers Updated time**: `sheets.js` stamp relied on `Intl.DateTimeFormat` timezone; when the runtime lacks tz data it silently fell back to UTC, writing 3h behind (23:20 shown as 20:20). Now computed deterministically with a fixed UTC+3 offset
 
 # beta — 2026-09-07 (beta branch)
 
