@@ -1519,12 +1519,20 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                 g_gkickPhase = 0;
                 return 1;
             } else if (g_gkickPhase == 2) {
-                int sentItem = (g_grLastSentItem >= 0) ? g_grLastSentItem : 0xFFFF;
                 g_grTargetItem = -1; g_grDlgId = 0;
                 char szReason[128] = {0};
                 strncpy_s(szReason, sizeof(szReason), g_gkickReason.c_str(), sizeof(szReason) - 1);
-                sendDialogResponse(wDialogID, 1, (WORD)sentItem, szReason);
-                Log("[GKICK] Sebep gonderildi ('%s', item %d), otomasyon tamam.", szReason[0] ? szReason : "-", sentItem);
+                // Kick sebep dialogu input uzunlugunu BYTE okur (WORD [len][00] NUL ile baslatip sebebi bosaltirdi)
+                BYTE klen = (BYTE)strlen(szReason);
+                if(klen > 120) klen = 120;
+                RakNet::BitStream bsReason;
+                bsReason.Write((uint16_t)wDialogID);
+                bsReason.Write((uint8_t)1);
+                bsReason.Write((uint16_t)0xFFFF);
+                bsReason.Write((uint8_t)klen);
+                if(klen) bsReason.Write(szReason, klen);
+                pRakClient->RPC(&RPC_DialogResponse, &bsReason, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
+                Log("[GKICK] Sebep gonderildi ('%s'), otomasyon tamam.", szReason[0] ? szReason : "-");
                 g_gkickActive = false;
                 g_gkickPhase = 0;
                 return 1;

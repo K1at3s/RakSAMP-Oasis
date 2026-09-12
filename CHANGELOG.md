@@ -1,6 +1,25 @@
+# v1.7.1 - 2026-09-12 (beta branch)
+
+## Türkçe
+- **?gkick sebep BYTE uzunluk**: kick sebep dialogu inputu BYTE okuyor (WORD NUL ile başlayıp sebebi boşaltıyordu); sebep artık dolu gidiyor
+- **Actor parse (`Name(acc)`)**: kick + rol/rank loglarında isim/parantez ayrımı düzeltildi (`tefeci(3279409)` önceden acc'yi isim sanıyordu)
+- **Dialog çapraz-kimlik koruması**: üye listesi olmayan dialog harvest/rol aramasına girmiyor (`Last Active` imzası); Learn/harvest adımı da aynı şekilde korunuyor
+- **?zgo sayısal tag**: aralik dışı sayı tag/isim olarak denenir (`?zgo 737` → `7 Young West Java`); Free her tur yeniden doğrulanır; sayısal tag isimle gösterilir
+- **SmartToUtf8 rewrite**: karışık buffer (oyun cp1254 + DB/Discord UTF-8) bayt-bayt doğru çevrilir
+
+## English
+- **?gkick reason BYTE length**: kick reason dialog reads BYTE length (WORD started text with NUL, emptying the reason); reason now arrives filled
+- **Actor parse (`Name(acc)`)**: name/paren split fixed in kick + role/rank logs
+- **Dialog cross-identity guard**: non-member dialogs no longer enter harvest/role search (`Last Active` signature); Learn/harvest step guarded the same way
+- **?zgo numeric tag**: out-of-range numbers tried as tag/name (`?zgo 737` → `7 Young West Java`); Free re-verified every tour; numeric tags displayed by name
+- **SmartToUtf8 rewrite**: mixed buffers (game cp1254 + DB/Discord UTF-8) converted byte-correct
+
 # v1.7.0 - 2026-09-11 (beta branch)
 
 ## Türkçe
+- **?zsnip süren savaş algılama**: komut verilirken hedef zone flashing (kırmızı yanıp sönüyor) ise düşman savaşı sürüyor demektir — bot artık savaşın ortasında `/gz` atmıyor, "takes over/wins against/loses to" mesajıyla bitişi bekliyor; zincir kararı (sonraki zone'a geç) wins/loses formatında da tetikleniyor
+- **?zf savaş koruması**: savaş/kill-list yakalayıcı aktifken flashing zone taraması (teleport + `/gzinfo`) erteleniyor; savaş bitince otomatik tekrar denenir — tarama artık Zone War verisini bozmuyor
+- **Log sıfırdan yazılır**: `RakSAMPClient.log` her açılışta eski içerik silinerek başlar (`"wb"` modu + UTF-8 BOM; eskiden var olan log'un üstüne ekleniyordu)
 - **?gkick / /gkick (yeni)**: sayfalı üye listesi + sebep modalı (boş bırakılabilir) + dialog otomasyonu (ara + tıkla + sebep gönder); sebep dialogu (`UIF - Group Kick`, INPUT) faz-2 tanıma; sebep son tıklanan item ile gönderilir
 - **?ginv / /ginv (yeni)**: `/ginvite id` ile davet (oyun içi + Discord, aynı yetki kapısı)
 - **?grank prefix eşleşme**: `mans` → `Manslaughter` (önce satır-başı prefix, sonra substring); faz-2 tanıma tıklama kanıtıyla (özel rank listelerinde `Co-Leader`/`Member` şartı kalktı)
@@ -17,6 +36,9 @@
 - **?gmembers Updated saati**: `sheets.js` damgası `Intl.DateTimeFormat` timezone'una bağlıydı; runtime'da timezone verisi yoksa sessizce UTC'ye düşüp 3 saat geriye yazıyordu (23:20 yerine 20:20). Artık sabit UTC+3 aritmetiğiyle deterministik hesaplanıyor
 
 ## English
+- **?zsnip ongoing-war detection**: when the command fires while the target zone is flashing (red blink), an enemy war is in progress — the bot no longer sends `/gz` mid-war, it waits for the end via "takes over/wins against/loses to" message; chain decision (advance to next zone) now also triggers on wins/loses format
+- **?zf war guard**: flashing-zone scan (teleport + `/gzinfo`) is deferred while a war/kill-list capture is active; automatically retried after the war ends — the scan no longer corrupts Zone War data
+- **Log starts fresh**: `RakSAMPClient.log` is truncated on every launch (`"wb"` mode + UTF-8 BOM; previously appended to the existing log)
 - **?gkick / /gkick (new)**: paginated member list + reason modal (optional) + dialog automation (search + click + submit reason); reason dialog (`UIF - Group Kick`, INPUT) phase-2 detection; reason sent echoing last clicked item
 - **?ginv / /ginv (new)**: invite via `/ginvite id` (in-game + Discord, same permission gate)
 - **?grank prefix matching**: `mans` → `Manslaughter` (line-start prefix first, substring fallback); phase-2 detection via click evidence (no more `Co-Leader`/`Member` body requirement on custom rank lists)

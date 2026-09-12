@@ -382,35 +382,40 @@ static bool IsValidUtf8(const char *s)
 void SmartToUtf8(const char *in, char *out, int outSz)
 {
 	if(!in || !out || outSz <= 0) return;
-	int wlenTry = MultiByteToWideChar(1254, 0, in, -1, NULL, 0);
-	if(wlenTry > 0){
-		wchar_t *wTry = (wchar_t*)malloc(wlenTry * sizeof(wchar_t));
-		if(MultiByteToWideChar(1254, 0, in, -1, wTry, wlenTry) > 0){
-			int ulenTry = WideCharToMultiByte(CP_UTF8, 0, wTry, -1, NULL, 0, NULL, NULL);
-			if(ulenTry > 0 && ulenTry < outSz){
-				WideCharToMultiByte(CP_UTF8, 0, wTry, -1, out, ulenTry, NULL, NULL);
-				free(wTry);
-				return;
-			}
-		}
-		free(wTry);
-	}
 	if(IsValidUtf8(in)) { strncpy_s(out, outSz, in, outSz - 1); return; }
-	int wlen = MultiByteToWideChar(1254, 0, in, -1, NULL, 0);
-	if(wlen > 0)
+	// Karisik encoding: gecerli UTF-8 dizileri aynen gecer, diger baytlar cp1254'ten cevrilir.
+	// (oyun cp1254 + DB/Discord UTF-8 ayni bufferda olabilir; tek tip varsayim bozuyordu)
+	int oi = 0;
+	int n = (int)strlen(in);
+	for(int i = 0; i < n && oi < outSz - 1;)
 	{
-		wchar_t *w = (wchar_t*)malloc(wlen * sizeof(wchar_t));
-		MultiByteToWideChar(1254, 0, in, -1, w, wlen);
-		int ulen = WideCharToMultiByte(CP_UTF8, 0, w, -1, NULL, 0, NULL, NULL);
-		if(ulen > 0 && ulen <= outSz)
+		unsigned char c = (unsigned char)in[i];
+		int len = 0;
+		if(c < 0x80) len = 1;
+		else if((c & 0xE0) == 0xC0) len = 2;
+		else if((c & 0xF0) == 0xE0) len = 3;
+		else if((c & 0xF8) == 0xF0) len = 4;
+		bool ok = (len > 1 && i + len <= n);
+		for(int j = 1; ok && j < len; j++)
+			if(((unsigned char)in[i+j] & 0xC0) != 0x80) ok = false;
+		if(ok)
 		{
-			WideCharToMultiByte(CP_UTF8, 0, w, -1, out, ulen, NULL, NULL);
-			free(w);
-			return;
+			for(int j = 0; j < len && oi < outSz - 1; j++) out[oi++] = in[i+j];
+			i += len;
 		}
-		free(w);
+		else
+		{
+			wchar_t w = 0;
+			if(MultiByteToWideChar(1254, 0, in + i, 1, &w, 1) == 1)
+			{
+				char tmp[4] = {0};
+				int ul = WideCharToMultiByte(CP_UTF8, 0, &w, 1, tmp, sizeof(tmp), NULL, NULL);
+				for(int j = 0; j < ul && oi < outSz - 1; j++) out[oi++] = tmp[j];
+			}
+			i++;
+		}
 	}
-	strncpy_s(out, outSz, in, outSz - 1);
+	out[oi] = 0;
 }
 
 void SmartToCp1254(const char *in, char *out, int outSz)
