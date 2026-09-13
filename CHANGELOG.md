@@ -1,3 +1,29 @@
+# beta v2 - 2026-09-13 (beta branch)
+
+## Türkçe
+- **?alogs slot→isim**: sayı `<1000` ise canlı `playerInfo` + oturum cache'inden isme çevrilir; ikisi de yoksa 120 sn'den taze DB satırına bakılır, o da yoksa yanlış kişi yerine `Slot cevrimdisi` mesajı (`?alogs 45` → uL.Hold vakası kapandı)
+- **account-ID banlar**: `banned account ID 3292655` mesajında `/astats` ile isim çözülüp isim + account ID birlikte kaydedilir (kuyruklu, 15 sn fallback); `?alogs 3292655` çalışır
+- **Temp hesap filtresi**: `_tmp+sayı` ile biten isimlerin action'ları DB'ye yazılmaz
+- **?alog/?alogs çakışması**: çıplak `?alogs` artık `s` harfini sorgulamıyor; boş sorguda kullanım mesajı
+- **?zsnip tarama duraklatma**: sniper boyunca zone taraması durur, bitince kaldığı yerden devam eder (GeMs vakası: tarama `/pos`'u sniper `/pos`'uyla çakışıp yanlış zone'a saldırtıyordu)
+- **Çevrimdışı sahip koruması**: üyeleri offline grubun zone'u artık `Free` işaretlenmiyor, bilinen isim korunuyor (`?zsnip Free` Dev'in zone'una saldırmaz)
+- **player_cache.txt kaldırıldı**: `?pl` FPS/ping + slot çözümleme DB'deki `players` tablosundan (`GET /api/player/cache`, yaş damgalı)
+- **Bayat flash temizliği**: 15 dk tazelenmeyen flash bayrakları süpürülür, gün değişiminde sıfırlanır
+- **Açılış tam kontrolü**: ilk tarama flash'a bakmadan tüm zone'ları tek tek doğrular (sessiz el değiştirmeler yakalanır)
+- **Kill-list Total hizası**: Total satırı K/A/D/DMG sütunlarının altına denk geliyor
+
+## English
+- **?alogs slot→name**: numbers `<1000` resolve via live `playerInfo` + session cache; otherwise a fresh (<120s) DB row; if none, an honest `Slot offline` message instead of a wrong person (`?alogs 45` → uL.Hold case closed)
+- **Account-ID bans**: `banned account ID 3292655` resolves the name via `/astats` and saves name + account ID together (queued, 15s fallback); `?alogs 3292655` works
+- **Temp account filter**: actions of names ending `_tmp+digits` are not written to DB
+- **?alog/?alogs collision**: bare `?alogs` no longer queries the letter `s`; usage message on empty query
+- **?zsnip scan pause**: zone scan pauses during snipe, resumes where it left off (GeMs case: scan `/pos` clashed with sniper `/pos`+`/gz`, attacking the wrong zone)
+- **Offline-owner guard**: zones of offline-member groups are no longer marked `Free`, known name is kept (`?zsnip Free` won't attack Dev's zone)
+- **player_cache.txt removed**: `?pl` FPS/ping + slot resolution come from DB `players` table (`GET /api/player/cache`, age-stamped)
+- **Stale flash cleanup**: flash flags untouched for 15 min are swept, cleared on day change
+- **Boot full verify**: first scan verifies every zone regardless of flash (silent takeovers get caught)
+- **Kill-list Total alignment**: Total row lines up under K/A/D/DMG columns
+
 # v1.7.1 - 2026-09-12 (beta branch)
 
 ## Türkçe
