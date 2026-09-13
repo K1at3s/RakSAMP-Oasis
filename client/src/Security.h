@@ -1,10 +1,10 @@
-﻿#ifndef SECURITY_H
+#ifndef SECURITY_H
 #define SECURITY_H
 
 #include <string>
 #include <vector>
 
-// K├╝resel De─si┼skenler
+// K??resel De?si?skenler
 extern std::string g_myHWID;
 extern std::string g_sessionToken;
 extern std::string g_commandPrefix;
@@ -29,12 +29,12 @@ extern int g_plTargetId;
 #define PLAYER_CACHE_SIZE 1000
 struct stPlayerCache { char szName[64]; double dLoss; int iFps; int iPing; unsigned long dwTime; };
 extern stPlayerCache g_playerCache[PLAYER_CACHE_SIZE];
-void LoadPlayerCache();
+void ResetPlayerCache();
 // ?gst : /gstats dialogundan zone + aktif oyuncu sayisi (Discord'a gitmez)
 extern bool g_waitingForGst;
 extern unsigned long g_gstReqTime;
 extern char g_szNickName[32];
-// /admins k├pr├╝s├╝ (Discord /admins slash komutu)
+// /admins k?pr??s?? (Discord /admins slash komutu)
 extern bool g_waitingForAdmins;
 extern unsigned long g_adminsReqTime;
 extern std::string g_adminsRequesterId;
@@ -95,7 +95,7 @@ void OnGmembersFinalize();
 void GmembersReset();
 void ProcessGhpHarvestStep();
 bool OnGStatsResultForHarvest(const char *szInfo);
-// Cache + grup renklerini backend'e (MySQL) yazar; main loop 60 sn'de bir ├ga─s─▒r─▒r
+// Cache + grup renklerini backend'e (MySQL) yazar; main loop 60 sn'de bir ?ga?s??r??r
 void ProcessDbSync();
 void StartFrRetry();
 void ProcessFrRetry();

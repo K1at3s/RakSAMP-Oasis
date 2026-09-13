@@ -847,6 +847,31 @@ void GmembersReset() { s_iGmPage = 1; s_bGmBotOk = false; s_bGmUserOk = false; }
 static int   g_zoneScanQueue[MAX_GANG_ZONES] = {0};
 static int   g_zoneScanQ = 0;          // kuyruktaki ornek zone sayisi
 static int   g_zoneScanIdx = -1;       // -1: tarama yok; 0..: siradaki ornek
+static bool  g_zscanPausedForSnip = false; // sniper suresince tarama duraklatildi mi
+static int   g_zscanPausedIdx = -1;        // duraklatilan ornek (devam icin)
+// Sniper suresince zone taramasi DURAKLATILIR: taramanin /pos isinlamalari
+// sniperin /pos + /gz akisiyla cakisip yanlis zonea saldirtiyordu (GeMs vakasi).
+// Bitince kalinan ornekten devam eder.
+static void PauseZoneScanForSnip()
+{
+	if(g_zscanPausedForSnip || g_zoneScanIdx < 0) return;
+	g_zscanPausedIdx = g_zoneScanIdx;
+	g_zoneScanIdx = -1;
+	g_zscanPausedForSnip = true;
+	Log("[ZSNIP] Aktif zone taramasi duraklatildi (sniper bitince devam edecek).");
+}
+static void ResumeZoneScanAfterSnip()
+{
+	if(!g_zscanPausedForSnip) return;
+	g_zscanPausedForSnip = false;
+	if(g_zoneScanIdx < 0 && g_zscanPausedIdx >= 0 && g_zscanPausedIdx < MAX_GANG_ZONES)
+	{
+		g_zoneScanIdx = g_zscanPausedIdx;
+		Log("[ZSNIP] Zone taramasi kalinan yerden devam ediyor.");
+	}
+	g_zscanPausedIdx = -1;
+}
+
 static DWORD g_zoneScanDeadline = 0;   // ornek icin zaman asimi
 static bool  g_zoneScanWaitingTeleport = false; // /pos gonderildi, /gzinfo henuz gonderilmedi
 static float g_zoneScanReturnPos[3] = {0, 0, 0};
@@ -1533,6 +1558,206 @@ static void CheckGroupLogMessage(const char *msg)
 	}
 }
 
+// Gecici hesaplar "_tmp + rakam" ile biter (Lucas_Perez_tmp0); bunlarin
+// eylemleri DBye yazilmaz (IDleri geri donusumlu, sorgulari kirletir).
+static bool IsTempAccount(const char *name)
+{
+	if(!name || !name[0]) return false;
+	size_t n = strlen(name);
+	if(n < 5) return false;
+	size_t i = n;
+	while(i > 0 && name[i-1] >= '0' && name[i-1] <= '9') i--;
+	if(i == n || i < 4) return false;
+	if(name[i-4] != '_') return false;
+	char c1 = name[i-3], c2 = name[i-2], c3 = name[i-1];
+	if(c1 != 't' && c1 != 'T') return false;
+	if(c2 != 'm' && c2 != 'M') return false;
+	if(c3 != 'p' && c3 != 'P') return false;
+	return true;
+}
+
+// --- account ID ile baslayan admin eylemi: /astats ile isim cozulup
+// isim + account ID birlikte DBye yazilir. Cozum yoksa/zaman asiminda
+// "account ID N" kaydina dusulur.
+struct AlogAccItem
+{
+	bool bUsed;
+	char szAdmin[64];
+	long long llAccId;
+	char szAction[16];
+	char szMode[64];
+	int iDur;
+	char szReason[128];
+};
+static AlogAccItem g_alogAccQ[8];
+bool g_alogAstatsActive = false;
+static int g_alogAstatsIdx = -1;
+static DWORD g_alogAstatsReqTime = 0;
+static char g_alogAstatsId[24] = {0};
+static bool EnqueueAlogAccItem(const char *admin, long long accId, const char *action, const char *mode, int dur, const char *reason)
+{
+	for(int i = 0; i < 8; i++)
+	{
+		if(g_alogAccQ[i].bUsed) continue;
+		g_alogAccQ[i].bUsed = true;
+		strncpy_s(g_alogAccQ[i].szAdmin, sizeof(g_alogAccQ[i].szAdmin), admin ? admin : "", _TRUNCATE);
+		g_alogAccQ[i].llAccId = accId;
+		strncpy_s(g_alogAccQ[i].szAction, sizeof(g_alogAccQ[i].szAction), action ? action : "", _TRUNCATE);
+		strncpy_s(g_alogAccQ[i].szMode, sizeof(g_alogAccQ[i].szMode), mode ? mode : "", _TRUNCATE);
+		g_alogAccQ[i].iDur = dur;
+		strncpy_s(g_alogAccQ[i].szReason, sizeof(g_alogAccQ[i].szReason), reason ? reason : "", _TRUNCATE);
+		Log("[ALOG] account ID %lld cozumu kuyruga alindi (%s %s).", accId, admin ? admin : "?", action ? action : "?");
+		return true;
+	}
+	return false;
+}
+static void AlogAccFallback(int idx)
+{
+	if(idx < 0 || idx >= 8 || !g_alogAccQ[idx].bUsed) return;
+	char szName[64];
+	sprintf_s(szName, sizeof(szName), "account ID %lld", g_alogAccQ[idx].llAccId);
+	SendAdminLog(g_alogAccQ[idx].szAdmin, szName, g_alogAccQ[idx].llAccId,
+		g_alogAccQ[idx].szAction, g_alogAccQ[idx].szMode, g_alogAccQ[idx].iDur, g_alogAccQ[idx].szReason);
+	g_alogAccQ[idx].bUsed = false;
+}
+static bool AlogContainsCI(const char *str, const char *sub)
+{
+	if(!str || !sub || !sub[0]) return false;
+	size_t nsub = strlen(sub);
+	for(const char *p = str; *p; p++)
+	{
+		size_t k = 0;
+		while(k < nsub && p[k])
+		{
+			char a = p[k], b = sub[k];
+			if(a >= 'A' && a <= 'Z') a += 32;
+			if(b >= 'A' && b <= 'Z') b += 32;
+			if(a != b) break;
+			k++;
+		}
+		if(k == nsub) return true;
+	}
+	return false;
+}
+// /astats sonucundan oyuncu adi: "Name:"/"Player:"/"Nick:"/"Isim:" etiketi
+// aranir; etiket yoksa false doner (caller "account ID N" ile kaydeder).
+static bool ParseAstatsName(const char *szInfo, const char *szTitle, char *outName, size_t outLen)
+{
+	if(!outName || outLen == 0) return false;
+	outName[0] = 0;
+	const char *parts[2] = { szInfo, szTitle };
+	for(int pi = 0; pi < 2; pi++)
+	{
+		const char *src = parts[pi];
+		if(!src || !src[0]) continue;
+		const char *pL = src;
+		while(pL && *pL)
+		{
+			const char *pE = strchr(pL, '\n');
+			size_t nL = pE ? (size_t)(pE - pL) : strlen(pL);
+			if(nL > 0 && nL < 200)
+			{
+				char szLine[200], szLow[200];
+				memcpy(szLine, pL, nL); szLine[nL] = 0;
+				char tmp[200]; int w = 0;
+				for(size_t r = 0; szLine[r] && w < 199; )
+				{
+					if(szLine[r] == '{' && szLine[r+1] && szLine[r+2] && szLine[r+3] && szLine[r+4] && szLine[r+5] && szLine[r+6] && szLine[r+7] == '}') { r += 8; continue; }
+					tmp[w++] = szLine[r++];
+				}
+				tmp[w] = 0;
+				memcpy(szLine, tmp, w + 1);
+				for(size_t k = 0; szLine[k] && k < 199; k++) szLow[k] = (szLine[k] >= 'A' && szLine[k] <= 'Z') ? szLine[k] + 32 : szLine[k];
+				szLow[nL] = 0;
+				const char *labels[7] = { "name:", "player:", "nick:", "isim:", "oyuncu:", "account name:", "kullanici:" };
+				for(int li = 0; li < 7; li++)
+				{
+					const char *pF = strstr(szLow, labels[li]);
+					if(!pF) continue;
+					const char *pV = szLine + (pF - szLow) + strlen(labels[li]);
+					while(*pV == ' ' || *pV == '\t') pV++;
+					char cand[64]; int ci = 0;
+					while(*pV && *pV != ' ' && *pV != '\t' && *pV != '\r' && *pV != '(' && *pV != '[' && ci < 63) { cand[ci++] = *pV++; }
+					cand[ci] = 0;
+					if(ci >= 2 && !AlogContainsCI(cand, "stats") && !AlogContainsCI(cand, "account") && !AlogContainsCI(cand, "uif"))
+					{
+						strncpy_s(outName, outLen, cand, outLen - 1);
+						return true;
+					}
+				}
+			}
+			if(!pE) break;
+			pL = pE + 1;
+		}
+	}
+	return false;
+}
+// /astats sonucu geldi: kuyruktaki account ID eylemini isimle tamamla.
+// true = dialog tuketildi (kapatilabilir).
+bool OnAlogAstatsResult(const char *szTitle, const char *szInfo)
+{
+	if(!g_alogAstatsActive || g_alogAstatsIdx < 0 || g_alogAstatsIdx >= 8) return false;
+	AlogAccItem *it = &g_alogAccQ[g_alogAstatsIdx];
+	if(!it->bUsed) { g_alogAstatsActive = false; return false; }
+	char szId[24];
+	sprintf_s(szId, sizeof(szId), "%lld", it->llAccId);
+	Log("[ALOG-ASTATS] id=%s sonuc: %.300s", szId, szInfo ? szInfo : "");
+	if(!szInfo || (!AlogContainsCI(szInfo, "account") && !strstr(szInfo, szId) && !(szTitle && (AlogContainsCI(szTitle, "account") || strstr(szTitle, szId)))))
+		return false; // baska akisin dialogu: dokunma
+	char szName[64] = {0};
+	if(ParseAstatsName(szInfo, szTitle, szName, sizeof(szName)))
+	{
+		Log("[ALOG] account ID %s -> '%s' ismiyle kaydediliyor.", szId, szName);
+		SendAdminLog(it->szAdmin, szName, it->llAccId, it->szAction, it->szMode, it->iDur, it->szReason);
+	}
+	else
+	{
+		Log("[ALOG] account ID %s ismi bulunamadi, ID ile kaydediliyor.", szId);
+		AlogAccFallback(g_alogAstatsIdx);
+	}
+	it->bUsed = false;
+	g_alogAstatsActive = false;
+	g_alogAstatsIdx = -1;
+	g_waitingForGStats = false;
+	g_gstatsInput = "";
+	g_gstatsSentFirst = false;
+	return true;
+}
+// Her tick: siradaki account ID eylemi icin /astats gonder; zaman asiminda ID ile kaydet.
+static void ProcessAlogAstatsQueue()
+{
+	DWORD dwNow = GetTickCount();
+	if(g_alogAstatsActive)
+	{
+		if(dwNow - g_alogAstatsReqTime > 15000)
+		{
+			Log("[ALOG] /astats cozumu zaman asimi, ID ile kaydediliyor.");
+			AlogAccFallback(g_alogAstatsIdx);
+			g_alogAstatsActive = false;
+			g_alogAstatsIdx = -1;
+		}
+	return;
+	}
+	int iNext = -1;
+	for(int i = 0; i < 8; i++) if(g_alogAccQ[i].bUsed) { iNext = i; break; }
+	if(iNext < 0) return;
+	if(!iSpawned || g_waitingForGStats || g_ghpActive || g_gmPhase != 0 || g_waitingForGroupName || g_waitingForGmembers) return;
+	AlogAccItem *it = &g_alogAccQ[iNext];
+	sprintf_s(g_alogAstatsId, sizeof(g_alogAstatsId), "%lld", it->llAccId);
+	g_waitingForGStats = true;
+	g_gstatsReqTime = dwNow;
+	g_gstatsAutoSubmit = true;
+	g_gstatsInput = g_alogAstatsId;
+	g_gstatsRequesterId = "";
+	g_gstatsSentFirst = false;
+	g_alogAstatsActive = true;
+	g_alogAstatsIdx = iNext;
+	g_alogAstatsReqTime = dwNow;
+	char szCmd[64];
+	sprintf_s(szCmd, sizeof(szCmd), "/astats %s", g_alogAstatsId);
+	Log("[ALOG] /astats %s gonderiliyor (isim cozumu).", g_alogAstatsId);
+	sendServerCommand(szCmd);
+}
 // "ADMIN: gandalf banned Bowtac(163) from CNR Mode for 180 minutes (REASON: ...)"
 static void CheckAdminLogMessage(const char *msg)
 {
@@ -1559,14 +1784,28 @@ static void CheckAdminLogMessage(const char *msg)
 		CopyToken(admin, sizeof(admin), pLast ? pLast + 1 : pStart, pEnd);
 	}
 	// hedef: verb sonrasi "Ad(123)" - ad paranteze kadar
-	char target[64] = {0}; long long targetId = 0;
+char target[64] = {0}; long long targetId = 0;
 	{
 		const char *pT = pVerb + strlen(verb);
 		while(*pT == ' ') pT++;
-		const char *pOpen = strchr(pT, '(');
+		const char *pOpen = NULL;
+		// Hedef "account ID 3292655" ise: ad sabit formatta, ID sayisal
+		if((pT[0]=='a'||pT[0]=='A')&&(pT[1]=='c'||pT[1]=='C')&&(pT[2]=='c'||pT[2]=='C')&&(pT[3]=='o'||pT[3]=='O')&&(pT[4]=='u'||pT[4]=='U')&&(pT[5]=='n'||pT[5]=='N')&&(pT[6]=='t'||pT[6]=='T'))
+		{
+			const char *pN = pT + 7;
+			while(*pN==' '||*pN=='\t') pN++;
+			if(*pN=='I'||*pN=='i') { pN++; if(*pN=='D'||*pN=='d') pN++; }
+			while(*pN==' '||*pN=='\t') pN++;
+			if(*pN>='0'&&*pN<='9')
+			{
+				targetId = _strtoi64(pN, NULL, 10);
+				sprintf_s(target, sizeof(target), "account ID %lld", targetId);
+			}
+		}
+		if(!target[0]) pOpen = strchr(pT, '(');
 		const char *pEnd = pOpen ? pOpen : pT;
 		while(pEnd > pT && pEnd[-1] == ' ') pEnd--;
-		CopyToken(target, sizeof(target), pT, pEnd);
+		if(!target[0]) CopyToken(target, sizeof(target), pT, pEnd);
 		if(pOpen)
 		{
 			const char *pClose = strchr(pOpen + 1, ')');
@@ -1576,6 +1815,12 @@ static void CheckAdminLogMessage(const char *msg)
 	if(!target[0]) return;
 	char action[16] = {0};
 	CopyToken(action, sizeof(action), verb + 1, verb + strlen(verb));
+	// Gecici hesap eylemleri DB kirletmesin
+	if(IsTempAccount(target))
+	{
+		Log("[ALOG] Temp hesap, DBye yazilmiyor: %s %s", action, target);
+	return;
+	}
 	// mod: "from <Mod> for" veya "from <Mod> ..." - dict'ten sonra.
 	// disarm gibi "from X" icermeyen eylemlerde mod bos kalir (mesaj formatinda yok).
 	char mode[64] = {0}; int durationMin = 0; char reason[128] = {0};
@@ -1605,14 +1850,69 @@ static void CheckAdminLogMessage(const char *msg)
 		}
 	}
 	Log("[ALOG] Admin eylem yakalandi: %s %s %s(%lld) mod=%s sure=%d dk sebep=%s", admin, action, target, targetId, mode, durationMin, reason);
+	if(!strncmp(target, "account ID ", 11) && EnqueueAlogAccItem(admin, targetId, action, mode, durationMin, reason))
+	return; // /astats isim cozumu bitince kaydedilecek (yoksa ID ile)
 	SendAdminLog(admin, target, targetId, action, mode, durationMin, reason);
 }
 
 // oyun ici "?alog <id|accid|isim>" sorgusu: DB'den sayi ozeti iste ve oyuna yaz
+// "?alogs 14" girilirse slot ID o anki isme cevrilir: slot IDler geri
+// donusumludur, DBdeki target_id ile birebir karsilastirilamaz.
+// Slot cevrimdisi/bilinmiyorsa NULL doner (yanlis kisi gosterilmez);
+// buyuk sayilar account ID sayilip aynen gecer.
+static bool QueryBackendPlayerRow(int iPid, char *szName, size_t nNameLen, double *pLoss, int *pFps, int *pPing, int *pAgeSec); // tanim asagida (?pl bolumu)
+static const char *ResolveAlogQuery(const char *q)
+{
+	static char s_buf[64];
+	const char *p = q ? q : "";
+	while(*p == ' ') p++;
+	size_t n = 0;
+	while(p[n] && p[n] != ' ' && p[n] != '\t' && n < sizeof(s_buf) - 1) { s_buf[n] = p[n]; n++; }
+	s_buf[n] = 0;
+	if(!s_buf[0]) return s_buf;
+	bool bNum = true;
+	for(size_t k = 0; s_buf[k]; k++) if(s_buf[k] < '0' || s_buf[k] > '9') { bNum = false; break; }
+	if(!bNum) return s_buf;
+	int nId = atoi(s_buf);
+	if(nId < 0 || nId >= MAX_PLAYERS) return s_buf;
+	if(playerInfo[nId].szPlayerName[0])
+	{
+		strncpy_s(s_buf, sizeof(s_buf), playerInfo[nId].szPlayerName, sizeof(s_buf) - 1);
+		Log("[ALOG] Slot %d -> '%s' ismiyle sorgulaniyor.", nId, s_buf);
+		return s_buf;
+	}
+	if(g_playerCache[nId].szName[0] && g_playerCache[nId].dwTime > 1)
+	{
+		strncpy_s(s_buf, sizeof(s_buf), g_playerCache[nId].szName, sizeof(s_buf) - 1);
+		Log("[ALOG] Slot %d -> '%s' ismiyle sorgulaniyor (cache).", nId, s_buf);
+		return s_buf;
+	}
+	// Son care: DB (60 sn push). Yasli satir kabul edilmez (bayat slot).
+	char szDbName[64] = {0}; int iDbAge = 999999;
+	if(QueryBackendPlayerRow(nId, szDbName, sizeof(szDbName), NULL, NULL, NULL, &iDbAge)
+		&& szDbName[0] && iDbAge >= 0 && iDbAge < 120)
+	{
+		strncpy_s(s_buf, sizeof(s_buf), szDbName, sizeof(s_buf) - 1);
+		Log("[ALOG] Slot %d -> '%s' ismiyle sorgulaniyor (DB, %ds).", nId, s_buf, iDbAge);
+		return s_buf;
+	}
+	return NULL; // slot cevrimdisi/bilinmiyor: yanlis kisi gosterilmesin
+}
 static void QueryAdminLogSummary(const char *q)
 {
 	if(!g_isEngineActive || g_sessionToken.empty()) return;
-	if(!q || !q[0]) return;
+	if(!q)
+	{
+		g_bridgeSuppressEcho++;
+		sendChat((char *)(g_langTurkish ? "!Slot cevrimdisi veya bilinmiyor, isimle dene." : "!Slot offline or unknown, try the name."));
+		return;
+	}
+	if(!q[0])
+	{
+		g_bridgeSuppressEcho++;
+		sendChat((char *)(g_langTurkish ? "!Kullanim: ?alogs <id|isim>" : "!Usage: ?alogs <id|name>"));
+		return;
+	}
 	try
 	{
 		httplib::Client cli(g_szBackendBase);
@@ -1621,11 +1921,23 @@ static void QueryAdminLogSummary(const char *q)
 		auto res = cli.Post("/api/alog", body.dump(), "application/json");
 		if(res && res->status == 200)
 		{
-			// "!" prefix gruba iletim icin; ozet uL.Hold formatinda (backend uretir)
-		std::string out = "!" + std::string(res->body);
+			// Backend {"success":bool,"summary"|"message"} doner; ham JSON degil
+			// ozet/mesaj metni gruba iletilir ("!" prefix zorunlu).
+			std::string txt;
+			try
+			{
+				json j = json::parse(res->body);
+				if(j.value("success", false))
+					txt = j.value("summary", "");
+				else
+					txt = j.value("message", "");
+			}
+			catch(...) { txt.clear(); }
+			if(txt.empty()) txt = res->body;
+			std::string out = "!" + txt;
 			g_bridgeSuppressEcho++;
 			sendChat((char *)out.c_str());
-			Log("[ALOG] ?alog yaniti: %s", res->body.c_str());
+			Log("[ALOG] ?alog yaniti: %s", txt.c_str());
 		}
 		else
 			Log("[ALOG] ?alog sorgusu basarisiz (HTTP %d)", res ? res->status : -1);
@@ -2243,55 +2555,19 @@ static void BindZoneGroup(int iZone, const char *szName)
 }
 
 // -------------------------------------------------------------
-// ?pl ISTATISTIK CACHE'I
+// -------------------------------------------------------------
+// ?pl ISTATISTIK CACHE'I (bellek ici; dosya YOK)
 // UIF'in /pnetstats cevabi FPS icermez (FPS: --); FPS dahil tam istatistik YS.Hold'un
 // "Player [X] Stats -> Packetloss: y | FPS: z | Ping: w" grup mesajlarinda gelir. Bu cache
-// ?pl cevabina FPS'i (ve eksik loss/ping'i) koyar; player_cache.txt ile restart'a dayanir.
+// ?pl cevabina FPS'i (ve eksik loss/ping'i) koyar. Kalicilik DB'dedir (players tablosu,
+// SyncPlayerCacheToDb her 60 sn push eder; bos bellek DB'den tamamlanir).
 // Isimler de buraya yazilir: grup basligindan ogrenilen ad, ?pl cevabinda "hakixld"
 // yerine gercek kullanici adinin gorunmesini saglar.
 // -------------------------------------------------------------
-static const char *g_szPlayerCacheFile = "player_cache.txt";
-
-void LoadPlayerCache()
+void ResetPlayerCache()
 {
 	memset(g_playerCache, 0, sizeof(g_playerCache));
-	int nLoaded = 0;
-	FILE *f = fopen(g_szPlayerCacheFile, "r");
-	if(f)
-	{
-		char szLine[256];
-		while(fgets(szLine, sizeof(szLine), f))
-		{
-			int iId = -1; char szName[64] = {0}; double dLoss = -1.0; int iFps = -1, iPing = -1;
-			if(sscanf(szLine, "%d %63s %lf %d %d", &iId, szName, &dLoss, &iFps, &iPing) == 5
-				&& iId >= 0 && iId < MAX_PLAYERS)
-			{
-				g_playerCache[iId].dwTime = 1; // "biliniyor" isareti (0 = yok)
-				strncpy_s(g_playerCache[iId].szName, sizeof(g_playerCache[0].szName), szName, _TRUNCATE);
-				g_playerCache[iId].dLoss = dLoss;
-				g_playerCache[iId].iFps = iFps;
-				g_playerCache[iId].iPing = iPing;
-				nLoaded++;
-			}
-		}
-		fclose(f);
-	}
-	Log("[PL-CACHE] %d oyuncu istatistigi dosyadan yuklendi.", nLoaded);
-}
-
-static void SavePlayerCache()
-{
-	FILE *f = fopen(g_szPlayerCacheFile, "w");
-	if(f)
-	{
-		for(int i = 0; i < MAX_PLAYERS; i++)
-		{
-			if(g_playerCache[i].dwTime == 0) continue;
-			fprintf(f, "%d %s %.2f %d %d\n", i, g_playerCache[i].szName,
-				g_playerCache[i].dLoss, g_playerCache[i].iFps, g_playerCache[i].iPing);
-		}
-		fclose(f);
-	}
+	Log("[PL-CACHE] bellek sifirlandi (kaynak: canli + DB).");
 }
 
 // "Anahtar: deger" deseninden ilk sayiyi ceker; sayi yoksa -1.0 (FPS: N/A gibi)
@@ -2600,7 +2876,7 @@ static void GangZoneScanGo(int iZone)
 
 void StartZoneScan(bool bAuto)
 {
-	if(g_zoneScanIdx >= 0 || !iSpawned || g_inZoneWar)
+	if(g_zoneScanIdx >= 0 || !iSpawned || g_inZoneWar || g_zscanPausedForSnip)
 	{
 		Log("[ZF:SCAN] StartZoneScan atlandi (scanAktif=%d spawned=%d war=%d).",
 			g_zoneScanIdx >= 0, iSpawned, g_inZoneWar);
@@ -2656,7 +2932,7 @@ void StartZoneScan(bool bAuto)
 // GangZoneScanNext guncel ozeti tekrar gonderir.
 static void StartFlashScan()
 {
-	if(g_zoneScanIdx >= 0 || !iSpawned) { Log("[ZF:FLASHSCAN] Atlanildi (scan aktif=%d spawned=%d).", g_zoneScanIdx >= 0, iSpawned); return; }
+	if(g_zoneScanIdx >= 0 || !iSpawned || g_zscanPausedForSnip) { Log("[ZF:FLASHSCAN] Atlanildi (scan aktif=%d spawned=%d).", g_zoneScanIdx >= 0, iSpawned); return; }
 
 	g_zoneScanQ = 0;
 	for(int zid = 0; zid < g_zoneCount && g_zoneScanQ < MAX_GANG_ZONES; zid++)
@@ -2982,6 +3258,7 @@ void ServerQuit(RPCParameters *rpcParams)
 
 	playerInfo[playerId].iIsConnected = 0;
 	playerInfo[playerId].byteIsNPC = 0;
+	memset(&g_playerCache[playerId], 0, sizeof(g_playerCache[0])); // cikis yapan slotun cachei temizlenir (bayat isim kalmasin)
 	//Log("***[QUIT:%d] (%d) %s", byteReason, playerId, playerInfo[playerId].szPlayerName);
 	memset(playerInfo[playerId].szPlayerName, 0, 20);	
 }
@@ -3724,7 +4001,8 @@ void ClientMessage(RPCParameters *rpcParams)
 								g_snipZoneIdx = 0;
 								g_snipGroupName[0] = 0;
 								g_bridgeSuppressEcho++;
-								sendChat((char *)LM("!Sniper bitti.", "!Sniper finished."));
+																ResumeZoneScanAfterSnip();
+
 								Log("[ZSNIP] Zincir tamamlandi (baska zone yok).");
 							}
 						}
@@ -4082,8 +4360,7 @@ g_bridgeSuppressEcho++;
 						{
 							strncpy_s(g_playerCache[iSenderId].szName,
 								sizeof(g_playerCache[0].szName), szGrpName, _TRUNCATE);
-							g_playerCache[iSenderId].dwTime = 1;
-							SavePlayerCache();
+							g_playerCache[iSenderId].dwTime = GetTickCount();
 						}
 					}
 				}
@@ -4181,7 +4458,6 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 					if(dFps  >= 0.0) g_playerCache[iPid].iFps = (int)dFps;
 					if(dPing >= 0.0) g_playerCache[iPid].iPing = (int)dPing;
 					g_playerCache[iPid].dwTime = GetTickCount();
-					SavePlayerCache();
 					if(bNew)
 						Log("[PL-CACHE] %d (%s) stats cache: loss %.2f%% fps %d ping %d",
 							iPid, g_playerCache[iPid].szName[0] ? g_playerCache[iPid].szName : "?",
@@ -4662,13 +4938,13 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 			else if(!strncmp(pGroupMsg, "?alogs", 6) && (pGroupMsg[6] == ' ' || pGroupMsg[6] != '\0'))
 			{
 				Log("[ALOGS] ?alogs yakalandi, DB sorgusu baslatiliyor.");
-				QueryAdminLogSummary(pGroupMsg + 6);
+				QueryAdminLogSummary(ResolveAlogQuery(pGroupMsg + 6));
 			}
 			// --- ?alog <id|accid|isim> : DB'deki admin loglarindan sayi ozeti ---
-			else if(!strncmp(pGroupMsg, "?alog", 5) && (pGroupMsg[5] == ' ' || pGroupMsg[5] != '\0'))
+			else if(!strncmp(pGroupMsg, "?alog", 5) && strncmp(pGroupMsg, "?alogs", 6) != 0 && (pGroupMsg[5] == ' ' || pGroupMsg[5] != '\0'))
 			{
 				Log("[ALOG] ?alog yakalandi, DB sorgusu baslatiliyor.");
-				QueryAdminLogSummary(pGroupMsg + 5);
+				QueryAdminLogSummary(ResolveAlogQuery(pGroupMsg + 5));
 			}
 			// --- ?gname : kendi grup adini YENIDEN ogren (1 kerelik /stats -> Group
 			// butonu akisi; ogrenileni DB'ye yazar). Grup degistiginde kullanilir. ---
@@ -5106,7 +5382,8 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 					char szCmd[128];
 					sprintf_s(szCmd, sizeof(szCmd), "/pos %.2f %.2f %.2f", fCenterX, fCenterY, ZGO_TELEPORT_Z);
 					sendServerCommand(szCmd);
-					g_ztkActive = true;
+										PauseZoneScanForSnip();
+
 					g_ztkZoneId = iZone;
 					g_ztkWaitAnnounced = false;
 					Log("[ZSNIP] ?yes: siradaki zone #%d hedeflendi.", iZone);
@@ -5124,7 +5401,8 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 				g_snipZoneCount = 0;
 				g_snipZoneIdx = 0;
 				g_snipGroupName[0] = 0;
-				Log("[ZSNIP] ?no: zincir iptal edildi.");
+								ResumeZoneScanAfterSnip();
+Log("[ZSNIP] ?no: zincir iptal edildi.");
 				g_bridgeSuppressEcho++;
 				sendChat((char *)LM("!Sniper zinciri iptal edildi.", "!Sniper chain cancelled."));
 			}
@@ -6881,11 +7159,11 @@ void FinalizeKillList()
 	{
 		char szB[512];
 		const char *dash = "--------------------------------------"; // 38 karakter: DMG sutununa kadar
-		sprintf_s(szB, sizeof(szB), "%-16s %4s %4s %4s %6s\n%s\n%s\n%s\nTotal     %3d %3d %3d %6d",
+		sprintf_s(szB, sizeof(szB), "%-16s %4s %4s %4s %6s\n%s\n%s\n%s\nTotal            %4d %4d %4d %6d",
 			"Name", "K", "A", "D", "DMG", dash,
 			strRedRows.empty() ? "(bos)" : strRedRows.c_str(), dash, iRedK, iRedA, iRedD, iRedDmg);
 		strRedBox = szB;
-		sprintf_s(szB, sizeof(szB), "%-16s %4s %4s %4s %6s\n%s\n%s\n%s\nTotal     %3d %3d %3d %6d",
+		sprintf_s(szB, sizeof(szB), "%-16s %4s %4s %4s %6s\n%s\n%s\n%s\nTotal            %4d %4d %4d %6d",
 			"Name", "K", "A", "D", "DMG", dash,
 			strBlueRows.empty() ? "(bos)" : strBlueRows.c_str(), dash, iBlueK, iBlueA, iBlueD, iBlueDmg);
 		strBlueBox = szB;
@@ -7021,6 +7299,48 @@ void FinalizeKillList()
 // 2. Kisa GZ giris donusu (savas basi takim rengi ogrenimi)
 // 3. Savas aktifse son 00:02'de /gz2 (kill-list textdraw'lari icin GZ icinde KALINIR)
 // 4. Toplama penceresi dolunca sonucu finalize et (dosya + Discord)
+// DB'deki players satiri: dosya kaldirildi, tek kaynak burasi.
+static bool QueryBackendPlayerRow(int iPid, char *szName, size_t nNameLen, double *pLoss, int *pFps, int *pPing, int *pAgeSec)
+{
+	if(iPid < 0 || iPid >= MAX_PLAYERS) return false;
+	if(szName && nNameLen > 0) szName[0] = 0;
+	if(!g_isEngineActive || g_sessionToken.empty()) return false;
+	try
+	{
+		httplib::Client cli(g_szBackendBase);
+		cli.set_connection_timeout(4);
+		char szUrl[64];
+		sprintf_s(szUrl, sizeof(szUrl), "/api/player/cache?id=%d", iPid);
+		auto res = cli.Get(szUrl);
+		if(!res || res->status != 200) return false;
+		json j = json::parse(res->body);
+		if(!j.value("success", false) || !j.contains("rows") || !j["rows"].is_array() || j["rows"].empty()) return false;
+		json r = j["rows"][0];
+		std::string sN = r.value("name", "");
+		if(sN.empty()) return false;
+		if(szName && nNameLen > 0) strncpy_s(szName, nNameLen, sN.c_str(), _TRUNCATE);
+		if(pLoss) { *pLoss = -1.0; if(r.contains("packetloss") && r["packetloss"].is_number()) *pLoss = r["packetloss"].get<double>(); }
+		if(pFps) { *pFps = -1; if(r.contains("fps") && r["fps"].is_number()) *pFps = (int)r["fps"].get<double>(); }
+		if(pPing) { *pPing = -1; if(r.contains("ping") && r["ping"].is_number()) *pPing = (int)r["ping"].get<double>(); }
+		if(pAgeSec) { *pAgeSec = 999999; if(r.contains("ageSec") && r["ageSec"].is_number()) *pAgeSec = (int)r["ageSec"].get<double>(); }
+		return true;
+	}
+	catch(...) { return false; }
+}
+// ?pl yedegi: DB satirini bellege al (cevap kodu aynen calissin).
+static bool PlEnsureFromDb(int iPid)
+{
+	char szN[64]; double dL; int iF, iP;
+	if(!QueryBackendPlayerRow(iPid, szN, sizeof(szN), &dL, &iF, &iP, NULL)) return false;
+	if(!szN[0] || iPid < 0 || iPid >= MAX_PLAYERS) return false;
+	strncpy_s(g_playerCache[iPid].szName, sizeof(g_playerCache[0].szName), szN, _TRUNCATE);
+	g_playerCache[iPid].dLoss = dL;
+	g_playerCache[iPid].iFps = iF;
+	g_playerCache[iPid].iPing = iP;
+	g_playerCache[iPid].dwTime = GetTickCount();
+	Log("[PL-CACHE] id=%d DB'den tamamlandi: %s.", iPid, szN);
+	return dL >= 0.0;
+}
 void ProcessZoneWarAutoJoin()
 {
 	DWORD dwNow = GetTickCount();
@@ -7084,7 +7404,7 @@ void ProcessZoneWarAutoJoin()
 	if(g_waitingForPNetStats && dwNow - g_pnetstatsReqTime > 3500)
 	{
 		g_waitingForPNetStats = false;
-		if(g_plTargetId >= 0 && g_plTargetId < MAX_PLAYERS && g_playerCache[g_plTargetId].dLoss >= 0.0)
+		if(g_plTargetId >= 0 && g_plTargetId < MAX_PLAYERS && (g_playerCache[g_plTargetId].dLoss >= 0.0 || PlEnsureFromDb(g_plTargetId)))
 		{
 			const char *pName = "Player ?";
 			char szFallbackName[32];
@@ -7097,7 +7417,7 @@ void ProcessZoneWarAutoJoin()
 			char szOut[192];
 			sprintf_s(szOut, sizeof(szOut), "!%s's PL: %g%% | FPS: %s | Ping: %s ms",
 				pName, g_playerCache[g_plTargetId].dLoss, szFps, szPing);
-			Log("[PNETSTATS] Zaman asimi, cache ile cevap: %s", szOut);
+			Log("[PNETSTATS] Zaman asimi, cache/DB ile cevap: %s", szOut);
 			g_bridgeSuppressEcho++;
 			sendChat(szOut);
 		}
@@ -7301,7 +7621,8 @@ void OnGmembersFinalize()
 		g_snipGroupName[0] = 0;
 		g_snipZoneCount = 0;
 		g_snipZoneIdx = 0;
-		Log("[ZSNIP] Kullanici iptal etti (yetki dogrulandi), sniper kapatildi.");
+				ResumeZoneScanAfterSnip();
+Log("[ZSNIP] Kullanici iptal etti (yetki dogrulandi), sniper kapatildi.");
 		g_bridgeSuppressEcho++;
 		sendChat((char *)LM("!Sniper iptal edildi.", "!Sniper aborted by user."));
 		return;
@@ -7327,7 +7648,8 @@ void OnGmembersFinalize()
 	sprintf_s(szCmd, sizeof(szCmd), "/pos %.2f %.2f %.2f", fCenterX, fCenterY, ZGO_TELEPORT_Z);
 	sendServerCommand(szCmd);
 
-	g_ztkActive = true;
+		PauseZoneScanForSnip();
+
 	g_ztkZoneId = iZone;
 	g_ztkWaitAnnounced = false;
 	Log("[ZSNIP] Zone sniper basladi: zone #%d, bekleyis %d sn.", iZone, iWaitSec);
@@ -7413,6 +7735,7 @@ static bool IsSniperTargetZone(int zid)
 
 void ProcessZtkTick()
 {
+	ProcessAlogAstatsQueue();
 	if(!g_ztkActive) return;
 
 	// Faz 2: /gz gonderildi, kendi savasimizin sonucu bekleniyor (won/lost game text
@@ -7450,7 +7773,8 @@ void ProcessZtkTick()
 			g_ztkAskNext = false;
 			g_snipGroupName[0] = 0;
 			g_bridgeSuppressEcho++;
-			sendChat((char *)LM("!Sniper bitti.", "!Sniper finished."));
+						ResumeZoneScanAfterSnip();
+
 		}
 		return;
 	}
@@ -7767,7 +8091,7 @@ void ProcessGhpHarvestStep()
 			Log("[GHP] %d yeni grup tagi DB'ye kaydedildi.", g_ghpLearnedCount);
 		// Tag'ler ogrenildi; ?zscan on ise SIMDI flashing zone taramasini baslat
 		// (kullanici sirasi: once taglar, sonra zone ogrenme). Restore sonrasi.
-		if(g_zscanAuto && s_bGroupDbRestored && iSpawned && g_zoneScanIdx < 0 && !g_inZoneWar && !g_zgoActive)
+		if(g_zscanAuto && s_bGroupDbRestored && iSpawned && g_zoneScanIdx < 0 && !g_inZoneWar && !g_zgoActive && !g_zscanPausedForSnip)
 		{
 			Log("[GHP] Harvest bitti - otomatik zone taramasi baslatiliyor.");
 			StartZoneScan(true);

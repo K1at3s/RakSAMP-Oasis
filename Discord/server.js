@@ -1521,6 +1521,27 @@ app.post('/api/player/cache', async (req, res) => {
     }
 });
 
+// Client okuma: slot->isim + ?pl FPS/ping icin (player_cache.txt kaldirildi,
+// tek kaynak DB'deki players tablosu).
+app.get('/api/player/cache', async (req, res) => {
+    const id = req.query.id !== undefined ? Number(req.query.id) : NaN;
+    const name = String(req.query.name || '').trim().slice(0, 64);
+    try {
+        let rows;
+        if (Number.isInteger(id) && id >= 0 && id < 1000) {
+            rows = await db.execute('SELECT id, name, packetloss, fps, ping, updated_at, TIMESTAMPDIFF(SECOND, updated_at, NOW()) AS ageSec FROM players WHERE id = ? LIMIT 2', [id]);
+        } else if (name) {
+            rows = await db.execute('SELECT id, name, packetloss, fps, ping, updated_at, TIMESTAMPDIFF(SECOND, updated_at, NOW()) AS ageSec FROM players WHERE LOWER(name) = LOWER(?) LIMIT 5', [name]);
+        } else {
+            return res.status(400).json({ success: false, message: 'id veya name gerekli' });
+        }
+        return res.json({ success: true, rows });
+    } catch (err) {
+        console.error('PLAYER-CACHE-GET hatasi:', err.message);
+        return res.status(500).json({ success: false, message: err.message });
+    }
+});
+
 // RakSAMP client: ogrenilen grup adi + kisa tag + KALICI sahip olunan zone
 // id'leri tek satir (group_name üzerinden UPSERT). zones JSON = o grubun
 // sahip oldugu TUM zone'lar (flashing filtresi yok — kalici harita).

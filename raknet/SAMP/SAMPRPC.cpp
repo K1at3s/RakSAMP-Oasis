@@ -1,4 +1,4 @@
-Ôªø/*
+/*
 	Updated to 0.3.7 by P3ti
 */
 
@@ -6,11 +6,11 @@
 #include "Security.h"
 #include <iostream>
 
-// netrpc.cpp'de tanimli: otomatik tag harvest zinciri Áal˝˛˝yor mu
+// netrpc.cpp'de tanimli: otomatik tag harvest zinciri ?al???yor mu
 // (harvest /gstats diyaloglari da "UIF - Group Stats" basligini tasir -
-// grup adi ˆrenme fazi bunlari kendi diyalogu sanip YANLIS isim ˆrenmesin).
+// grup adi ??renme fazi bunlari kendi diyalogu sanip YANLIS isim ??renmesin).
 extern bool g_ghpActive;
-// UIF Login dialogu aÁ˝k mi (netrpc.cpp): kullan˝c˝ ˛ifre girene kadar tmp hesaba atilmaz
+// UIF Login dialogu a??k mi (netrpc.cpp): kullan?c? ?ifre girene kadar tmp hesaba atilmaz
 extern bool g_loginPending;
 extern unsigned long g_loginPendingUntil;
 // /grole / /grank paginated otomasyonu (netrpc.cpp)
@@ -67,6 +67,8 @@ extern char g_gmAstatsName[64];
 extern bool g_gmGvipsWaiting;
 extern int OnGmMembersPage(const char *szInfo, int *outButton, int *outItem);
 extern void OnGmAstatsResult(const char *szInfo);
+extern bool g_alogAstatsActive;
+extern bool OnAlogAstatsResult(const char *szTitle, const char *szInfo);
 extern void OnGmVipsResult(const char *szInfo);
 
 int RPC_ServerJoin = 137;
@@ -217,7 +219,7 @@ static int ExtractNumberAfter(const char *pszText) {
     return -1;
 }
 
-// /pnetstats dialog g‚îúvdesinden "Packetloss: X%" de‚îÄserini ‚îúg‚îÄ‚ñíkar‚îÄ‚ñír
+// /pnetstats dialog g?vdesinden "Packetloss: X%" de?serini ?g??kar??r
 static double ExtractPacketLoss(const char *szText) {
     if (!szText) return -1.0;
     int len = (int)strlen(szText);
@@ -252,7 +254,7 @@ static double ExtractPacketLoss(const char *szText) {
     return -1.0;
 }
 
-// Buyuk/kucuk harf bagimsiz strstr: /stats diyalo‚îÄsu "- FPS:\t\t194" buyuk harf
+// Buyuk/kucuk harf bagimsiz strstr: /stats diyalo?su "- FPS:\t\t194" buyuk harf
 // yazar; eski strstr("fps") bulamiyordu -> ?pl cevabi hep "FPS: 0" cikiyordu.
 static const char *StrStrI(const char *szHay, const char *szNeed) {
     if (!szHay || !szNeed) return NULL;
@@ -303,23 +305,23 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
     if (!g_isEngineActive || g_sessionToken.empty()) return 0;
 
     // -------------------------------------------------------------
-    // 1. G‚îÄ‚ñëR‚îÄ‚ñë‚îºS (LOGIN) EKRANI KORUMASI
-    // Giri‚îºs ekran‚îÄ‚ñí geldi‚îÄsinde diyalogu KAPANMAKTAN korur (0 d‚îúnd‚îú‚ïùr‚îú‚ïùr).
+    // 1. G??R???S (LOGIN) EKRANI KORUMASI
+    // Giri?s ekran?? geldi?sinde diyalogu KAPANMAKTAN korur (0 d?nd??r??r).
     // -------------------------------------------------------------
-    if (szTitle && (strstr(szTitle, "Login") || strstr(szTitle, "Giri˛") || strstr(szTitle, "Giri‚îºs") || strstr(szTitle, "Authentication"))) {
-        Log("[LOGIN] Giri˛ ekrani algilandi (style=%d, baslik='%s', btn1='%s' btn2='%s'). Bilgi: %.200s",
+    if (szTitle && (strstr(szTitle, "Login") || strstr(szTitle, "Giri?") || strstr(szTitle, "Giri?s") || strstr(szTitle, "Authentication"))) {
+        Log("[LOGIN] Giri? ekrani algilandi (style=%d, baslik='%s', btn1='%s' btn2='%s'). Bilgi: %.200s",
             sampDialog.bDialogStyle, szTitle, sampDialog.szButton1, sampDialog.szButton2, szInfo ? szInfo : "");
-        // UIF Login dialogu: kullan˝c˝ diyalogda ˛ifreyi elle yazip Login'e basar.
-        // Dialogu aÁ˝k birak (kapatma) ‚Äî tmp hesaba atilmasin diye spawn akisi bekler.
+        // UIF Login dialogu: kullan?c? diyalogda ?ifreyi elle yazip Login'e basar.
+        // Dialogu a??k birak (kapatma) - tmp hesaba atilmasin diye spawn akisi bekler.
         g_loginPending = true;
-        g_loginPendingUntil = 0; // dialog geldi: kullan˝c˝ girene kadar beklenir (timeout yok)
-        std::cout << "[INFO] Giri˛ ekrani algilandi, diyalog kapatilmadi.\n";
-        return 0; // 0 d‚îúnerek diyalogu kapatmaz, RakSAMP'‚îÄ‚ñín normal ak‚îÄ‚ñí‚îºs‚îÄ‚ñína b‚îÄ‚ñírak‚îÄ‚ñír
+        g_loginPendingUntil = 0; // dialog geldi: kullan?c? girene kadar beklenir (timeout yok)
+        std::cout << "[INFO] Giri? ekrani algilandi, diyalog kapatilmadi.\n";
+        return 0; // 0 d?nerek diyalogu kapatmaz, RakSAMP'??n normal ak???s??na b??rak??r
     }
 
     // -------------------------------------------------------------
     // 1b. /changepass / /email INPUT diyalogu (PM'den gelen guvenli komut)
-    // PM'de ?changepass <yeni> / ?email <adres> yazilinca UIF input men¸s¸ acar;
+    // PM'de ?changepass <yeni> / ?email <adres> yazilinca UIF input men?s? acar;
     // buraya deger yazilip submit edilir. Login/gstats inputlariyla karismasin.
     // -------------------------------------------------------------
     if (g_secCmdPending) {
@@ -328,7 +330,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             Log("[SEC] Input diyalogu beklerken zaman asimi.");
             return 0;
         }
-        // Pencere icindeki input diyaloglari doldurulur (max 2: ilk + olasƒ± onay/tekrar).
+        // Pencere icindeki input diyaloglari doldurulur (max 2: ilk + olasi onay/tekrar).
         if (!g_loginPending && !g_waitingForGStats && g_secCmdCount < 2 &&
             (sampDialog.bDialogStyle == DIALOG_STYLE_INPUT || sampDialog.bDialogStyle == DIALOG_STYLE_PASSWORD)) {
             Log("[SEC] %s input diyalogu yakalandi ('%s'), deger yaziliyor: '%s'",
@@ -361,7 +363,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
         double dFps = ExtractNumberNear(szInfo, "fps");
         double dPing = ExtractNumberNear(szInfo, "ping");
         // /stats <id> dialogu FPS/ping iceriyorsa cache'e yaz: ?pl cevabinda bu taze
-        // veriler gˆsterilir (kullan˝c˝: "stats'tan fps+ping cek, cache'e save, ?pl'de yaz").
+        // veriler g?sterilir (kullan?c?: "stats'tan fps+ping cek, cache'e save, ?pl'de yaz").
         if (g_plTargetId >= 0 && g_plTargetId < MAX_PLAYERS) {
             if (dFps >= 0.0) {
                 g_playerCache[g_plTargetId].iFps = (int)dFps;
@@ -381,7 +383,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
         if (dPing < 0.0 && g_plTargetId >= 0 && g_plTargetId < MAX_PLAYERS)
             dPing = (double)playerInfo[g_plTargetId].dwPing; // scoreboard ping'i
 
-        // UIF /pnetstats FPS icermez (FPS: --) ve kullan˝c˝ya ait loss/ping dialogda
+        // UIF /pnetstats FPS icermez (FPS: --) ve kullan?c?ya ait loss/ping dialogda
         // olmayabilir. "Stats ->" grup mesajlarindan doldurulan cache'ten eksikleri
         // tamamla (netrpc.cpp doldurur, player_cache.txt'ye kalici yazar).
         if (g_plTargetId >= 0 && g_plTargetId < MAX_PLAYERS && g_playerCache[g_plTargetId].dwTime != 0) {
@@ -396,8 +398,8 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
         Log("[PNETSTATS-DATA] [%s] %.1500s", szTitle ? szTitle : "?", szInfo);
 
         // UIF /pnetstats "Network Active: 1" gibi BOS doner (loss/fps yok). Asil
-        // veri /pnetstats'in tetikledigi "Player [X] Stats ->" grup mesaj˝ndadir.
-        // Dialogda loss yoksa cevabi O yakalayiciya birak: flag A«IK kalir, dialogu
+        // veri /pnetstats'in tetikledigi "Player [X] Stats ->" grup mesaj?ndadir.
+        // Dialogda loss yoksa cevabi O yakalayiciya birak: flag A?IK kalir, dialogu
         // kapat; Stats-post gelince netrpc.cpp taze veriyle cevaplar (cache yoluyla
         // aninda eski FPS gostermek yerine). Zaman asimini ProcessZoneWarAutoJoin
         // toparlar (cache fallback'li).
@@ -405,18 +407,18 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             Log("[PNETSTATS] Dialog veri icermiyor, 'Stats ->' bekleniyor (hedef %d).", g_plTargetId);
             RakNet::BitStream bsResponse;
             bsResponse.Write((uint16_t)wDialogID);
-            bsResponse.Write((uint8_t)0);        // Button 0 (‚îÄ‚ñëptal/Kapat)
+            bsResponse.Write((uint8_t)0);        // Button 0 (??ptal/Kapat)
             bsResponse.Write((uint16_t)0xFFFF);   // Item ID
             bsResponse.Write((uint8_t)0);        // Input Text Length
             pRakClient->RPC(&RPC_DialogResponse, &bsResponse, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
-            std::cout << "[AUTOCLOSE] pnetstats (bos) diyalogu kapat˝ld˝, Stats-> bekleniyor\n";
-            return 1; // g_waitingForPNetStats A«IK kalir
+            std::cout << "[AUTOCLOSE] pnetstats (bos) diyalogu kapat?ld?, Stats-> bekleniyor\n";
+            return 1; // g_waitingForPNetStats A?IK kalir
         }
 
         g_waitingForPNetStats = false;
 
         char szResult[192];
-        // Hedef adi: canli grup basligindan ˆrenilen ad -> cache'teki ad -> "Player <id>".
+        // Hedef adi: canli grup basligindan ??renilen ad -> cache'teki ad -> "Player <id>".
         // Botun kendi adi (g_szNickName) SADECE hedef botun kendisiyse kullanilir; ?pl <id>
         // cevabi "hakixld's PL" gibi yanlis isimle donemez.
         char szFallbackName[32];
@@ -451,19 +453,19 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
         std::cout << "[pnetstats yakalandi] " << szResult << "\n";
 
         // Sonucu sadece OYUNDA goster; Discord koprusune yansitma
-        // (! ile ba˛ladigi icin kopruye duserdi; echo bastirilarak onlenir).
+        // (! ile ba?ladigi icin kopruye duserdi; echo bastirilarak onlenir).
         g_bridgeSuppressEcho++;
         sendChat(szResult);
 
-        // pnetstats diyalogunu ekrana ‚îúgizdirmeden kapat (RPC 62)
+        // pnetstats diyalogunu ekrana ?gizdirmeden kapat (RPC 62)
         RakNet::BitStream bsResponse;
         bsResponse.Write((uint16_t)wDialogID);
-        bsResponse.Write((uint8_t)0);        // Button 0 (‚îÄ‚ñëptal/Kapat)
+        bsResponse.Write((uint8_t)0);        // Button 0 (??ptal/Kapat)
         bsResponse.Write((uint16_t)0xFFFF);   // Item ID
         bsResponse.Write((uint8_t)0);        // Input Text Length
         pRakClient->RPC(&RPC_DialogResponse, &bsResponse, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
 
-        std::cout << "[AUTOCLOSE] pnetstats diyalogu kapat˝ld˝!\n";
+        std::cout << "[AUTOCLOSE] pnetstats diyalogu kapat?ld?!\n";
         return 1;
     }
 
@@ -473,14 +475,14 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
     if (g_waitingForGst) {
         if (g_gstReqTime != 0 && GetTickCount() - g_gstReqTime > 20000) {
             g_waitingForGst = false;
-            Log("[GST] Bekleme zamana‚îºs‚îÄ‚ñím‚îÄ‚ñí, flag s‚îÄ‚ñíf‚îÄ‚ñírland‚îÄ‚ñí.");
+            Log("[GST] Bekleme zamana?s??m??, flag s??f??rland??.");
             return 0;
         }
 
         if (sampDialog.bDialogStyle == DIALOG_STYLE_INPUT || sampDialog.bDialogStyle == DIALOG_STYLE_PASSWORD) {
             const char *pszInput = "";
             size_t nInputLen = 0;
-            Log("[GST] ID giri˛ dialogu algilandi, bos submit gˆnderiliyor (kendi grubu)...");
+            Log("[GST] ID giri? dialogu algilandi, bos submit g?nderiliyor (kendi grubu)...");
             RakNet::BitStream bsResponse;
             bsResponse.Write((uint16_t)wDialogID);
             bsResponse.Write((uint8_t)1);        // Button 1 (OK)
@@ -566,13 +568,13 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                     else
                         break;
                 }
-                // Rakamla ba˛layan satirlar liste girdileridir ("1 - ...")
+                // Rakamla ba?layan satirlar liste girdileridir ("1 - ...")
                 if(pTrim < pLineEnd && *pTrim >= '0' && *pTrim <= '9')
                     nPlayers++;
                 else if(pTrim >= pLineEnd)
                     { /* bos / sadece renk kodu olan satir, devam et */ }
                 else
-                    break; // rakamla ba˛lamayan satir = sonraki bolum basligi
+                    break; // rakamla ba?lamayan satir = sonraki bolum basligi
                 if(!pNext) break;
                 p = pNext + 1;
             }
@@ -605,7 +607,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             Log("[GST] Sonuc: %s", szResult);
             sendChat(szResult);
         } else {
-            Log("[GST] Zone bilgisi bulunamadi, ham veri gˆnderiliyor.");
+            Log("[GST] Zone bilgisi bulunamadi, ham veri g?nderiliyor.");
             char szRaw[256];
             sprintf_s(szRaw, "!%s", pszInfo);
             sendChat(szRaw);
@@ -618,26 +620,26 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
         bsResponse.Write((uint16_t)0xFFFF);
         bsResponse.Write((uint8_t)0);
         pRakClient->RPC(&RPC_DialogResponse, &bsResponse, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
-        Log("[GST] Sonuc dialogu otomatik kapat˝ld˝ (AUTOCLOSE).");
+        Log("[GST] Sonuc dialogu otomatik kapat?ld? (AUTOCLOSE).");
         return 1;
     }
 
     // -------------------------------------------------------------
-    // 3b. /admins YAKALAMASI (Discord /admins slash komutu k‚îúpr‚îú‚ïùs‚îú‚ïù)
+    // 3b. /admins YAKALAMASI (Discord /admins slash komutu k?pr??s??)
     // -------------------------------------------------------------
     if (g_waitingForAdmins) {
         if (g_adminsReqTime != 0 && GetTickCount() - g_adminsReqTime > 20000) {
             g_waitingForAdmins = false;
-            Log("[ADMINS] Bekleme zamana‚îºs‚îÄ‚ñím‚îÄ‚ñí, flag s‚îÄ‚ñíf‚îÄ‚ñírland‚îÄ‚ñí.");
+            Log("[ADMINS] Bekleme zamana?s??m??, flag s??f??rland??.");
             return 0;
         }
 
         g_waitingForAdmins = false;
 
-        Log("[ADMINS] Sonuc dialogu yakalandi. Discord'a gˆnderiliyor...");
+        Log("[ADMINS] Sonuc dialogu yakalandi. Discord'a g?nderiliyor...");
         Log("[ADMINS-DATA] %.250s", szInfo);
 
-        // Security.cpp ‚îú‚ïùzerinden Discord VDS'e aktarma
+        // Security.cpp ??zerinden Discord VDS'e aktarma
         SendAdminsToDiscord(szInfo);
 
         // Sonuc dialogunu ekrana cizdirmeden kapat
@@ -648,23 +650,23 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
         bsResponse.Write((uint8_t)0);        // Input Text Length
         pRakClient->RPC(&RPC_DialogResponse, &bsResponse, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
 
-        Log("[ADMINS] Sonuc dialogu otomatik kapat˝ld˝ (AUTOCLOSE).");
+        Log("[ADMINS] Sonuc dialogu otomatik kapat?ld? (AUTOCLOSE).");
         return 1;
     }
 
     // -------------------------------------------------------------
-    // 3.5 /groups YAKALAMASI (?zgrp grup ˆrenme harvester'i)
+    // 3.5 /groups YAKALAMASI (?zgrp grup ??renme harvester'i)
     // Sunucu /groups cevabini LIST dialogu olarak acar; her satir "ID. isim".
-    // OnGroupsListCaptured parse edip /gstats <ID> zincirini ba˛latir.
+    // OnGroupsListCaptured parse edip /gstats <ID> zincirini ba?latir.
     // -------------------------------------------------------------
     if (g_waitingForGroups) {
         if (g_groupsReqTime != 0 && GetTickCount() - g_groupsReqTime > 15000) {
             g_waitingForGroups = false;
-            Log("[GHP] /groups bekleme zamana‚îºs‚îÄ‚ñím‚îÄ‚ñí, flag s‚îÄ‚ñíf‚îÄ‚ñírland‚îÄ‚ñí.");
+            Log("[GHP] /groups bekleme zamana?s??m??, flag s??f??rland??.");
             return 0;
         }
         // /groups cevabi LIST dialog style'inda gelir (veya INFO). Ham olarak gecir:
-        // OnGroupsListCaptured kendi parse kuraliyla calisir (format dei˛ikliine dayanikli).
+        // OnGroupsListCaptured kendi parse kuraliyla calisir (format de?i?ikli?ine dayanikli).
         // UIF iki dialog acar: once "UIF - Group Zone Info" (MSGBOX, kendi /gzinfo'ya benzer -
         // bu /groups cevabi DEGIL, beklemede kal), sonra gercek liste "Online Groups"
         // (TABLIST_HEADERS). Yalnizca liste stili yakalanir.
@@ -685,7 +687,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             pRakClient->RPC(&RPC_DialogResponse, &bsResponse, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
             return 1;
         }
-        // Farkli bir dialog geldi (ID giri˛ vs.): bu /groups cevabi degil, beklemede kal
+        // Farkli bir dialog geldi (ID giri? vs.): bu /groups cevabi degil, beklemede kal
     }
 
     // -------------------------------------------------------------
@@ -739,7 +741,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
     }
 
     // -------------------------------------------------------------
-    // 3.5c ?gmembers faz 3: /gvips dialogu -> VIP parse, sonra gˆnderim
+    // 3.5c ?gmembers faz 3: /gvips dialogu -> VIP parse, sonra g?nderim
     // -------------------------------------------------------------
     if (g_gmPhase == 2 && g_gmGvipsWaiting) {
         if (sampDialog.bDialogStyle == DIALOG_STYLE_LIST ||
@@ -760,17 +762,17 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
 
     // -------------------------------------------------------------
     // 3.6 /gmembers YAKALAMASI (?zsnip yetki kontrolu)
-    // Bot + komutu atan kullan˝c˝ Co-Leader mi diye /gmembers listesini parse eder.
+    // Bot + komutu atan kullan?c? Co-Leader mi diye /gmembers listesini parse eder.
     // -------------------------------------------------------------
     if (g_waitingForGmembers) {
         if (g_gmembersReqTime != 0 && GetTickCount() - g_gmembersReqTime > 30000) {
             g_waitingForGmembers = false;
-            Log("[GHP] /gmembers bekleme zamana‚îºs‚îÄ‚ñím‚îÄ‚ñí, flag s‚îÄ‚ñíf‚îÄ‚ñírland‚îÄ‚ñí.");
+            Log("[GHP] /gmembers bekleme zamana?s??m??, flag s??f??rland??.");
             return 0;
         }
         // UIF /gmembers cevabi LIST/TABLIST olabilir; bazi sunucularda MSGBOX.
         // SAYFALI: her sayfa OnGmembersPage'e beslenir; GM_NEXT donerse istenen
-        // buton/item ile sonraki sayfa istenir (uye sayisina gˆre sayfa degisir).
+        // buton/item ile sonraki sayfa istenir (uye sayisina g?re sayfa degisir).
         if ((sampDialog.bDialogStyle == DIALOG_STYLE_LIST ||
             sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST ||
             sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST_HEADERS ||
@@ -798,8 +800,8 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             bsR.Write((uint8_t)0);                 // Input Text Length
             pRakClient->RPC(&RPC_DialogResponse, &bsR, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
             if (r == 0)
-                OnGmembersFinalize();              // sonuc uygula (ba˛lat/red)
-            // r==1: g_waitingForGmembers A«IK kalir, siradaki sayfa diyalo‚îÄsu buraya gelir
+                OnGmembersFinalize();              // sonuc uygula (ba?lat/red)
+            // r==1: g_waitingForGmembers A?IK kalir, siradaki sayfa diyalo?su buraya gelir
             return 1;
         }
         // Farkli bir dialog geldi: /gmembers cevabi degil, beklemede kal
@@ -810,7 +812,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
     // -------------------------------------------------------------
     if (g_groleListActive) {
         if (g_groleListStartTime != 0 && GetTickCount() - g_groleListStartTime > 20000) {
-            Log("[GROLE-LIST] Zaman asimi, %d uye ile gˆnderiliyor.", (int)g_groleListMembers.size());
+            Log("[GROLE-LIST] Zaman asimi, %d uye ile g?nderiliyor.", (int)g_groleListMembers.size());
             FinishGroleListAndPost();
             return 0;
         }
@@ -881,7 +883,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             } else if(g_groleListPage < 10 && strstr(sampDialog.szButton2, ">>")){
                 // '>>' butonuna tikla: sag buton (0) + secili ilk satir (0).
                 // 0+0xFFFF = ESC = iptal (sunucu sayfa acmaz).
-                Log("[GROLE-LIST] '>>' butonu tiklanƒ±yor, sayfa (%d) -> toplanan %d", g_groleListPage+1, (int)g_groleListMembers.size());
+                Log("[GROLE-LIST] '>>' butonu tiklaniyor, sayfa (%d) -> toplanan %d", g_groleListPage+1, (int)g_groleListMembers.size());
                 bs.Write((uint8_t)0);
                 bs.Write((uint16_t)0);
                 bs.Write((uint8_t)0);
@@ -902,7 +904,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
     // 3.7b /grank LIST FETCH (uye listesi, rank secimi oncesi)
     if (g_grankListActive) {
         if (g_grankListStartTime != 0 && GetTickCount() - g_grankListStartTime > 20000) {
-            Log("[GRANK-LIST] Zaman asimi, %d uye ile gˆnderiliyor.", (int)g_grankListMembers.size());
+            Log("[GRANK-LIST] Zaman asimi, %d uye ile g?nderiliyor.", (int)g_grankListMembers.size());
             FinishGrankListAndPost();
             return 0;
         }
@@ -964,7 +966,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             } else if(g_grankListPage < 10 && strstr(sampDialog.szButton2, ">>")){
                 // '>>' butonuna tikla: sag buton (0) + secili ilk satir (0).
                 // 0+0xFFFF = ESC = iptal (sunucu sayfa acmaz).
-                Log("[GRANK-LIST] '>>' butonu tiklanƒ±yor, sayfa (%d) -> toplanan %d", g_grankListPage+1, (int)g_grankListMembers.size());
+                Log("[GRANK-LIST] '>>' butonu tiklaniyor, sayfa (%d) -> toplanan %d", g_grankListPage+1, (int)g_grankListMembers.size());
                 bs.Write((uint8_t)0);
                 bs.Write((uint16_t)0);
                 bs.Write((uint8_t)0);
@@ -1105,7 +1107,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                 szHex[h] = 0;
                 Log("[GROLE-DATA-HEX] %s", szHex);
             }
-            // Rol diyaloƒüu geldi (baslik "UIF - Group Role"): uye cift tiklamasi ba˛ar˝l˝,
+            // Rol diyalogu geldi (baslik "UIF - Group Role"): uye cift tiklamasi ba?ar?l?,
             // faz 2'ye gec ve rol sec. (Aday tiklarken gelen rol diyalogu hedef uyenindir:
             // adaylarin tamami hedefin satir/inputtext'iyle tikladi.)
             if(g_grolePhase == 1 && strstr(szTitle, "Role") && (strstr(szInfo, "Co-Leader") || strstr(szInfo, "Member")))
@@ -1117,7 +1119,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             if (g_grolePhase == 1 && szInfo && strstr(szInfo, "Last Active")) {
                 // Uye listesi: hedefi ara
                 int targetRow = -1, targetItem = -1, nextRow = -1, nextItem = -1;
-                char firstCol[128] = {0}; // hedef satirin ilk sutunu (renksiz) ‚Äî TABLIST inputtext
+                char firstCol[128] = {0}; // hedef satirin ilk sutunu (renksiz) - TABLIST inputtext
                 const char *pL = szInfo;
                 int row = 0;
                 int iHeaderRows = (sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST_HEADERS) ? 1 : 0;
@@ -1176,7 +1178,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                     // '>>' butonuna tikla: sag buton (0) + secili ilk satir (0).
                     // 0+0xFFFF = ESC = iptal (sunucu sayfa acmaz); gercek '>>' tiklamasi
                     // secili satirla gider (0+0xFFFF'i iptal sayar).
-                    Log("[GROLE] Hedef bulunamadi, '>>' butonu tiklanƒ±yor (sayfa %d)", g_grolePage+1);
+                    Log("[GROLE] Hedef bulunamadi, '>>' butonu tiklaniyor (sayfa %d)", g_grolePage+1);
                     bs.Write((uint8_t)0);
                     bs.Write((uint16_t)0);
                     bs.Write((uint8_t)0);
@@ -1195,7 +1197,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             } else if (g_grolePhase == 2) {
                 g_grTargetItem = -1; g_grDlgId = 0; // uye tiklamalari durdu
                 // (GUVENLIK notu: buraya yalnizca aday tiklama sonrasi gelen rol diyalogu
-                // ile girilir ‚Äî baslikta uye adi olmaz, kontrol gerekmez.)
+                // ile girilir - baslikta uye adi olmaz, kontrol gerekmez.)
                 // Rol secimi: Member / Co-Leader / Leader / Owner (LIST, tek sutun)
                 int roleRow = -1, roleItem = -1;
                 const char *pL = szInfo;
@@ -1267,7 +1269,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             (g_grankPhase == 2 && sampDialog.bDialogStyle == DIALOG_STYLE_MSGBOX)) {
             Log("[GRANK] Dialog yakalandi (phase=%d page=%d baslik='%s')", g_grankPhase, g_grankPage, szTitle);
             Log("[GRANK-DATA] %.400s", szInfo ? szInfo : "");
-            // Rank diyalogu geldi (baslik "Group Role"/"Rank"): uye cift tiklamasi ba˛ar˝l˝, faz 2.
+            // Rank diyalogu geldi (baslik "Group Role"/"Rank"): uye cift tiklamasi ba?ar?l?, faz 2.
             if(g_grankPhase == 1 && (strstr(szTitle, "Role") || strstr(szTitle, "Rank")) && (g_grTargetItem >= 0 || strstr(szInfo, "Co-Leader") || strstr(szInfo, "Member")))
             {
                 Log("[GRANK] Rank diyalogu algilandi ('%s'), faz 2'ye gecilir.", szTitle);
@@ -1332,7 +1334,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                 } else if(g_grankPage < 10 && strstr(sampDialog.szButton2, ">>")){
                     // '>>' butonuna tikla: sag buton (0) + secili ilk satir (0).
                     // 0+0xFFFF = ESC = iptal (sunucu sayfa acmaz).
-                    Log("[GRANK] Hedef bulunamadi, '>>' butonu tiklanƒ±yor (sayfa %d)", g_grankPage+1);
+                    Log("[GRANK] Hedef bulunamadi, '>>' butonu tiklaniyor (sayfa %d)", g_grankPage+1);
                     bs.Write((uint8_t)0);
                     bs.Write((uint16_t)0);
                     bs.Write((uint8_t)0);
@@ -1541,25 +1543,25 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
     }
 
     // -------------------------------------------------------------
-    // 4. /gstats YAKALAMASI (Discord'a gˆnderilen)
+    // 4. /gstats YAKALAMASI (Discord'a g?nderilen)
     // -------------------------------------------------------------
     if (g_waitingForGStats) {
-        // 20 sn i‚îúginde sonu‚îúg gelmezse bekleme flag'ini s‚îÄ‚ñíf‚îÄ‚ñírla (tak‚îÄ‚ñíl‚îÄ‚ñí kalmas‚îÄ‚ñín)
+        // 20 sn i?ginde sonu?g gelmezse bekleme flag'ini s??f??rla (tak??l?? kalmas??n)
         if (g_gstatsReqTime != 0 && GetTickCount() - g_gstatsReqTime > 20000) {
             g_waitingForGStats = false;
             g_gstatsSentFirst = false;
-            std::cout << "[gstats] Bekleme zamana‚îºs‚îÄ‚ñím‚îÄ‚ñí, flag s‚îÄ‚ñíf‚îÄ‚ñírland‚îÄ‚ñí.\n";
+            std::cout << "[gstats] Bekleme zamana?s??m??, flag s??f??rland??.\n";
             return 0;
         }
 
-        // Sunucu once ID giri˛ dialogu (INPUT) gˆnderir.
+        // Sunucu once ID giri? dialogu (INPUT) g?nderir.
         // /gstats ve /stats: dialogu anlik ac-kapat, g_gstatsInput doluysa o degeri yazip
         // submit et (belirli grup/oyuncu), bos ise bos submit -> kendi grubu (RakGravy davranisi).
-        // /astats: parametre yoksa kullan˝c˝ account ID girmeli, otomatik submit YAPILMAZ.
+        // /astats: parametre yoksa kullan?c? account ID girmeli, otomatik submit YAPILMAZ.
         if (sampDialog.bDialogStyle == DIALOG_STYLE_INPUT || sampDialog.bDialogStyle == DIALOG_STYLE_PASSWORD) {
             if(!g_gstatsAutoSubmit)
             {
-                Log("[GSTATS] /astats ID giri˛ dialogu atlaniyor (kullan˝c˝ account ID girecek)...");
+                Log("[GSTATS] /astats ID giri? dialogu atlaniyor (kullan?c? account ID girecek)...");
                 return 0;
             }
 
@@ -1567,10 +1569,10 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             size_t nInputLen = g_gstatsInput.length();
             if(nInputLen > 128) nInputLen = 128;
 
-            Log("[GSTATS] ID giri˛ dialogu algilandi, %s submit gˆnderiliyor...",
+            Log("[GSTATS] ID giri? dialogu algilandi, %s submit g?nderiliyor...",
                 nInputLen > 0 ? ("'" + g_gstatsInput + "' ile").c_str() : "bos");
 
-            // Girilen deger + Button 1 (OK) ile DialogResponse gˆnder
+            // Girilen deger + Button 1 (OK) ile DialogResponse g?nder
             RakNet::BitStream bsResponse;
             bsResponse.Write((uint16_t)wDialogID);
             bsResponse.Write((uint8_t)1);        // Button 1 (OK)
@@ -1580,23 +1582,23 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                 bsResponse.Write(pszInput, nInputLen);
             pRakClient->RPC(&RPC_DialogResponse, &bsResponse, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
 
-            std::cout << "[gstats] ID dialogu submit ile kapat˝ld˝, sonuc bekleniyor.\n";
+            std::cout << "[gstats] ID dialogu submit ile kapat?ld?, sonuc bekleniyor.\n";
             return 1;
         }
 
         // Sonuc dialogu yakalandi.
         // /stats sunucuda iki sonuc dialogu acar: once oyuncu stats, sonra grup stats.
         // Discord'a YALNIZCA komut Discord tarafindan istendiyse (g_gstatsRequesterId
-        // dolu) gˆnderilir; oyun ici ?gstats/otomatik harvest istekleri Discord'a GITMEZ.
+        // dolu) g?nderilir; oyun ici ?gstats/otomatik harvest istekleri Discord'a GITMEZ.
         std::cout << "[gstats yakalandi] ID: " << wDialogID << " - Baslik: " << szTitle << "\n";
 
-        // KENDI GRUP ADI OGRENME: SyncZscanFromDb /stats (kendi ID) gˆnderdi.
+        // KENDI GRUP ADI OGRENME: SyncZscanFromDb /stats (kendi ID) g?nderdi.
         // Faz 1: "UIF - Player Stats" diyalogu -> "Group Stats" butonuna bas (button 1),
         //        ikinci diyalog acilir.
         // Faz 2: "UIF - Group Stats" diyalogu -> ilk satiri grubun adidir.
         // GUVENLIK: otomatik harvest'in /gstats diyaloglari da "UIF - Group Stats"
         // basligini tasir. Harvest aktifken (g_ghpActive) faz 2 bekler, harvest
-        // /gstats cevabini KENDI diyalogu sanip yanlis isim ˆrenmez.
+        // /gstats cevabini KENDI diyalogu sanip yanlis isim ??renmez.
         if (g_waitingForGroupName) {
             int iPhase = g_groupNamePhase;
             // Zaman asimi: 15 sn icinde dogru diyalog gelmezse bekleme flag'ini
@@ -1665,7 +1667,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             return 1;
         }
 
-        // HARVEST MODU (?zgrp): sonuc Discord'a gitmez, zone ˆrenmesi icin kullanilir.
+        // HARVEST MODU (?zgrp): sonuc Discord'a gitmez, zone ??renmesi icin kullanilir.
         if(g_waitingForGStats && OnGStatsResultForHarvest(szInfo))
         {
             // Harvester sonucu isledi ve zinciri surdurdu; dialogu kapat.
@@ -1675,11 +1677,22 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             bsResponse.Write((uint16_t)0xFFFF);
             bsResponse.Write((uint8_t)0);
             pRakClient->RPC(&RPC_DialogResponse, &bsResponse, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
-            Log("[GHP] gstats sonuc dialogu kapat˝ld˝ (harvest).");
+            Log("[GHP] gstats sonuc dialogu kapat?ld? (harvest).");
             return 1;
         }
 
-        // ?gmembers koleksiyonu (faz 3): /astats sonucundan account ID parse et
+                // ?alog account-ID cozumu: /astats sonucu isim iceriyorsa tuket
+        if (g_alogAstatsActive && OnAlogAstatsResult(szTitle, szInfo)) {
+            RakNet::BitStream bsAL;
+            bsAL.Write((uint16_t)wDialogID);
+            bsAL.Write((uint8_t)1);
+            bsAL.Write((uint16_t)0xFFFF);
+            bsAL.Write((uint8_t)0);
+            pRakClient->RPC(&RPC_DialogResponse, &bsAL, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
+            Log("[ALOG] astats sonuc dialogu kapatildi (isim cozumu).");
+            return 1;
+        }
+// ?gmembers koleksiyonu (faz 3): /astats sonucundan account ID parse et
         if (g_gmPhase == 3 && g_gmAstatsWaiting) {
             Log("[GM] astats sonuc dialogu yakalandi ('%s').", g_gmAstatsName);
             OnGmAstatsResult(szInfo);
@@ -1695,12 +1708,12 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
         bool bDiscordRequested = (g_gstatsRequesterId[0] != '\0');
         if(!g_gstatsSentFirst && bDiscordRequested)
         {
-            // Discord'dan istenen ilk sonuc: Discord'a gˆnder. /stats ikinci sonuc
+            // Discord'dan istenen ilk sonuc: Discord'a g?nder. /stats ikinci sonuc
             // dialogunu (grup stats) da acar; o sadece kapatilir (g_gstatsSentFirst=true).
-            Log("[GSTATS] Sonuc dialogu yakalandi. Discord'a gˆnderiliyor...");
+            Log("[GSTATS] Sonuc dialogu yakalandi. Discord'a g?nderiliyor...");
             Log("[GSTATS-DATA] %.250s", szInfo);
 
-            // Security.cpp ‚îú‚ïùzerinden Discord VDS'e aktarma
+            // Security.cpp ??zerinden Discord VDS'e aktarma
             SendGStatsToDiscord(szInfo);
             g_gstatsSentFirst = true;
         }
@@ -1708,7 +1721,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
         {
             Log(bDiscordRequested
                 ? "[GSTATS] Ek sonuc dialogu (grup stats) yakalandi, sadece kapatiliyor."
-                : "[GSTATS] Sonuc dialogu yakalandi (oyun ici istek), Discord'a gˆnderilmedi.");
+                : "[GSTATS] Sonuc dialogu yakalandi (oyun ici istek), Discord'a g?nderilmedi.");
             Log("[GSTATS-TAG] %.300s", szInfo);
             LearnGroupTagFromGStats(szInfo);
             g_waitingForGStats = false;
@@ -1722,7 +1735,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
         bsResponse.Write((uint8_t)0);        // Input Text Length
         pRakClient->RPC(&RPC_DialogResponse, &bsResponse, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
 
-        Log("[GSTATS] Sonuc dialogu otomatik kapat˝ld˝ (AUTOCLOSE).");
+        Log("[GSTATS] Sonuc dialogu otomatik kapat?ld? (AUTOCLOSE).");
         return 1;
     }
 

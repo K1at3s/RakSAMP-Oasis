@@ -1,4 +1,4 @@
-ï»¿/*
+/*
 	Updated to 0.3.7 by P3ti
 */
 
@@ -142,8 +142,8 @@ int sampConnect(char *szHostname, int iPort, char *szNickname, char *szPassword,
 	g_waitingForPNetStats = false;
 	g_waitingForGStats = false;
 	g_bridgeSuppressEcho = 0;
-	g_frSentOnce = false; // yeni oturumda /fr tek gönderim icin flag'i sifirla
-	LoadPlayerCache();    // ?pl istatistik/adin cache'ini dosyadan yukle
+	g_frSentOnce = false; // yeni oturumda /fr tek g?nderim icin flag'i sifirla
+	ResetPlayerCache(); // ?pl cache bellekte sifirlanir (kaynak: canli + DB)
 	InitGroupColorsFromDisk(); // kalici grup rengi/tag kayitlarini dosyadan yukle
 
 	pRakClient->SetPassword(szPassword);
@@ -192,9 +192,9 @@ void sampSpawn()
 	
 	bIsSpectating = 0;
 
-	// Freeroam'a gecis: /fr'yi BURADA gönderme. Bu erken asama (login/auth oncesi) sunucuyu
+	// Freeroam'a gecis: /fr'yi BURADA g?nderme. Bu erken asama (login/auth oncesi) sunucuyu
 	// cok erken tetikler ve g_frSentOnce bayragi yutar; gercek spawn onayi gelince (/fr'nin
-	// gönderilmesi gereken an) SpawnConfirmed'da gönderilmelidir. Bakiniz: netrpc.cpp SpawnConfirmed.
+	// g?nderilmesi gereken an) SpawnConfirmed'da g?nderilmelidir. Bakiniz: netrpc.cpp SpawnConfirmed.
 	Log("You have been spawned!");
 }
 
@@ -356,7 +356,7 @@ static DWORD g_lastChatOutTick = 0;
 
 // --- UTF-8/cp1254 donusum yardimcilari (Turkce karakterler) ---
 // Log: cp1254 -> UTF-8 (dosya modern editorlerde okunur).
-// Chat gönderimi: UTF-8 -> cp1254 (oyun cp1254 bekler; DB/Discord kaynakli
+// Chat g?nderimi: UTF-8 -> cp1254 (oyun cp1254 bekler; DB/Discord kaynakli
 // mesajlar UTF-8'dir, kaynak literal/game metni cp1254'tur - akilli gecer).
 static bool IsValidUtf8(const char *s)
 {
@@ -445,14 +445,14 @@ void ProcessChatOutQueue()
 	DWORD dwNow = GetTickCount();
 	if(dwNow - g_lastChatOutTick < CHAT_OUT_INTERVAL_MS) return;
 
-	// En eski mesajý gönder; geri kalanlari sola kaydir.
+	// En eski mesaj? g?nder; geri kalanlari sola kaydir.
 	RakNet::BitStream bsSend;
 	BYTE byteTextLen = strlen(g_chatOutQueue[0]);
 	bsSend.Write(byteTextLen);
 	bsSend.Write(g_chatOutQueue[0], byteTextLen);
 	pRakClient->RPC(&RPC_Chat, &bsSend, HIGH_PRIORITY, RELIABLE, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
 	g_lastChatOutTick = dwNow;
-	Log("[CHAT] Gönderildi (%d kuyrukta): %s", g_chatOutCount - 1, g_chatOutQueue[0]);
+	Log("[CHAT] G?nderildi (%d kuyrukta): %s", g_chatOutCount - 1, g_chatOutQueue[0]);
 
 	for(int i = 1; i < g_chatOutCount; i++)
 		strcpy_s(g_chatOutQueue[i - 1], sizeof(g_chatOutQueue[0]), g_chatOutQueue[i]);
@@ -461,9 +461,9 @@ void ProcessChatOutQueue()
 
 void sendChat(char *szMessage)
 {
-	// Grup chat komutlarý (?help, ?w, ?ping, ?pl, ?gst, ?gstats, ?greet, ?welcomemsg,
+	// Grup chat komutlar? (?help, ?w, ?ping, ?pl, ?gst, ?gstats, ?greet, ?welcomemsg,
 	// ?gzt, ?discordchat, ?1414, ?gz) ve Discord koprusu (!!<mesaj>): UIF sunucusu
-	// kendi mesajýmizi (GROUP) olarak geri echo etmedigi icin bu mesajlar ClientMessage
+	// kendi mesaj?mizi (GROUP) olarak geri echo etmedigi icin bu mesajlar ClientMessage
 	// yakalamasinda hic tetiklenmez. Bu yuzden oyun ici sohbet kutusundan gelen her
 	// mesaj burada lokal islenir. (HandleGroupCommand'in kendi sendChat cevaplari da
 	// buraya girer; g_bridgeSuppressEcho ile Discord'a gitmeleri engellenir.)
@@ -472,8 +472,8 @@ void sendChat(char *szMessage)
 		HandleGroupCommand(szMessage, g_myPlayerID);
 	}
 
-	// Gönderim artik kuyruktan (5 sn arayla ProcessChatOutQueue). Tasarsa en yenisi
-	// dusurulur â€” anlik acil cevaplar öncelikli olmaz, bot flood yapmaz.
+	// G?nderim artik kuyruktan (5 sn arayla ProcessChatOutQueue). Tasarsa en yenisi
+	// dusurulur - anlik acil cevaplar ?ncelikli olmaz, bot flood yapmaz.
 	if(!szMessage || !szMessage[0]) return;
 	if(g_chatOutCount < CHAT_OUT_QUEUE_MAX)
 	{
@@ -501,7 +501,7 @@ void sendScmEvent(int iEventType, DWORD dwParam1, DWORD dwParam2, DWORD dwParam3
 void sendDialogResponse(WORD wDialogID, BYTE bButtonID, WORD wListBoxItem, char *szInputResp)
 {
 	// Input metni uzunlugu WORD (16-bit): UIF, /gstats submit'inde WORD uzunluk bekler
-	// (SAMPRPC.cpp gstats akisi ile birebir ayni). BYTE uzunluk spawn menüsü cevabinin
+	// (SAMPRPC.cpp gstats akisi ile birebir ayni). BYTE uzunluk spawn men?s? cevabinin
 	// yanlis cozumlenmesine yol aciyordu (bot virtual world'de kaliyordu).
 	unsigned short respLen = (unsigned short)strlen(szInputResp);
 	RakNet::BitStream bsSend;
@@ -571,7 +571,7 @@ int getPlayerPos(PLAYERID iPlayerID, float *fPos)
 
 	if(iPlayerID == g_myPlayerID)
 	{
-		// Kendi pozisyonu sunucudan geri gelmez (kendi sync'imizi biz gönderiyoruz);
+		// Kendi pozisyonu sunucudan geri gelmez (kendi sync'imizi biz g?nderiyoruz);
 		// gercek konum settings.fCurrentPosition'da tutulur.
 		if(settings.fCurrentPosition[0] == 0.0f
 			&& settings.fCurrentPosition[1] == 0.0f
