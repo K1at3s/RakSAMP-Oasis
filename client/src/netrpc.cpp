@@ -2783,6 +2783,16 @@ static void GangZoneScanGzDialog(const char *szInfo)
 	// ISIM BAZLI ogrenme: /gzinfo'nun "owned by group X" ismi -> DB isim->tag eslemesi.
 	// Sahipsiz zone -> "Free" sahte grubu: ?zgo free bu zone'lara gider, DB'ye de
 	// Free grubunun zone listesi olarak kaydedilir.
+	// Uyeleri cevrimdisi grubun zoneu: "owned by group" yok. Bilinen sahibi
+	// EZME (Dev vakasi: offline olunca Free dusup sniper yanlis saldirdi);
+	// bilinmiyorsa Free isaretle ki sonraki tur gercek isim ogrenilsin.
+	if(!szOwner[0] && strstr(szInfo, "does not have members online")
+		&& iZone >= 0 && iZone < MAX_GANG_ZONES && g_zoneOwnerName[iZone][0] != 0
+		&& _stricmp(g_zoneOwnerName[iZone], "Free") != 0)
+	{
+		strncpy_s(szOwner, sizeof(szOwner), g_zoneOwnerName[iZone], sizeof(szOwner) - 1);
+		Log("[ZF:SCAN] Ornek zone #%d: sahibi cevrimdisi, bilinen isim korundu (%s).", iZone, szOwner);
+	}
 	if(!szOwner[0]) strncpy_s(szOwner, sizeof(szOwner), "Free", _TRUNCATE);
 	if(g_groupColorCount < MAX_GROUP_COLORS)
 	{
@@ -3202,7 +3212,7 @@ void ProcessZoneScan()
 		// GRUP ADI GATE: tarama da kendi grup adi ogrenilmeden baslamaz (ogrenme
 		// onceliklidir, sonra harvest/zscan devam eder).
 		// HARVEST SONRASI OTOMATIK: harvest bitti, yeni veri varsa zone scan tetikle (zscan off olsa bile).
-		else if(s_bGroupDbRestored && !g_myGroupName.empty() && iSpawned && !g_ghpActive && !g_waitingForGroups && !g_inZoneWar && !g_zgoActive && g_zscanAuto
+		else if(s_bGroupDbRestored && !g_myGroupName.empty() && iSpawned && !g_ghpActive && !g_waitingForGroups && !g_inZoneWar && !g_zgoActive && g_zscanAuto && !g_zscanPausedForSnip
 			&& g_spawnTick != 0 && (dwNow3 - g_spawnTick) >= 30000) // harvest ile ayni spawn korumasi: once harvest, sonra scan
 		{
 			bool bForce = g_forceZscanAfterHarvest;
