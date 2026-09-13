@@ -2897,6 +2897,23 @@ void StartZoneScan(bool bAuto)
 	// ILK GIRIS: s_iScanPass=1'den baslar -> ilk tur bilinmeyen-only (DB'de var
 	// olanlar atlanir, sadece eksikler ogrenilir). Yarinki giris gun degisince
 	// LoadGroupsFromDb bos donecek, tum zone'lar "bilinmeyen" sayilip taraniacak.
+	static bool s_bootFullDone = false; // acilis 1 kere: flash bakilmaksizin TUM zone
+	if(!s_bootFullDone)
+	{
+		g_zoneScanQ = 0;
+		for(int zid = 0; zid < g_zoneCount && g_zoneScanQ < MAX_GANG_ZONES; zid++)
+			g_zoneScanQueue[g_zoneScanQ++] = zid;
+		if(g_zoneScanQ == 0)
+		{
+			g_zoneScanLastRun = GetTickCount();
+			Log("[ZF:SCAN] Acilis kontrolu: taranacak zone yok.");
+			return;
+		}
+		s_bootFullDone = true;
+		Log("[ZF:SCAN] Acilis TAM KONTROL: %d zone tek tek dogrulanacak.", g_zoneScanQ);
+	}
+	else
+	{
 	static int s_iScanPass = 0; // ilk tur tam kontrol olsun
 	bool bFullVerify = (s_iScanPass % 4 == 0);
 	s_iScanPass++;
@@ -2916,6 +2933,7 @@ void StartZoneScan(bool bAuto)
 		return;
 	}
 	Log("[ZF:SCAN] Tarama basliyor (%s mod, %d zone).", bFullVerify ? "TAM KONTROL" : "bilinmeyen-only", g_zoneScanQ);
+	}
 
 	float fPos[3] = {0, 0, 0};
 	if(!getPlayerPos(g_myPlayerID, fPos))
