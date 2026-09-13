@@ -120,6 +120,7 @@ static float g_zoneMaxX[MAX_GANG_ZONES];
 static float g_zoneMaxY[MAX_GANG_ZONES];
 // (g_zoneColor dizisi kaldirildi - eslesme tamamen isim bazli, renk saklanmaz/kullanilmaz)
 static bool g_zoneFlash[MAX_GANG_ZONES];
+static DWORD g_zoneFlashTick[MAX_GANG_ZONES] = {0}; // son flash paketi ani (bayatlik icin)
 // zone -> sahip grup adi (/gzinfo "owned by group X" ile ogrenilir). Renk bagimsiz
 // eslesme: YS.Hold "bot renk bagimli olmasin, sadece flash bagimli olsun" - renk geri
 // donusumunde ayni renk farkli gruplara baglaniyordu; isim eslesmesi bunu cozer.
@@ -2475,7 +2476,7 @@ void ProcessDbSync(){
 		s_dbLastDay = iToday;
 		Log("[ZF] Gun degisti (%d): eski zone sahiplik verisi temizleniyor.", iToday);
 		for(int z = 0; z < MAX_GANG_ZONES; z++)
-			g_zoneOwnerName[z][0] = 0;
+			{ g_zoneOwnerName[z][0] = 0; g_zoneFlash[z] = false; g_zoneFlashTick[z] = 0; }
 		SyncGroupColorsToDb(); // bos zone listeleriyle bugunun kayitlari yazilir
 	}
 	// zscan/gzt/zgrp toggle'ini HER TICK'te dene (60 sn throttle YOK): grup adi
@@ -3056,6 +3057,21 @@ static void SendGrRoleSecondClick()
 
 void ProcessZoneScan()
 {
+	// Flash bayatlik supurmesi: StopFlash paketi kactiysa (paket kaybi / 00:00
+	// server restart / gun degisimi) bayrak sonsuza dek true kalirdi. 10 dklik
+	// savas suresi + pay: 15 dk tazelenmemis flash bayat sayilir.
+	static DWORD s_lastFlashSweep = 0;
+	DWORD dwNowF = GetTickCount();
+	if(s_lastFlashSweep == 0 || dwNowF - s_lastFlashSweep >= 5000)
+	{
+		s_lastFlashSweep = dwNowF;
+		int nClr = 0;
+		for(int z = 0; z < MAX_GANG_ZONES; z++)
+			if(g_zoneFlash[z] && g_zoneFlashTick[z] != 0 && dwNowF - g_zoneFlashTick[z] > 15*60*1000)
+			{ g_zoneFlash[z] = false; g_zoneFlashTick[z] = 0; nClr++; }
+		if(nClr > 0) Log("[ZF] Bayat flash temizlendi: %d zone.", nClr);
+	}
+
 	// ?post gerekce penceresi doldu mu? (30 sn) â€” gerekce yazilmadiysa bos gonderilir,
 	// Discord tarafi "gerekce verilmedi" yazar.
 	if(g_pushPending && GetTickCount() > g_pushUntil)
@@ -6513,6 +6529,7 @@ void ScrFlashGangZone(RPCParameters *rpcParams)
 	bsData.Read(usZoneId);
 	if(usZoneId >= MAX_GANG_ZONES) return;
 	g_zoneFlash[usZoneId] = true;
+	g_zoneFlashTick[usZoneId] = GetTickCount();
 	Log("[GANGZONE:FLASH] id=%u", usZoneId);
 
 	// Surekli harita izleme (YS.Hold: "rely on Flash and a monitoring system to
@@ -6538,6 +6555,7 @@ void ScrStopFlashGangZone(RPCParameters *rpcParams)
 	if(bsData.Read(usZoneId))
 	{
 		g_zoneFlash[usZoneId] = false;
+	g_zoneFlashTick[usZoneId] = 0;
 		Log("[GANGZONE:STOPFLASH] id=%u", usZoneId);
 		// Kirmizi yanip somne durdu (grup rengine dondü): o zone artik o grubun degil -
 		// DB'den sil, grubun zone sayisi duser. Sahip bilinmiyorsa StartFlashScan
