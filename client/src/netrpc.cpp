@@ -855,7 +855,13 @@ static int   g_zscanPausedIdx = -1;        // duraklatilan ornek (devam icin)
 // Bitince kalinan ornekten devam eder.
 static void PauseZoneScanForSnip()
 {
-	if(g_zscanPausedForSnip || g_zoneScanIdx < 0) return;
+	if(g_zscanPausedForSnip) return;
+	g_zscanPausedForSnip = true;
+	if(g_zoneScanIdx < 0)
+	{
+		Log("[ZSNIP] Zone taramasi sniper suresince duraklatildi (aktif tarama yok).");
+		return;
+	}
 	g_zscanPausedIdx = g_zoneScanIdx;
 	g_zoneScanIdx = -1;
 	g_zscanPausedForSnip = true;
@@ -4018,7 +4024,7 @@ void ClientMessage(RPCParameters *rpcParams)
 								g_snipGroupName[0] = 0;
 								g_bridgeSuppressEcho++;
 																ResumeZoneScanAfterSnip();
-
+								sendChat((char *)LM("!Sniper bitti.", "!Sniper finished."));
 								Log("[ZSNIP] Zincir tamamlandi (baska zone yok).");
 							}
 						}
@@ -5398,8 +5404,8 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 					char szCmd[128];
 					sprintf_s(szCmd, sizeof(szCmd), "/pos %.2f %.2f %.2f", fCenterX, fCenterY, ZGO_TELEPORT_Z);
 					sendServerCommand(szCmd);
-										PauseZoneScanForSnip();
-
+					PauseZoneScanForSnip();
+					g_ztkActive = true;
 					g_ztkZoneId = iZone;
 					g_ztkWaitAnnounced = false;
 					Log("[ZSNIP] ?yes: siradaki zone #%d hedeflendi.", iZone);
@@ -7666,8 +7672,8 @@ Log("[ZSNIP] Kullanici iptal etti (yetki dogrulandi), sniper kapatildi.");
 	sprintf_s(szCmd, sizeof(szCmd), "/pos %.2f %.2f %.2f", fCenterX, fCenterY, ZGO_TELEPORT_Z);
 	sendServerCommand(szCmd);
 
-		PauseZoneScanForSnip();
-
+	PauseZoneScanForSnip();
+	g_ztkActive = true;
 	g_ztkZoneId = iZone;
 	g_ztkWaitAnnounced = false;
 	Log("[ZSNIP] Zone sniper basladi: zone #%d, bekleyis %d sn.", iZone, iWaitSec);
@@ -7792,7 +7798,7 @@ void ProcessZtkTick()
 			g_snipGroupName[0] = 0;
 			g_bridgeSuppressEcho++;
 						ResumeZoneScanAfterSnip();
-
+		sendChat((char *)LM("!Sniper bitti.", "!Sniper finished."));
 		}
 		return;
 	}
