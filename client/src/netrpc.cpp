@@ -155,6 +155,9 @@ static DWORD g_zaPermUntil = 0;
 // ?zsnip (zone sniper): hedef zone'a isinla, o zonede savas bitene kadar bekle,
 // bitince /gz gonder (oraya saldiri). Isim (grup tag'i) veya sayisal zone id alir.
 static bool  g_ztkActive = false;
+static bool  g_ztkVerifyPending = false; // /gzinfo ile sahip dogrulama bekleniyor mu
+static int   g_ztkVerifyZone = -1;        // dogrulanan zone
+static DWORD  g_ztkVerifyAt = 0;           // /gzinfo gonderim ani (12 sn timeout)
 static int   g_ztkZoneId = -1;
 static bool  g_ztkWaitAnnounced = false;
 // Zincir saldiri (?zsnip + ?yes): grubun diger zone'larina sirasiyla saldir.
@@ -2754,6 +2757,59 @@ void BuildFlashZoneSummary()
 static void GangZoneScanNext();
 static void GangZoneScanGo(int iZone);
 
+// Sniper saldiri-onayi: /gzinfo sonucu beklenen zoneyse sahibi zincir grubuyla
+// karsilastir; eslesirse /gz, eslesmezse sonrakine gec/kapat (bayat zincir korumasi).
+static void ZtkVerifyComplete()
+{
+	int zid = g_ztkVerifyZone;
+	g_ztkVerifyPending = false;
+	g_ztkVerifyZone = -1;
+	if(!g_ztkActive || zid < 0 || zid >= MAX_GANG_ZONES) return;
+	char szHave[80]; strncpy_s(szHave, sizeof(szHave), g_zoneOwnerName[zid], sizeof(szHave) - 1);
+	NormalizeGroupName(szHave);
+	char szNeed[80]; strncpy_s(szNeed, sizeof(szNeed), g_snipGroupName, sizeof(szNeed) - 1);
+	NormalizeGroupName(szNeed);
+	if(szHave[0] && szNeed[0] && !_stricmp(szHave, szNeed))
+	{
+		Log("[ZSNIP] Zone #%d sahibi dogrulandi (%s), /gz gonderiliyor.", zid, g_zoneOwnerName[zid]);
+		g_ztkAttackPending = true;
+		g_ztkOutcome = 0;
+		g_zwWeWon = true;
+		sendServerCommand((char *)"/gz");
+		Log("[ZSNIP] /gz gonderildi, won/lost sonucu bekleniyor.");
+	return;
+	}
+	Log("[ZSNIP] Zone #%d sahibi uyusmadi (beklenen %s, gercek %s) - saldiri iptal.", zid, g_snipGroupName, szHave[0] ? szHave : "?");
+	g_bridgeSuppressEcho++;
+	char szMsg[128];
+	sprintf_s(szMsg, sizeof(szMsg), LM("!Zone #%d artik %s degil (%s), atlaniyor.", "!Zone #%d is no longer %s (%s), skipping."), zid, g_snipGroupName, szHave[0] ? szHave : "?");
+	sendChat(szMsg);
+	if(g_snipZoneCount > 0 && g_snipZoneIdx + 1 < g_snipZoneCount)
+	{
+		g_snipZoneIdx++;
+		int nNext = g_snipZones[g_snipZoneIdx];
+		g_ztkZoneId = nNext;
+		g_ztkWaitAnnounced = false;
+		float fCX = (g_zoneMinX[nNext] + g_zoneMaxX[nNext]) / 2.0f;
+		float fCY = (g_zoneMinY[nNext] + g_zoneMaxY[nNext]) / 2.0f;
+		char szCmd2[128];
+		sprintf_s(szCmd2, sizeof(szCmd2), "/pos %.2f %.2f %.2f", fCX, fCY, ZGO_TELEPORT_Z);
+		sendServerCommand(szCmd2);
+		Log("[ZSNIP] Dogrulama sonrasi siradaki zone #%d hedeflendi.", nNext);
+	}
+	else
+	{
+		g_ztkActive = false;
+		g_ztkZoneId = -1;
+		g_snipZoneCount = 0;
+		g_snipZoneIdx = 0;
+		g_ztkAskNext = false;
+		g_snipGroupName[0] = 0;
+		ResumeZoneScanAfterSnip();
+		g_bridgeSuppressEcho++;
+		sendChat((char *)LM("!Sniper bitti.", "!Sniper finished."));
+	}
+}
 // /gzinfo dialogu geldi: "Zone Name: # N" -> zone id, "owned by group "X"" -> ad.
 // Sahipsiz cikarsa renk "Free" (bos tag) olarak isaretlenir; tekrar kontrol edilmez.
 static void GangZoneScanGzDialog(const char *szInfo)
@@ -2827,6 +2883,9 @@ static void GangZoneScanGzDialog(const char *szInfo)
 	// zone -> sahip grup adi: ?zf flashing zone'lari bu isimle DB'deki tag'e esler.
 	if(iZone >= 0 && iZone < MAX_GANG_ZONES)
 		strncpy_s(g_zoneOwnerName[iZone], sizeof(g_zoneOwnerName[0]), szOwner, sizeof(g_zoneOwnerName[0]) - 1);
+	// Sniper dogrulama bekliyorsa tamamla (tarama akisi aynen devam eder).
+	if(g_ztkVerifyPending && iZone == g_ztkVerifyZone)
+		ZtkVerifyComplete();
 
 	GangZoneScanNext();
 }
@@ -5493,18 +5552,33 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 						LM("!Zone #%d hedeflendi, savas bitisi bekleniyor...", "!Zone #%d targeted, waiting for the war to end..."), iZone);
 					sendChat(szMsg);
 				}
+				else
+				{
+					Log("[ZSNIP] ?yes: bekleyen zincir sorusu yok.");
+					g_bridgeSuppressEcho++;
+					sendChat((char *)LM("!Bekleyen zincir sorusu yok (?zsnip ile baslat).", "!No pending chain question (start with ?zsnip)."));
+				}
 			}
 			// --- ?no : zsnip zincirini iptal et ---
-			else if(!strncmp(pGroupMsg, "?no", 3) && (pGroupMsg[3] == '\0' || pGroupMsg[3] == ' ') && g_ztkAskNext)
+			else if(!strncmp(pGroupMsg, "?no", 3) && (pGroupMsg[3] == '\0' || pGroupMsg[3] == ' '))
 			{
-				g_ztkAskNext = false;
-				g_snipZoneCount = 0;
-				g_snipZoneIdx = 0;
-				g_snipGroupName[0] = 0;
-								ResumeZoneScanAfterSnip();
-Log("[ZSNIP] ?no: zincir iptal edildi.");
-				g_bridgeSuppressEcho++;
-				sendChat((char *)LM("!Sniper zinciri iptal edildi.", "!Sniper chain cancelled."));
+				if(!g_ztkAskNext)
+				{
+					Log("[ZSNIP] ?no: bekleyen zincir sorusu yok.");
+					g_bridgeSuppressEcho++;
+					sendChat((char *)LM("!Bekleyen zincir sorusu yok.", "!No pending chain question."));
+				}
+				else
+				{
+					g_ztkAskNext = false;
+					g_snipZoneCount = 0;
+					g_snipZoneIdx = 0;
+					g_snipGroupName[0] = 0;
+					ResumeZoneScanAfterSnip();
+					Log("[ZSNIP] ?no: zincir iptal edildi.");
+					g_bridgeSuppressEcho++;
+					sendChat((char *)LM("!Sniper zinciri iptal edildi.", "!Sniper chain cancelled."));
+				}
 			}
 			// --- ?zgrp [on|off] / ?tagscan : grup taglarini /groups + /gstats <ID> ile
 			// ogrenir (manuel tag taramasi). "on/off" oto harvest anahtari (DB'de kalici);
@@ -7887,7 +7961,7 @@ void ProcessZtkTick()
 	// Faz 1: hedef zonede savas suruyorsa beklemeye devam et (bir kez duyur).
 	// Hem kendi savasimiz (g_inZoneWar) hem dusmanin savasi (g_ztkTargetWar -
 	// "takes over zone '# N'" mesajiyla biter, zamanlayiciya guvenilmez).
-	if(g_ztkTargetWar || (g_inZoneWar && g_zwWarZone[0] && atoi(g_zwWarZone) == g_ztkZoneId))
+	if(g_ztkTargetWar || g_inZoneWar)
 	{
 		if(!g_ztkWaitAnnounced)
 		{
@@ -7900,15 +7974,22 @@ void ProcessZtkTick()
 		return;
 	}
 
-	// Faz 1 bitti: savas bitti ya da hic yoktu -> /gz ile saldir, sonucu bekle.
+	// Faz 1 bitti (savas yok/bitmis): hedef zone /gzinfo ile dogrulanir, eslesirse /gz.
 	if(g_ztkZoneId >= 0 && g_ztkZoneId < g_zoneCount)
 	{
-		Log("[ZSNIP] Zone #%d bosaldi (savas yok), /gz gonderiliyor.", g_ztkZoneId);
-		g_ztkAttackPending = true;
-		g_ztkOutcome = 0;
-		g_zwWeWon = true; // yeni saldiri: sonuc bilinmiyor
-		sendServerCommand((char *)"/gz");
-		Log("[ZSNIP] /gz gonderildi, won/lost sonucu bekleniyor.");
+		if(g_ztkVerifyPending && GetTickCount() - g_ztkVerifyAt > 12000)
+		{
+			g_ztkVerifyPending = false;
+			Log("[ZSNIP] Dogrulama cevabi gelmedi, /gzinfo tekrar gonderiliyor.");
+		}
+		if(!g_ztkVerifyPending)
+		{
+			g_ztkVerifyPending = true;
+			g_ztkVerifyZone = g_ztkZoneId;
+			g_ztkVerifyAt = GetTickCount();
+			Log("[ZSNIP] Zone #%d sahibi dogrulaniyor (/gzinfo)...", g_ztkZoneId);
+			sendServerCommand((char *)"/gzinfo");
+		}
 	}
 }
 bool LearnGroupTagFromGStats(const char *szInfo)
