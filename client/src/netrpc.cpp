@@ -849,6 +849,7 @@ static int   g_zoneScanQ = 0;          // kuyruktaki ornek zone sayisi
 static int   g_zoneScanIdx = -1;       // -1: tarama yok; 0..: siradaki ornek
 static bool  g_zscanPausedForSnip = false; // sniper suresince tarama duraklatildi mi
 static int   g_zscanPausedIdx = -1;        // duraklatilan ornek (devam icin)
+static bool  g_forceFullVerifyOnce = false; // ?zscan sn: tek seferlik tam kontrol istegi
 // Sniper suresince zone taramasi DURAKLATILIR: taramanin /pos isinlamalari
 // sniperin /pos + /gz akisiyla cakisip yanlis zonea saldirtiyordu (GeMs vakasi).
 // Bitince kalinan ornekten devam eder.
@@ -2902,13 +2903,16 @@ void StartZoneScan(bool bAuto)
 	// Tarama dengesi (kullanici): bilinen zone'lari HER turda yeniden taramak
 	// bosu bosuna vakit kaybi; hic taramamak da veriyi bozar. Cozum:
 	// Normal tur  -> YALNIZCA sahibi bilinmeyen flashing zone'lar.
-	// Her 4. tur  -> TAM KONTROL: bilinenler de yeniden dogrulanir (bayat veri).
+	// 5 periyot: 0-1. turlar TAM KONTROL (bayat veri), 2-4. turlar bilinmeyen-only.
 	// ILK GIRIS: s_iScanPass=1'den baslar -> ilk tur bilinmeyen-only (DB'de var
 	// olanlar atlanir, sadece eksikler ogrenilir). Yarinki giris gun degisince
 	// LoadGroupsFromDb bos donecek, tum zone'lar "bilinmeyen" sayilip taraniacak.
 	static bool s_bootFullDone = false; // acilis 1 kere: flash bakilmaksizin TUM zone
-	if(!s_bootFullDone)
+	if(!s_bootFullDone || g_forceFullVerifyOnce)
 	{
+		bool bBoot = !s_bootFullDone;
+		s_bootFullDone = true;
+		g_forceFullVerifyOnce = false;
 		g_zoneScanQ = 0;
 		for(int zid = 0; zid < g_zoneCount && g_zoneScanQ < MAX_GANG_ZONES; zid++)
 			g_zoneScanQueue[g_zoneScanQ++] = zid;
@@ -2918,13 +2922,12 @@ void StartZoneScan(bool bAuto)
 			Log("[ZF:SCAN] Acilis kontrolu: taranacak zone yok.");
 			return;
 		}
-		s_bootFullDone = true;
-		Log("[ZF:SCAN] Acilis TAM KONTROL: %d zone tek tek dogrulanacak.", g_zoneScanQ);
+		Log("[ZF:SCAN] %s: %d zone tek tek dogrulanacak.", bBoot ? "Acilis TAM KONTROL" : "?zscan sn TAM KONTROL", g_zoneScanQ);
 	}
 	else
 	{
 	static int s_iScanPass = 0; // ilk tur tam kontrol olsun
-	bool bFullVerify = (s_iScanPass % 4 == 0);
+	bool bFullVerify = (s_iScanPass % 5 < 2); // 5 periyot: 0-1. turlar tam kontrol, 2-4. bilinmeyen-only
 	s_iScanPass++;
 
 	g_zoneScanQ = 0;
@@ -5151,13 +5154,39 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 					g_bridgeSuppressEcho++;
 					sendChat((char *)LM("!Zone tarama: KAPALI.", "!Zone scan: OFF."));
 				}
+				else if(!_stricmp(pArg, "sn"))
+				{
+					// Tek seferlik TAM tarama: tum zonalar dogrulanir, bitince DB
+					// senkronu tek-sahipligi kurar (yeni gruba yaz, eskiden sil).
+					if(g_zscanPausedForSnip)
+					{
+						g_forceFullVerifyOnce = true;
+						Log("[ZF:SCAN] ?zscan sn kuyruga alindi (sniper bitince tam kontrol).");
+						g_bridgeSuppressEcho++;
+						sendChat((char *)LM("!Sniper bitince tam kontrol yapilacak.", "!Full verification runs after the sniper."));
+					}
+					else if(g_zoneScanIdx >= 0 || !iSpawned || g_inZoneWar)
+					{
+						Log("[ZF:SCAN] ?zscan sn atlandi (scanAktif=%d spawned=%d war=%d).", g_zoneScanIdx >= 0, iSpawned, g_inZoneWar);
+						g_bridgeSuppressEcho++;
+						sendChat((char *)LM("!Simdi tarama yapilamiyor (mesgul).", "!Cannot scan right now (busy)."));
+					}
+					else
+					{
+						g_forceFullVerifyOnce = true;
+						Log("[ZF:SCAN] ?zscan sn: tek seferlik tam kontrol baslatiliyor.");
+						StartZoneScan(true);
+						g_bridgeSuppressEcho++;
+						sendChat((char *)LM("!Tam kontrol basliyor (?zscan sn).", "!Full verification starting (?zscan sn)."));
+					}
+				}
 				else
 				{
 					// Argumansiz/bilinmeyen: durumu bildir + kullanim.
 					Log("[ZONE] ?zscan yakalandi (arg='%s'), durum bildiriliyor.", pArg);
 					g_bridgeSuppressEcho++;
 					if(pArg[0] && _stricmp(pArg, "on") && _stricmp(pArg, "off"))
-						sendChat((char *)LM("!Kullanim: ?zscan on | ?zscan off", "!Usage: ?zscan on | ?zscan off"));
+						sendChat((char *)LM("!Kullanim: ?zscan on | ?zscan off | ?zscan sn", "!Usage: ?zscan on | ?zscan off | ?zscan sn"));
 					else
 						sendChat((char *)LM(g_zscanAuto ? "!Zone tarama: ACIK." : "!Zone tarama: KAPALI.",
 							g_zscanAuto ? "!Zone scan: ON." : "!Zone scan: OFF."));
