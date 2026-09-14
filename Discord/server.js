@@ -1572,6 +1572,32 @@ app.post('/api/groups', async (req, res) => {
             [rows]
         );
         console.log(`🏷️ GROUPS: ${rows.length} grup upsert edildi (kalici zone haritasiyla)`);
+        // Tek-sahiplik: bu push'ta bildirilen zoneler baska gruplarda kalmasin.
+        // (Tarama tazelerken eski sahip satirinda hayalet zone kaliyordu: #4 uL'de
+        // ama HM satirinda da gorunuyordu -> ?zf karisiyordu.)
+        try {
+            const claimed = new Set();
+            for (const r of rows) {
+                let zs = [];
+                try { zs = JSON.parse(r[2] || '[]'); } catch (e) { zs = []; }
+                if (Array.isArray(zs)) zs.map(Number).filter(n => Number.isInteger(n) && n >= 0).forEach(z => claimed.add(z));
+            }
+            if (claimed.size) {
+                const pushed = new Set(rows.map(r => r[0]));
+                const all = await db.query('SELECT group_name, zones FROM gangs');
+                for (const g of all) {
+                    if (pushed.has(g.group_name)) continue;
+                    let z = [];
+                    try { z = JSON.parse(g.zones); } catch (e) { continue; }
+                    if (!Array.isArray(z)) continue;
+                    const kept = z.map(Number).filter(n => !claimed.has(n));
+                    if (kept.length !== z.length) {
+                        await db.execute('UPDATE gangs SET zones = ?, updated_at = ? WHERE group_name = ?', [JSON.stringify(kept), new Date(), g.group_name]);
+                        console.log(`🏷️ TEK-SAHIPLIK: zone ${z.length - kept.length} adet '${g.group_name}' satirindan temizlendi`);
+                    }
+                }
+            }
+        } catch (e) { console.error('GROUPS tek-sahiplik hatasi:', e.message); }
         return res.json({ success: true, count: rows.length });
     } catch (err) {
         console.error('GROUPS hatasi:', err.message);

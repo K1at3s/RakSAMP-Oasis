@@ -1,4 +1,4 @@
-ï»¿/*
+/*
 	Updated to 0.3.7 by P3ti
 */
 
@@ -22,7 +22,7 @@ DWORD dwAutoRunTick = GetTickCount();
 
 extern int iMoney, iDrunkLevel, iLocalPlayerSkin;
 extern BOOL bIsSpectating;
-// netrpc.cpp: UIF Login dialogu açýk mi? Açýkken spawn istegi gönderilmez
+// netrpc.cpp: UIF Login dialogu a??k mi? A??kken spawn istegi g?nderilmez
 // (yoksa sunucu tmp hesap spawn eder, gercek hesap kaybedilir).
 extern bool g_loginPending;
 extern unsigned long g_loginPendingUntil;
@@ -136,16 +136,16 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
 		if (iAreWeConnected && iGameInited)
 		{
-			// UIF LOGIN BEKLEMESI: kullanýcý þifreyle hesabina girene kadar bot
+			// UIF LOGIN BEKLEMESI: kullan?c? ?ifreyle hesabina girene kadar bot
 			// aksiyonlari (war, ztk, db sync, fr, tarama, discord chat) BASLAMAZ.
 			// Sadece chat kuyrugu ve dialog yakalama ("You logged in" algilama) calisir.
 			// (g_loginPending: InitGame'de true; login dialogu gelirse SAMPRPC korur;
-			//  "You logged in to your account" mesajý gelince false olur.)
+			//  "You logged in to your account" mesaj? gelince false olur.)
 			if(g_loginPending)
 			{
 				// Timeout: login dialogu hic gelmezse 10 sn sonra otomatik devam et.
 				// (g_loginPendingUntil: InitGame'de now+10s; login dialogu gelirse
-				// SAMPRPC 0 yapar = kullanýcý girene kadar bekle, timeout yok.)
+				// SAMPRPC 0 yapar = kullan?c? girene kadar bekle, timeout yok.)
 				if(g_loginPendingUntil != 0 && GetTickCount() > g_loginPendingUntil)
 				{
 					g_loginPending = false;
@@ -165,22 +165,22 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 			// ?gmembers: Google Sheets roster koleksiyonu (uye + astats + gvips)
 			ProcessGmembers();
 
-			// ?ztk zone sniper: hedef zonede savaþ bitince /gz (isine bekleme)
+			// ?ztk zone sniper: hedef zonede sava? bitince /gz (isine bekleme)
 			ProcessZtkTick();
 
 			// Cache + grup renklerini backend'e (MySQL) yazar (60 sn'de bir)
 			ProcessDbSync();
 
-			// Cikis chat kuyrugu: bot mesajlari 5 sn arayla gönderilir
+			// Cikis chat kuyrugu: bot mesajlari 5 sn arayla g?nderilir
 			ProcessChatOutQueue();
 
 			// ?zgo: zone bekleme suresi dolduysa eski pozisyona don
 			ProcessZgoReturn();
 
-			// Freeroam: /fr'yi sendServerCommand ile aralikli gönder (chat'e yansimaz)
+			// Freeroam: /fr'yi sendServerCommand ile aralikli g?nder (chat'e yansimaz)
 			ProcessFrRetry();
 
-			// ?zf renk->grup taramasi: zgo mantigiyla /gzinfo (baðlantý sonrasi oto, bir kez)
+			// ?zf renk->grup taramasi: zgo mantigiyla /gzinfo (ba?lant? sonrasi oto, bir kez)
 			ProcessZoneScan();
 
 			// ?zf: /gzinfo asenkron oldugu icin flash paketleri geldikten sonra (3 sn) dagilim
@@ -263,8 +263,8 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 				}
 				else
 				{
-					// UIF Login dialogu açýkken spawn GONDERME: sunucu tmp hesap
-					// spawn ederdi. Login (kullanýcý þifreyle girdi) bitene kadar beklenir.
+					// UIF Login dialogu a??kken spawn GONDERME: sunucu tmp hesap
+					// spawn ederdi. Login (kullan?c? ?ifreyle girdi) bitene kadar beklenir.
 					if(g_loginPending)
 					{
 						if(!iNotificationDisplayedBeforeSpawn)
@@ -371,13 +371,11 @@ void Log(char *fmt, ...)
 {
 	if(flLog == NULL)
 	{
-		bool isNew = false;
-		FILE *test = fopen("RakSAMPClient.log", "r");
-		if(test){ fclose(test); } else { isNew = true; }
-		flLog = fopen("RakSAMPClient.log", "a");
+		// Her acilista sifirdan: eski log silinir, yeniden olusur.
+		flLog = fopen("RakSAMPClient.log", "wb");
 		if(flLog == NULL)
 			return;
-		if(isNew){
+		{
 			unsigned char bom[3] = {0xEF, 0xBB, 0xBF};
 			fwrite(bom, 1, 3, flLog);
 		}
