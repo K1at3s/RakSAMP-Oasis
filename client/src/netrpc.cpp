@@ -2598,6 +2598,19 @@ static double NumberAfter(const char *pText, const char *szKey)
 // tarama bittiginde guncel ozet TEKRAR gonderilir (artik renkler biliniyor).
 static bool g_zfScanResend = false;
 static int  g_zfFollowUps = 0;         // tarama sonu takip turu sayisi (sonsuz dongu kilidi)
+static int  g_zfPendingZones[64];
+static int  g_zfPendingCount = 0; // mesgulken flashlanip dusen bilinmeyen zoneler
+// Mesgulken flashlanip dusen bilinmeyen zone: savas bitip flash sonse bile
+// takip turunda /gzinfo ile ogrenilsin diye listeye alinir.
+static void StashUnknownZone(int zid)
+{
+	if(zid < 0 || zid >= MAX_GANG_ZONES) return;
+	if(g_zoneOwnerName[zid][0] != 0) return;
+	for(int k = 0; k < g_zfPendingCount; k++) if(g_zfPendingZones[k] == zid) return;
+	if(g_zfPendingCount >= 64) return;
+	g_zfPendingZones[g_zfPendingCount++] = zid;
+	Log("[GANGZONE:FLASH] Zone #%d bekleme listesinde (%d).", zid, g_zfPendingCount);
+}
 static void StartFlashScan();          // ?zf: sahibi bilinmeyen flashing zone'lari ogren
 
 // ?zf cikti parcasi: "!Flashing Zones: Tag(n) | ..." (Tek veya [1/2] [2/2]).
@@ -2863,6 +2876,29 @@ static void GangZoneScanNext()
 		// Tarama surerken flashlanip atlanan bilinmeyen zone kaldiysa eve donusten
 		// SONRA bir tur daha (#147 vakasi: "Atlanildi (scan aktif)" -> 15 dk'ya kaliyordu).
 		// Sinirsiz dongu olmasin diye oturum basina 5 takip turu.
+		// Bekleyen bilinmeyen zoneler (mesgulken dusenler): flash sonmus olsa bile
+		// /gzinfo sahibi soyler - dogrudan kuyruga alinir, ogrenilince listeden duser.
+		{
+			int nP = 0;
+			for(int k = 0; k < g_zfPendingCount; k++)
+			{
+				int zid = g_zfPendingZones[k];
+				if(zid < 0 || zid >= g_zoneCount) continue;
+				if(g_zoneOwnerName[zid][0] != 0) continue;
+				bool bDup = false;
+				for(int q = 0; q < nP; q++) if(g_zoneScanQueue[q] == zid) { bDup = true; break; }
+				if(!bDup && nP < MAX_GANG_ZONES) g_zoneScanQueue[nP++] = zid;
+			}
+			g_zfPendingCount = 0;
+			if(nP > 0)
+			{
+				g_zoneScanQ = nP;
+				g_zoneScanIdx = 0;
+				Log("[ZF:SCAN] Bekleyen %d bilinmeyen zone takip turu.", nP);
+				GangZoneScanGo(g_zoneScanQueue[0]);
+				return;
+			}
+		}
 		if(g_zfFollowUps < 5)
 		{
 			g_zfFollowUps++;
@@ -6586,8 +6622,13 @@ void ScrFlashGangZone(RPCParameters *rpcParams)
 	// surerken tetikLENMEZ - o an yalnizca taglar ogrenilir.
 	if(g_zoneOwnerName[usZoneId][0] == 0 && g_zscanAuto && !g_ghpActive)
 	{
-		Log("[GANGZONE:FLASH] Ismi bilinmeyen zone #%u flashlandi, otomatik tarama tetikleniyor.", usZoneId);
-		StartFlashScan();
+		if(g_zscanPausedForSnip) { StashUnknownZone((int)usZoneId); }
+		else
+		{
+			Log("[GANGZONE:FLASH] Ismi bilinmeyen zone #%u flashlandi, otomatik tarama tetikleniyor.", usZoneId);
+			StartFlashScan();
+			if(g_zoneScanIdx < 0) StashUnknownZone((int)usZoneId);
+		}
 	}
 }
 
