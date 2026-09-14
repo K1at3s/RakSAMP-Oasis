@@ -2943,11 +2943,10 @@ void StartZoneScan(bool bAuto)
 	// ILK GIRIS: s_iScanPass=1'den baslar -> ilk tur bilinmeyen-only (DB'de var
 	// olanlar atlanir, sadece eksikler ogrenilir). Yarinki giris gun degisince
 	// LoadGroupsFromDb bos donecek, tum zone'lar "bilinmeyen" sayilip taraniacak.
-	static bool s_bootFullDone = false; // acilis 1 kere: flash bakilmaksizin TUM zone
-	if(!s_bootFullDone || g_forceFullVerifyOnce)
+	// ?zscan sn tek seferlik TAM kontrol. Acilis bilinmeyen-only kosar:
+	// DB'de kayitli zoneler atlanir (hizli acilis).
+	if(g_forceFullVerifyOnce)
 	{
-		bool bBoot = !s_bootFullDone;
-		s_bootFullDone = true;
 		g_forceFullVerifyOnce = false;
 		g_zoneScanQ = 0;
 		for(int zid = 0; zid < g_zoneCount && g_zoneScanQ < MAX_GANG_ZONES; zid++)
@@ -2958,7 +2957,7 @@ void StartZoneScan(bool bAuto)
 			Log("[ZF:SCAN] Acilis kontrolu: taranacak zone yok.");
 			return;
 		}
-		Log("[ZF:SCAN] %s: %d zone tek tek dogrulanacak.", bBoot ? "Acilis TAM KONTROL" : "?zscan sn TAM KONTROL", g_zoneScanQ);
+		Log("[ZF:SCAN] ?zscan sn TAM KONTROL: %d zone tek tek dogrulanacak.", g_zoneScanQ);
 	}
 	else
 	{
