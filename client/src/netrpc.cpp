@@ -158,6 +158,8 @@ static bool  g_ztkActive = false;
 static bool  g_ztkVerifyPending = false; // /gzinfo ile sahip dogrulama bekleniyor mu
 static int   g_ztkVerifyZone = -1;        // dogrulanan zone
 static DWORD  g_ztkVerifyAt = 0;           // /gzinfo gonderim ani (12 sn timeout)
+static bool   g_ztkWarSeen = false;       // /gz sonrasi savasimiz basladi mi (sahte-win kilidi)
+static DWORD  g_ztkAttackAt = 0;           // /gz gonderim ani (20 sn savas-bekleme)
 static int   g_ztkZoneId = -1;
 static bool  g_ztkWaitAnnounced = false;
 // Zincir saldiri (?zsnip + ?yes): grubun diger zone'larina sirasiyla saldir.
@@ -2759,12 +2761,83 @@ static void GangZoneScanGo(int iZone);
 
 // Sniper saldiri-onayi: /gzinfo sonucu beklenen zoneyse sahibi zincir grubuyla
 // karsilastir; eslesirse /gz, eslesmezse sonrakine gec/kapat (bayat zincir korumasi).
-static void ZtkVerifyComplete()
+// "/gzinfo" metnindeki "can be attacked in X hours and Y minutes" suresini
+// dakika olarak dondurur; yoksa -1. (Renk kodlari once temizlenir.)
+static int ParseAttackCooldownMin(const char *szInfo)
+{
+	if(!szInfo) return -1;
+	const char *p = strstr(szInfo, "can be attacked in");
+	if(!p) return -1;
+	char szClean[256]; strncpy_s(szClean, sizeof(szClean), p, sizeof(szClean) - 1);
+	StripColorCodes(szClean);
+	p = szClean;
+	while(*p && (*p < '0' || *p > '9')) p++;
+	if(!*p) return -1;
+	int h = atoi(p);
+	const char *pA = strstr(p, "and");
+	int m = 0;
+	if(pA) { pA += 3; while(*pA && (*pA < '0' || *pA > '9')) pA++; m = atoi(pA); }
+	return h * 60 + m;
+}
+// Zincirde sonrakine gec ya da bitir (dogrulama uyusmazligi / cooldown / basarisiz saldiri sonrasi).
+static void ZtkChainAdvance()
+{
+	g_ztkTargetWar = false;
+	g_ztkWaitAnnounced = false;
+	g_ztkOutcome = 0;
+	if(g_snipZoneCount > 0 && g_snipZoneIdx + 1 < g_snipZoneCount)
+	{
+		g_snipZoneIdx++;
+		int nNext = g_snipZones[g_snipZoneIdx];
+		g_ztkZoneId = nNext;
+		g_ztkWaitAnnounced = false;
+		float fCX = (g_zoneMinX[nNext] + g_zoneMaxX[nNext]) / 2.0f;
+		float fCY = (g_zoneMinY[nNext] + g_zoneMaxY[nNext]) / 2.0f;
+		char szCmd2[128];
+		sprintf_s(szCmd2, sizeof(szCmd2), "/pos %.2f %.2f %.2f", fCX, fCY, ZGO_TELEPORT_Z);
+		sendServerCommand(szCmd2);
+		Log("[ZSNIP] Siradaki zone #%d hedeflendi.", nNext);
+	}
+	else
+	{
+		g_ztkActive = false;
+		g_ztkZoneId = -1;
+		g_snipZoneCount = 0;
+		g_snipZoneIdx = 0;
+		g_ztkAskNext = false;
+		g_snipGroupName[0] = 0;
+		ResumeZoneScanAfterSnip();
+		g_bridgeSuppressEcho++;
+		sendChat((char *)LM("!Sniper bitti.", "!Sniper finished."));
+	}
+}
+// /gz etkisiz kaldi: savas hic baslamadi (cooldown/mute/konum). Zincirden devam.
+static void ZtkAttackFailed()
+{
+	Log("[ZSNIP] Saldiri basarisiz: savas baslamadi.");
+	g_bridgeSuppressEcho++;
+	sendChat((char *)LM("!Saldiri basarisiz: savas baslamadi.", "!Attack failed: no war started."));
+	g_ztkAttackPending = false;
+	g_ztkOutcome = 0;
+	ZtkChainAdvance();
+}
+static void ZtkVerifyComplete(const char *szInfo)
 {
 	int zid = g_ztkVerifyZone;
 	g_ztkVerifyPending = false;
 	g_ztkVerifyZone = -1;
 	if(!g_ztkActive || zid < 0 || zid >= MAX_GANG_ZONES) return;
+	int iCd = ParseAttackCooldownMin(szInfo);
+	if(iCd > 5)
+	{
+		Log("[ZSNIP] Zone #%d saldiri korumali (cooldown %d dk), atlaniyor.", zid, iCd);
+		g_bridgeSuppressEcho++;
+		char szMsg2[128];
+		sprintf_s(szMsg2, sizeof(szMsg2), LM("!Zone #%d saldiri korumali (%d dk), atlaniyor.", "!Zone #%d is protected (%d min), skipping."), zid, iCd);
+		sendChat(szMsg2);
+		ZtkChainAdvance();
+	return;
+	}
 	char szHave[80]; strncpy_s(szHave, sizeof(szHave), g_zoneOwnerName[zid], sizeof(szHave) - 1);
 	NormalizeGroupName(szHave);
 	char szNeed[80]; strncpy_s(szNeed, sizeof(szNeed), g_snipGroupName, sizeof(szNeed) - 1);
@@ -2773,6 +2846,8 @@ static void ZtkVerifyComplete()
 	{
 		Log("[ZSNIP] Zone #%d sahibi dogrulandi (%s), /gz gonderiliyor.", zid, g_zoneOwnerName[zid]);
 		g_ztkAttackPending = true;
+		g_ztkWarSeen = false;
+		g_ztkAttackAt = GetTickCount();
 		g_ztkOutcome = 0;
 		g_zwWeWon = true;
 		sendServerCommand((char *)"/gz");
@@ -2885,7 +2960,7 @@ static void GangZoneScanGzDialog(const char *szInfo)
 		strncpy_s(g_zoneOwnerName[iZone], sizeof(g_zoneOwnerName[0]), szOwner, sizeof(g_zoneOwnerName[0]) - 1);
 	// Sniper dogrulama bekliyorsa tamamla (tarama akisi aynen devam eder).
 	if(g_ztkVerifyPending && iZone == g_ztkVerifyZone)
-		ZtkVerifyComplete();
+		ZtkVerifyComplete(szInfo);
 
 	GangZoneScanNext();
 }
@@ -6537,6 +6612,11 @@ void ScrGameText(RPCParameters *rpcParams)
 			g_zwWarZone[0] = 0;
 		}
 	}
+	else if(g_ztkAttackPending && strstr(szMessage, "can be attacked in"))
+	{
+		Log("[GAMETEXT] Hedef zone saldiri korumali (cooldown), saldiri basarisiz.");
+		ZtkAttackFailed();
+	}
 	else if(strstr(szMessage, "lost the zone war"))
 	{
 		g_zwWeWon = false;
@@ -7921,7 +8001,26 @@ void ProcessZtkTick()
 	// veya chat war-end). Sonuc gelince zincir kararini ver.
 	if(g_ztkAttackPending)
 	{
-		if(g_inZoneWar) return; // bizim savasimiz hala suruyor
+		if(g_inZoneWar) { g_ztkWarSeen = true; return; } // savasimiz suruyor
+		if(!g_ztkWarSeen)
+		{
+			// /gz sonrasi savas hic baslamadi: 20 sn icinde war mesaji gelmezse basarisiz.
+			// (Eskiden sahte KAZANILDI yaziliyordu: outcome==0 && weWon hep true idi.)
+			if(GetTickCount() - g_ztkAttackAt < 20000) return;
+			Log("[ZSNIP] Saldiri basarisiz: 20 sn icinde savas baslamadi, sniper durduruluyor.");
+			g_bridgeSuppressEcho++;
+			sendChat((char *)LM("!Saldiri basarisiz: savas baslamadi, sniper durduruldu.", "!Attack failed: no war started, sniper stopped."));
+			g_ztkAttackPending = false;
+			g_ztkOutcome = 0;
+			g_ztkActive = false;
+			g_ztkZoneId = -1;
+			g_snipZoneCount = 0;
+			g_snipZoneIdx = 0;
+			g_ztkAskNext = false;
+			g_snipGroupName[0] = 0;
+			ResumeZoneScanAfterSnip();
+			return;
+		}
 		bool bWon = (g_ztkOutcome == 1) || (g_ztkOutcome == 0 && g_zwWeWon);
 		g_ztkAttackPending = false;
 		g_ztkOutcome = 0;
