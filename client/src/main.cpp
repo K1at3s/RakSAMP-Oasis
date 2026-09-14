@@ -367,6 +367,8 @@ bare:;
 // Konsol cikis kod sayfasi UTF-8 (Turkce karakterler dogru gorunsun)
 void SetConsoleUtf8() { SetConsoleOutputCP(65001); SetConsoleCP(65001); }
 
+static FILE *flLogScan = NULL; // tarama/debug gurultusu ayri dosyaya
+
 void Log(char *fmt, ...)
 {
 	if(flLog == NULL)
@@ -384,7 +386,7 @@ void Log(char *fmt, ...)
 	SYSTEMTIME time;
 	GetLocalTime(&time);
 
-	fprintf(flLog, "[%02d:%02d:%02d.%03d] ", time.wHour, time.wMinute, time.wSecond, time.wMilliseconds);
+	
 
 	if(settings.iPrintTimestamps && settings.iConsole)
 		printf("[%02d:%02d:%02d.%03d] ", time.wHour, time.wMinute, time.wSecond, time.wMilliseconds);
@@ -399,7 +401,41 @@ void Log(char *fmt, ...)
 
 	char utf8buf[4096];
 	SmartToUtf8(buffer, utf8buf, sizeof(utf8buf));
-	fprintf(flLog, "%s", utf8buf);
+		// Gurultulu tarama satirlari ayri dosyaya (ana log okunakli kalsin).
+	// Secim ham bufferdan (onekler ASCII, cevrimden etkilenmez).
+	FILE *flOut = flLog;
+	{
+		static const char *pfx[] = {
+			"[GANGZONE:FLASH]", "[GANGZONE:STOPFLASH]",
+			"[ZF:SCAN] Ornek", "[ZF:SCAN] Serbest", "[ZF:SCAN] Dialog zone",
+			"[AUTOCLOSE]", "[GZINFO-DATA]", "[GZINFO-BTNS]",
+			"[GSTATS-DATA]", "[GSTATS-TAG]", "[GM-ASTATS-DATA]", "[GM-VIPS-DATA]",
+			"[KILLLIST] TD #", "[PNETSTATS-DATA]", NULL };
+		for(int pi = 0; pfx[pi]; pi++)
+		{
+			size_t npl = strlen(pfx[pi]);
+			if(!strncmp(buffer, pfx[pi], npl)) { flOut = NULL; break; }
+		}
+		if(flOut == NULL)
+		{
+			if(flLogScan == NULL)
+			{
+				flLogScan = fopen("RakSAMPClient-scan.log", "wb");
+				if(flLogScan)
+				{
+					unsigned char bom2[3] = {0xEF, 0xBB, 0xBF};
+					fwrite(bom2, 1, 3, flLogScan);
+				}
+			}
+			flOut = flLogScan;
+		}
+	}
+	FILE *flDst = flOut ? flOut : flLog;
+	if(flDst)
+	{
+		fprintf(flDst, "[%02d:%02d:%02d.%03d] ", time.wHour, time.wMinute, time.wSecond, time.wMilliseconds);
+		fprintf(flDst, "%s", utf8buf);
+	}
 
 	if(settings.iConsole)
 	{
@@ -431,12 +467,12 @@ void Log(char *fmt, ...)
 		}
 	}
 
-	fprintf(flLog, "\n");
+	if(flDst) fprintf(flDst, "\n");
 
 	if(settings.iConsole)
 		printf("\n");
 
-	fflush(flLog);
+	if(flDst) fflush(flDst);
 }
 
 void SaveTextDrawData ( WORD wTextID, TEXT_DRAW_TRANSMIT *pData, CHAR* cText )
