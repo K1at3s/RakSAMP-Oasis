@@ -1021,7 +1021,7 @@ static int FindZoneByGroupTag(const char *szTag)
 		// SADECE taramada gercekten sahipsiz ogrenilmis zone'lar ("Free" isaretli).
 		// Ismi HIC bilinmeyen zone dahil EDILMEZ: bilinmeyen = sahipsiz degil
 		// (?zgo Free #2'ye gitti, zone Hall of Malevolence'inisti).
-		for(int zid = 1; zid < g_zoneCount; zid++)
+		for(int zid = 0; zid < g_zoneCount; zid++)
 			if(!_stricmp(g_zoneOwnerName[zid], "Free"))
 				return zid;
 		return -1;
@@ -1060,7 +1060,7 @@ static int FindZoneByGroupTag(const char *szTag)
 	char szNeed[80]; strncpy_s(szNeed, sizeof(szNeed), pName, sizeof(szNeed) - 1);
 	NormalizeGroupName(szNeed);
 	int iFallback = -1;
-	for(int zid = 1; zid < g_zoneCount; zid++)
+	for(int zid = 0; zid < g_zoneCount; zid++)
 	{
 		if(!g_zoneOwnerName[zid][0]) continue;
 		char szHave[80]; strncpy_s(szHave, sizeof(szHave), g_zoneOwnerName[zid], sizeof(szHave) - 1);
@@ -2080,7 +2080,7 @@ static void SyncGroupColorsToDb()
 // zones.txt guncellenir.
 void RemoveZoneFromDb(int zid)
 {
-	if(zid <= 0 || zid >= MAX_GANG_ZONES) return;
+	if(zid < 0 || zid >= MAX_GANG_ZONES) return;
 	// Yerel durumu sifirla: flash bitti. "Free" isaretli zone sahipsiz kalmaya
 	// devam eder - isaret korunur (yoksa bilinmeyen sayilip tekrar taranirdi).
 	g_zoneFlash[zid] = false;
@@ -2604,7 +2604,7 @@ static int  g_zfPendingCount = 0; // mesgulken flashlanip dusen bilinmeyen zonel
 // takip turunda /gzinfo ile ogrenilsin diye listeye alinir.
 static void StashUnknownZone(int zid)
 {
-	if(zid <= 0 || zid >= MAX_GANG_ZONES) return;
+	if(zid < 0 || zid >= MAX_GANG_ZONES) return;
 	if(g_zoneOwnerName[zid][0] != 0) return;
 	for(int k = 0; k < g_zfPendingCount; k++) if(g_zfPendingZones[k] == zid) return;
 	if(g_zfPendingCount >= 64) return;
@@ -2845,7 +2845,7 @@ static void GangZoneScanNext()
 		// Serbest zone listesi: sahibi bilinmeyen veya "Free" isaretli olanlar
 		// (renk kullanilmaz - eslesme tamamen isim bazli).
 		char szFree[2048]; int nF = 0;
-		for(int zid = 1; zid < g_zoneCount; zid++){
+		for(int zid = 0; zid < g_zoneCount; zid++){
 			if(g_zoneOwnerName[zid][0] == 0 || !_stricmp(g_zoneOwnerName[zid], "Free")){
 				int r = sprintf_s(szFree + nF, sizeof(szFree) - nF, " #%d", zid);
 				if(r < 0) break;
@@ -2949,7 +2949,7 @@ void StartZoneScan(bool bAuto)
 	{
 		g_forceFullVerifyOnce = false;
 		g_zoneScanQ = 0;
-		for(int zid = 1; zid < g_zoneCount && g_zoneScanQ < MAX_GANG_ZONES; zid++)
+		for(int zid = 0; zid < g_zoneCount && g_zoneScanQ < MAX_GANG_ZONES; zid++)
 			g_zoneScanQueue[g_zoneScanQ++] = zid;
 		if(g_zoneScanQ == 0)
 		{
@@ -2966,7 +2966,7 @@ void StartZoneScan(bool bAuto)
 	s_iScanPass++;
 
 	g_zoneScanQ = 0;
-	for(int zid = 1; zid < g_zoneCount && g_zoneScanQ < MAX_GANG_ZONES; zid++)
+	for(int zid = 0; zid < g_zoneCount && g_zoneScanQ < MAX_GANG_ZONES; zid++)
 	{
 		if(!g_zoneFlash[zid]) continue; // YALNIZCA flashing zone'lar
 		if(!bFullVerify && g_zoneOwnerName[zid][0] != 0 && _stricmp(g_zoneOwnerName[zid], "Free") != 0) continue; // bilinen atla (Free her tur dogrulanir)
@@ -3007,7 +3007,7 @@ static void StartFlashScan()
 	if(g_zoneScanIdx >= 0 || !iSpawned || g_zscanPausedForSnip) { Log("[ZF:FLASHSCAN] Atlanildi (scan aktif=%d spawned=%d).", g_zoneScanIdx >= 0, iSpawned); return; }
 
 	g_zoneScanQ = 0;
-	for(int zid = 1; zid < g_zoneCount && g_zoneScanQ < MAX_GANG_ZONES; zid++)
+	for(int zid = 0; zid < g_zoneCount && g_zoneScanQ < MAX_GANG_ZONES; zid++)
 	{
 		if(!g_zoneFlash[zid]) continue;      // yalnizca flashing zone'lar
 		if(g_zoneOwnerName[zid][0] != 0) continue; // isim biliniyor, ogrenmeye gerek yok
@@ -4736,7 +4736,7 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 			{
 				// Isim bazli: sahibi bilinmeyen veya "Free" isaretli zone'lar sayilir.
 				int nFree = 0;
-				for(int zid = 1; zid < g_zoneCount; zid++)
+				for(int zid = 0; zid < g_zoneCount; zid++)
 					if(g_zoneOwnerName[zid][0] == 0 || !_stricmp(g_zoneOwnerName[zid], "Free"))
 						nFree++;
 				char szOut[96];
@@ -7779,7 +7779,7 @@ static int CollectGroupZones(const char *szGroupName, int *outZones, int maxZone
 	if(!szGroupName || !szGroupName[0] || !outZones || maxZones <= 0) return 0;
 	char szNeed[96]; strncpy_s(szNeed, sizeof(szNeed), szGroupName, sizeof(szNeed) - 1);
 	NormalizeGroupName(szNeed);
-	for(int zid = 1; zid < g_zoneCount && n < maxZones; zid++)
+	for(int zid = 0; zid < g_zoneCount && n < maxZones; zid++)
 	{
 		if(!g_zoneOwnerName[zid][0]) continue;
 		char szHave[96]; strncpy_s(szHave, sizeof(szHave), g_zoneOwnerName[zid], sizeof(szHave) - 1);
