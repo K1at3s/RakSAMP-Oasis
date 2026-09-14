@@ -1,3 +1,15 @@
+# beta v3 - 2026-09-14 (beta branch)
+
+## Türkçe
+- **5 periyot döngü**: tarama artık 5 turda bir dönüyor (0-1. turlar tam kontrol, 2-4. turlar bilinmeyen-only)
+- **?zscan sn (yeni)**: istenince tüm haritayı tek seferlik tam doğrular; bitince DB senkronu tek-sahipliği kurar (yeni gruba yazar, eskisinden siler); sniper sırasında istenirse kuyruğa alınıp sniper bitince koşar
+- **Çevrimdışı sahip düzeltmesi**: üyeleri offline grubun zone'u `Free` sanılıp sniper tarafından vuruluyordu; bilinen isim artık korunuyor
+
+## English
+- **5-period cycle**: scan now runs in 5-tour cycles (tours 0-1 full verify, tours 2-4 unknown-only)
+- **?zscan sn (new)**: on-demand full-map verification; completion sync enforces single ownership (write to new group, delete from old); queued behind active sniper
+- **Offline-owner fix**: zones of offline-member groups were mistaken for `Free` and sniped; known name is now kept
+
 # beta v2 - 2026-09-13 (beta branch)
 
 ## Türkçe
