@@ -2828,7 +2828,10 @@ static void ZtkVerifyComplete(const char *szInfo)
 	g_ztkVerifyZone = -1;
 	if(!g_ztkActive || zid < 0 || zid >= MAX_GANG_ZONES) return;
 	int iCd = ParseAttackCooldownMin(szInfo);
-	if(iCd > 5)
+	// Flashing zone her zaman vurulabilir: cooldown gosterilse bile yoksayilir.
+	if(iCd > 5 && g_zoneFlash[zid])
+		Log("[ZSNIP] Zone #%d flashing (%d dk cooldown yoksayildi).", zid, iCd);
+	if(iCd > 5 && !g_zoneFlash[zid])
 	{
 		Log("[ZSNIP] Zone #%d saldiri korumali (cooldown %d dk), atlaniyor.", zid, iCd);
 		g_bridgeSuppressEcho++;
