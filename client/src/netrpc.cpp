@@ -875,6 +875,7 @@ static void PauseZoneScanForSnip()
 static void ResumeZoneScanAfterSnip()
 {
 	if(!g_zscanPausedForSnip) return;
+	if(g_ztkActive) return; // sniper suruyor: tarama kapali kalsin, sniper bitince resume gelir
 	g_zscanPausedForSnip = false;
 	if(g_zoneScanIdx < 0 && g_zscanPausedIdx >= 0 && g_zscanPausedIdx < MAX_GANG_ZONES)
 	{
@@ -5429,6 +5430,7 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 					Log("[ZGO] ?zgo %s -> zone #%d merkezine isinlaniliyor (%s), 40 sn beklenip donulecek.", pArg, iZone, szCmd);
 
 					g_zgoActive = true;
+					PauseZoneScanForSnip(); // tarama /pos kapismamasi icin duraklat (donuste devam)
 					g_zgoZoneId = iZone;
 					g_zgoReturnTick = GetTickCount() + ZGO_STAY_MS;
 					sendServerCommand(szCmd);
@@ -8465,6 +8467,7 @@ void ProcessZgoReturn()
 	if(dwNow < g_zgoReturnTick) return;
 
 	g_zgoActive = false;
+	ResumeZoneScanAfterSnip();
 
 	char szCmd[128];
 	sprintf_s(szCmd, sizeof(szCmd), "/pos %.2f %.2f %.2f", g_zgoReturnPos[0], g_zgoReturnPos[1], g_zgoReturnPos[2]);
