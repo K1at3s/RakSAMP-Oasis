@@ -2051,7 +2051,7 @@ static bool LoadGroupsFromDb()
 static void SyncGroupColorsToDb()
 {
 	// Ogrenilen grup adi + kisa tag + KALICI sahip olunan TUM zone id'ler tek
-	// satir (group_name upsert). Flashing filtresi YOK - kalici harita. zones.txt
+	// satir (group_name upsert). Flashing filtresi VAR - DB canli savas haritasi (sonuk zoneler yazilmaz). zones.txt
 	// YOK: DB acilista GET /api/groups ile geri yüklenir (LoadGroupsFromDb).
 	if(!g_isEngineActive || g_sessionToken.empty()) return;
 	// KILIT: DB'den ilk restore tamamlanmadan YAZMA. Bos hafiza ile yazim,
@@ -2063,8 +2063,9 @@ static void SyncGroupColorsToDb()
 	{
 		if(!g_groupColors[i].szName[0]) continue;
 		json zids = json::array();
+		// DB canli savas haritasidir: YALNIZCA su an flashing zone'ler yazilir.
 		for(int z = 0; z < MAX_GANG_ZONES; z++)
-			if(g_zoneOwnerName[z][0] && _stricmp(g_zoneOwnerName[z], g_groupColors[i].szName) == 0)
+			if(g_zoneFlash[z] && g_zoneOwnerName[z][0] && _stricmp(g_zoneOwnerName[z], g_groupColors[i].szName) == 0)
 				zids.push_back(z);
 		arr.push_back({{"name", g_groupColors[i].szName}, {"tag", g_groupColors[i].szTag}, {"zones", zids}});
 	}
