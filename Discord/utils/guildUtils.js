@@ -16,11 +16,4 @@ async function getGuildByHwid(hwid) {
     return await Guild.findOne({ linkedHwids: hwid });
 }
 
-// Kanal ID'sini veritabanindan cek, ayarlanmamissa null
-async function getChannelId(guildId, type) {
-    const guild = await getGuild(guildId);
-    if (!guild) return null;
-    return guild[`${type}ChannelId`] || null;
-}
-
-module.exports = { getGuild, getGuildByHwid, getChannelId };
+module.exports = { getGuild, getGuildByHwid };

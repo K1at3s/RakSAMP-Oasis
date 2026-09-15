@@ -110,20 +110,36 @@ Komut adları sunucu diline göre lokalize edilir (EN taban, TR lokalizasyon).
 
 | Komut (EN / TR) | Açıklama |
 |-------|----------|
-| `/link <hwid>` | HWID'i Discord sunucusuna bağla |
-| `/unlink` | Bağlantıyı kaldır |
-| `/setup` / `/kurulum` | Log kanallarını oluştur (boş) / sil (`kapat` veya `off`) |
-| `/setchannel` / `/kanalayarla` | Kanal atamaları |
-| `/gstats [group_id]` | Grup istatistikleri |
-| `/admins` | Online adminler |
-| `/send <mesaj>` | Oyun içine mesaj gönder |
-| `/pm <mesaj>` / `/mesaj` | Oyun içine `[Discord][isim]` önekli mesaj gönder; yanıt ephemeral döner |
-| `/backup` | Acil durum çağrısı (@here) |
-| `/grole [name] [role]` | Grup üyesine rol ver (Member/Co-Leader) — interaktif üye/rol seçimi |
-| `/grank [name] [rank]` | Grup üyesine rank ver — interaktif |
-| `/setallowedrole <rol>` | Grole/Grank menülerini kullanabilecek rolü ayarla |
-| `/stats` | Bot/oyuncu istatistikleri |
-| `/zonewar` | Zone savaşları kanalı ayarı |
+| `/link <hwid>` | HWID'i Discord sunucusuna bağla (yönetici) |
+| `/unlink <hwid>` | Bağlantıyı kaldır (yönetici) |
+| `/setup` / `/kurulum` | Kanalları oluştur (boş) / sil (`kapat`) (yönetici) |
+| `/setchannel` / `/kanalayarla` | Kanal ataması: log, war, gstats, group-chat, zone-war, backup, group-log, bot-commands |
+| `/help` / `/yardim` | Komut listesi; `paylas:true` ile listeyi bot-komut kanalına bırakır |
+| `/gstats [group_id]` | Grup istatistikleri (oyundan çeker, ephemeral döner) |
+| `/stats [id]` | Grup/oyuncu istatistikleri (boş = kendi) |
+| `/astats <account_id>` | Hesap istatistikleri |
+| `/admins` | Online admin listesi |
+| `/alog <oyuncu\|id>` | Admin ceza geçmişi (ban/mute/kick) |
+| `/glog <oyuncu\|id>` | Grup rol/rank değişiklik geçmişi |
+| `/oyuncu <isim\|id>` | Cache'deki packetloss/FPS/ping değerleri (yaş damgalı) |
+| `/bolge <grup\|tag>` | Grubun tag'i + sahip olduğu zone'lar (DB `gangs`) |
+| `/botdurum` | Bot kaydı: grup adı + zscan/gzt/zgrp durumu (DB `bots`) |
+| `/send <komut>` | Oyun içine serbest komut/mesaj gönder (yönetici) |
+| `/pm <oyuncu> <mesaj>` / `/mesaj` | Oyuncuya özel mesaj; yanıt ephemeral döner |
+| `/duyuru <mesaj>` | Grup chatine duyuru at (oyun içi kalır, köprü kanalına gitmez) |
+| `/backup <grup> [mesaj]` | Acil durum çağrısı (@here) |
+| `/zonewar ...` | Manuel ZONE WAR bildirimi |
+| `/grole [name] [role]` | Üyeye rol ver (Member/Co-Leader) — interaktif üye/rol menüsü |
+| `/grank [name] [rank]` | Üyeye rank ver — interaktif üye/rank menüsü |
+| `/gkick [name] [reason]` | Üyeyi kickle — sebep modalı + sayfalı liste + dialog otomasyonu |
+| `/ginv <id>` | Gruba oyuncu davet et (`/ginvite id`) |
+| `/gmembers` | Üye listesi + VIP harvest → Google Sheets roster |
+| `/dil <tr\|en>` | Bot dili (embed + oyun içi duyurular; client 2 sn'de senkronlar) |
+| `/kopru [on\|off]` | Discord ↔ oyun grup chat köprüsü |
+| `/zscan [on\|off\|sn]` | Otomatik zone tarama (`sn` = tek seferlik tam doğrulama) |
+| `/gzt [on\|off\|time]` | Zone savaşı geri sayım duyuruları |
+| `/gname` | Grup adını yeniden öğren |
+| `/setallowedrole [rol]` | Grup komutları için izinli rol (boş = herkes) |
 
 ---
 
@@ -139,6 +155,7 @@ Komut adları sunucu diline göre lokalize edilir (EN taban, TR lokalizasyon).
 | `players` | Oyuncu istatistik cache (packetloss/FPS/ping) |
 | `admin_logs` | Admin eylem logları |
 | `group_logs` | Grup rol değişikliği logları |
+| `roster_messages` | `/gmembers` bitiminde kanala atılan/düzenlenen roster link mesajı |
 
 ---
 

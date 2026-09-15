@@ -8,6 +8,7 @@ const config = require('./config');
 const License = require('./models').License;
 const Guild = require('./models').Guild;
 const guildUtils = require('./utils/guildUtils');
+const { hasGroupPermission } = require('./utils/permissions');
 const socketStore = require('./utils/socketStore');
 const { loadCommands, registerCommands, registerForGuild, handleInteraction } = require('./handlers/commandHandler');
 const db = require('./db');
@@ -24,14 +25,11 @@ const OWNER_GUILD_ID = '1079118636729520139';    // butonlar bu sunucuda anlaml�
 const OWNER_LOG_CHANNEL_ID = '1537910799287459880'; // bildirimler bu kanala otomatik düşer
 
 // --- GROLE/GRANK YETKI KONTROLU (DB -> Guild.allowedRoleId) ---
+// Kapi mantigi tek yerde: utils/permissions.js (komutlar da ayni fonksiyonu kullanir).
 async function hasGrolePermission(interaction){
     try{
         const guild = await Guild.findOne({ guildId: interaction.guildId });
-        if(!guild || !guild.allowedRoleId) return true; // kisitlama yoksa herkes
-        if(interaction.member.roles.cache.has(guild.allowedRoleId)) return true;
-        if(interaction.member.permissions.has('Administrator') || interaction.member.permissions.has('ManageGuild')) return true;
-        if(interaction.guild.ownerId === interaction.user.id) return true;
-        return false;
+        return hasGroupPermission(interaction, guild);
     }catch{ return true; }
 }
 
@@ -104,7 +102,7 @@ client.on('interactionCreate', async (interaction) => {
         const hwid = guild.linkedHwids[0];
         queueCommand(hwid, { type: 'grole', target: member, role, requesterId: interaction.id });
         setPendingInteraction(interaction.id, interaction);
-        // 5 dk sonra otomatik kapat
+        // 2 dk sonra otomatik kapat
         setTimeout(() => { interaction.editReply({ content: L(guild, '✅ İşlem tamamlandı.', '✅ Done.'), embeds: [], components: [] }).catch(()=>{}); removePendingInteraction(interaction.id); }, 2*60*1000);
         const embed = new EmbedBuilder()
             .setTitle('✅ ' + L(guild, 'Gönderildi', 'Sent'))
@@ -164,7 +162,7 @@ client.on('interactionCreate', async (interaction) => {
         const row = new ActionRowBuilder().addComponents(rankSelect);
         const embed = new EmbedBuilder()
             .setTitle(`👤 ${selectedMember}`)
-            .setDescription(L(gG, 'Bu üyeye vermek istediğin rankı seç (5 dk içinde kapanır):', 'Select the rank to give this member (closes in 5 min):'))
+            .setDescription(L(gG, 'Bu üyeye vermek istediğin rankı seç (2 dk içinde kapanır):', 'Select the rank to give this member (closes in 2 min):'))
             .setColor(0xE67E22);
         return interaction.update({ embeds: [embed], components: [row] });
     }
@@ -608,7 +606,7 @@ app.post('/api/gmembers/sheet', async (req, res) => {
         }
         // Bitis bildirimi: kanala 📊 link + last updated (onceki mesaj varsa duzenlenir, DB: roster_messages)
         try {
-const { setPendingInteraction, getPendingInteraction, removePendingInteraction } = require('./utils/pendingReplies');
+            // pendingReplies yardimcilari modul basinda (command/poll blogu) alinir.
             const pending = body.requesterId ? getPendingInteraction(String(body.requesterId)) : null;
             if (pending && pending.channelId) {
                 const userId = pending.user && pending.user.id ? pending.user.id : null;
@@ -677,8 +675,11 @@ app.post('/api/killlist', async (req, res) => {
     const won = Number(body.won) === 1;
     const redName = String(body.redName || 'Kırmızı').trim();
     const blueName = String(body.blueName || 'Mavi').trim();
-    const redTag = String(body.redTag || '').trim();
-    const blueTag = String(body.blueTag || '').trim();
+    // "~"/"NULL"/"-" = UIF'te tag'siz grup sentinel'i; isim yerine "~" basilmamali.
+    let redTag = String(body.redTag || '').trim();
+    let blueTag = String(body.blueTag || '').trim();
+    if (redTag === '~' || redTag === '-' || redTag.toUpperCase() === 'NULL') redTag = '';
+    if (blueTag === '~' || blueTag === '-' || blueTag.toUpperCase() === 'NULL') blueTag = '';
     const redKills = Number(body.redKills) || 0;
     const blueKills = Number(body.blueKills) || 0;
     const redBox = String(body.redBox || '').trim();
@@ -709,7 +710,7 @@ const mvpDmg = Number(body.mvpDmg) || 0;
 
     // Veri yoksa alan GÖSTERILMEZ (MVP '?' / feeder '?' / firstBlood-topWeapons bos)
     const fields = [
-        { name: `⚔️ **${redName}**`, value: `\`\`\`\n${redBox}\n\`\`\`` },
+        { name: `⚔️ **${redTag || redName}**`, value: `\`\`\`\n${redBox}\n\`\`\`` },
         { name: `⚔️ **${blueTag || blueName}**`, value: `\`\`\`\n${blueBox}\n\`\`\`` }
     ];
     if (mvp && mvp !== '?') fields.push({ name: t.mvp, value: `${mvp} (${mvpDmg} dmg, ${mvpKills} kills)`, inline: true });
@@ -1096,7 +1097,6 @@ app.get('/api/welcome/peruser/list', async (req, res) => {
 // Discord'dan oyuna komut iletme (client /api/command/poll ile çeker)
 const { queueCommand, drainCommands } = require('./utils/commandOutbox');
 const { getPendingInteraction, removePendingInteraction } = require('./utils/pendingReplies');
-const { truncate } = require('fs');
 
 // Komut bekleme kuyruğunu oyundan çek (polling)
 app.get('/api/command/poll', async (req, res) => {

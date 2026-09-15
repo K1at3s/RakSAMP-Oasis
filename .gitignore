@@ -30,6 +30,12 @@ pkt.obj
 Thumbs.db
 Backup/
 
+# Dev artiklari (yanlis yonlendirme / yedek dosyalari — commit edilmesin)
+NUL
+*.bak-*
+build_out.txt
+build_err.txt
+
 # Runtime data / caches (client writes these at runtime)
 client/bin/player_cache.txt
 client/bin/group_colors.txt
@@ -38,10 +44,14 @@ client/bin/RakSAMPClient.log
 client/bin/TextDraws.log
 client/bin/stdout.txt
 client/bin/stderr.txt
+client/bin/gz sonucl.txt
 log.txt
 out.txt
 *.opencode
 *.rtk
+
+# Gecicim yardimci scriptleri (release disi)
+Repair.ps1
 
 # Google service account (secret - asla commit etme)
 Discord/avian-computer-500410-j8-c8fb699de46a.json

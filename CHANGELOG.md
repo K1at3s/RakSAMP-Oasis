@@ -1,5 +1,55 @@
-# beta v4 - 2026-09-14 (beta branch)
+# v1.0 - 2026-09-15 (stable)
 
+## Türkçe
+### Yeni Discord komutları (client değişikliği yok — mevcut backend/oyun komutlarını kullanır)
+- **`/dil <tr|en>`**: sunucunun bot dilini ayarlar/gösterir. Client dili 2 sn'lik grup chat poll'undan senkronlar; daha önce `/api/lang/set` yalnızca oyun içinden tetiklenebiliyordu.
+- **`/glog <oyuncu|id>`**: `group_logs` (rol/rank değişiklik geçmişi) sorgusu. Tablo doluydu ama Discord'dan okuyan komut yoktu.
+- **`/oyuncu <isim|id>`**: `players` cache'i (packetloss/FPS/ping) + veri yaşı. Client push ediyordu, okuyan komut yoktu.
+- **`/bolge <grup|tag>`**: `gangs` tablosundan grup tag'i + sahip olduğu zone listesi.
+- **`/botdurum`**: `bots` tablosundan bu grubun bot kaydı (grup adı + zscan/gzt/zgrp anahtarları).
+- **`/duyuru <mesaj>`**: grup chatine duyuru atar (`!` yolu; botun kendi mesajı olduğu için köprü kanalına geri gitmez).
+- **`/kopru [on|off]`**: Discord ↔ oyun grup chat köprüsü (DB `group_chat_enabled`; client 2 sn'de uygular).
+- **`/zscan [on|off|sn]`**, **`/gzt [on|off|time]`**, **`/gname`**: oyun içi `?zscan`/`?gzt`/`?gname` komutlarının Discord karşılıkları (kuyruğa alınır, sonuç grup chatinde görünür).
+
+### Düzeltmeler
+- **`/setchannel` eksik kanal türleri**: `grup-log` (`groupLogChannelId`) ve `bot-commands` (`botCommandsChannelId`) seçenekleri eklendi; `/kurulum` bu kanalları oluşturuyordu ama elle atanamıyordu.
+- **`/help` güncellendi**: eski liste (yalnızca 10 satır) tamamen yenilendi; TR/EN ayrımı, tüm grup/log/ayar komutları; `paylas:true` ile listeyi bot-komut kanalına bırakır (`botCommandsChannelId` alanı artık gerçekten kullanılıyor).
+- **Yetki kapısı geri alındı**: `/pm` ve `/alog` `/setallowedrole` kapısına bağlanmıştı; istek üzerine geri alındı — her iki komut da herkese açık (kapı mantığı `utils/permissions.js` yalnızca grole/grank/gkick/ginv menüleri için duruyor).
+- **Kill list "~" etiketi**: tag'siz grupların UIF tag'i "~" sentinel'idir; kill list embed'inde karşı grup adı yerine "~" gösteriliyordu (ör. Supreme). Client artık sentinel/`NULL`/`-` tag'leri boş gönderiyor, Discord tarafı da bunları yok sayıp grup adını basıyor; kırmızı kutu başlığı da artık tag destekliyor (maviyle simetrik).
+- **`?zsnip` taramayı anında durdurur**: aktif zone taraması `?zsnip` verilince hemen duraklatılır (taramanın `/pos` teleportları sniper akışıyla çakışıyordu). Yetki onaylanırsa sniper başlar; yetki reddedilse bile `?yes` bekleyen hedefe saldırır, `?no` isteği iptal edip taramayı kaldığı yerden devam ettirir. `?zsnip off` bekleyen isteği yetkisiz iptal eder.
+- **Kill list log spam'i**: savaş bitince finalize zamanlayıcısı boş sonuçla her frame yeniden tetiklenip saniyede ~20 log basıyordu ("Sonuc metni henuz bos"). Artık bitiş textdraw'ları 10 sn aralıklarla en fazla 30 sn beklenir; gelmezse o savaş için kill list atlanır, yakalayıcı kapanır ve `/fr` ile freeroam'a dönülür.
+- **Ölü kod temizliği**: `server.js` içindeki `require('fs').truncate` (kullanılmıyordu), route içindeki tekrarlanan `pendingReplies` require'ı ve `guildUtils.getChannelId` (hiç çağrılmıyordu) kaldırıldı.
+- **Menü süresi metinleri**: seçim menüleri 2 dk, sayfalı listeler 5 dk kapanıyor; menü metinleri gerçek süreyle hizalandı (2 dk yazan yerler 5 dk diyordu).
+- **`schema.sql` senkronu**: `allowed_role_id`, `bots` ek kolonları ve eksik 4 tablo (`admin_logs`, `welcome_per_user`, `group_logs`, `roster_messages`) eklendi.
+- **`npm test` / `bun test`**: `db.selftest.js` artık `package.json` içinde tanımlı.
+- **`.gitignore`**: `NUL`, `*.bak-*`, `build_out.txt`, `build_err.txt` (git status gürültüsü) eklendi.
+
+## English
+### New Discord commands (no client changes — reuse existing backend/in-game commands)
+- **`/dil <tr|en>`**: sets/shows the server's bot language. The client syncs it from the 2s group-chat poll; previously `/api/lang/set` was only reachable in-game.
+- **`/glog <player|id>`**: queries `group_logs` (role/rank change history). The table was filled but nothing read it from Discord.
+- **`/oyuncu <name|id>`**: `players` cache (packetloss/FPS/ping) + data age. The client pushed it, nothing read it.
+- **`/bolge <group|tag>`**: group tag + owned zones from the `gangs` table.
+- **`/botdurum`**: this group's bot record (group name + zscan/gzt/zgrp toggles) from `bots`.
+- **`/duyuru <message>`**: broadcasts to the group chat (via the `!` path; not mirrored back to the bridge channel).
+- **`/kopru [on|off]`**: Discord ↔ in-game group chat bridge (DB `group_chat_enabled`; applied by the client within 2s).
+- **`/zscan [on|off|sn]`**, **`/gzt [on|off|time]`**, **`/gname`**: Discord counterparts of the in-game `?zscan`/`?gzt`/`?gname` (queued; the result shows in the group chat).
+
+### Fixes
+- **`/setchannel` missing channel types**: added `group-log` (`groupLogChannelId`) and `bot-commands` (`botCommandsChannelId`); `/setup` created them but they could not be assigned manually.
+- **`/help` refreshed**: the stale list (10 lines) replaced with a full TR/EN listing; `share:true` posts it to the bot-commands channel (the `botCommandsChannelId` field is now actually used).
+- **Permission gate reverted**: `/pm` and `/alog` had been tied to the `/setallowedrole` gate; reverted on request — both commands are open to everyone again (the `utils/permissions.js` gate remains only for grole/grank/gkick/ginv menus).
+- **Kill list "~" tag**: groups without a tag use the "~" sentinel in UIF; the kill list embed showed "~" instead of the enemy group name (e.g. Supreme). The client now sends sentinel/`NULL`/`-` tags as empty, the Discord side ignores them and prints the group name; the red box header now supports tags too (symmetric with blue).
+- **`?zsnip` pauses the scan immediately**: an active zone scan is paused as soon as `?zsnip` is sent (the scan's `/pos` teleports clashed with the sniper flow). If permission is verified the sniper starts; even if permission is denied, `?yes` attacks the pending target and `?no` cancels the request and resumes the scan where it left off. `?zsnip off` cancels a pending request without permission.
+- **Kill list log spam**: after a war ends, the finalize timer re-fired every frame with an empty result (~20 log lines/sec, "Sonuc metni henuz bos"). End-of-war textdraws are now retried every 10 s for up to 30 s; if they never arrive the kill list is skipped for that war, the capturer closes and `/fr` returns to freeroam.
+- **Dead code cleanup**: removed `require('fs').truncate` (unused), the duplicated in-route `pendingReplies` require, and `guildUtils.getChannelId` (never called).
+- **Menu timeout wording**: select menus close after 2 min, paginated lists after 5 min; texts now match the real timers (some said 5 min for a 2 min timer).
+- **`schema.sql` sync**: added `allowed_role_id`, the extra `bots` columns and the 4 missing tables (`admin_logs`, `welcome_per_user`, `group_logs`, `roster_messages`).
+- **`npm test` / `bun test`**: `db.selftest.js` is now wired into `package.json`.
+- **`.gitignore`**: added `NUL`, `*.bak-*`, `build_out.txt`, `build_err.txt` (git status noise).
+
+
+# beta v4 - 2026-09-14 (beta branch)
 ## Türkçe
 - **Sniper saldırı-doğrulama**: her adımda `/gzinfo` ile sahip zincir grubuyla karşılaştırılıyor; uyuşmazsa `!Zone #N artik X degil (Y), atlaniyor.` + sıradaki zone (AnR→A$AP vakası kapandı)
 - **Sahte win kilidi**: `/gz` sonrası savaş gerçekten başlamadan sonuç yazılmıyor (`g_ztkWarSeen` + 20 sn); `This zone can be attacked in` gametext'i anında fail

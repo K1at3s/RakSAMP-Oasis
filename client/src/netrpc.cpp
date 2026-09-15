@@ -60,7 +60,8 @@ static DWORD g_zoneWarStartTick = 0;
 static bool g_zwCapturingKillList = false;  // textdraw toplama aktif mi
 static bool g_zwKillListSent = false;       // sonu-g zaten g-nderildi mi
 static DWORD g_zwCaptureStart = 0;          // toplama ba-slangýcý
-static DWORD g_zwFinalizeAt = 0;            // savas bitisi finalize zamani (wins/loses blo-su kurar)
+static DWORD g_zwFinalizeAt = 0;
+static DWORD g_zwEmptyFinalizeSince = 0; // bos finalize ilk gorulme zamani (retry/give-up)            // savas bitisi finalize zamani (wins/loses blo-su kurar)
 static std::string g_zwKillListText;        // birikmi-s sonu-g metni (renk kodlarý korunarak toplanýr, finalize'da ayrý-stýrýlýr)
 static char g_zwWarZone[16] = {0};          // aktif sava-sýn zone no'su ("146"); 60 sn'lik tekrar duyurusu bununla elenir
 static std::string g_zwWarTeamLeft;         // "X vs Y" duyurusundan SOL grup (kirmizi takim)
@@ -174,6 +175,8 @@ static bool  g_ztkTargetWar = false;      // hedef zonede dusman savasi suruyor 
 static bool IsSniperTargetZone(int zid); // ileri bildirim (zsnip zone eslesmesi)
 static int CollectGroupZones(const char *szGroupName, int *outZones, int maxZones); // ileri bildirim
 
+// Kesilen zone taramasi + bekleyen ?zsnip istegi: ?yes = saldir, ?no = taramaya devam
+static bool  g_snipInterrupt = false;
 // ?zsnip yetki kontrolu: /gmembers dialogundan bot + komutu atan kullanici
 // Co-Leader/Leader rolune sahip mi? Degilse sniper (baslatma ve off) CALISTIRILMAZ.
 // NOT: /gmembers SAYFALI dialogdur; bu surum ilk sayfayi okur (isimler sonraki
@@ -4090,6 +4093,7 @@ void ClientMessage(RPCParameters *rpcParams)
 				g_zwCapturingKillList = true;
 				g_zwCaptureStart = GetTickCount();
 				g_zwFinalizeAt = 0; // yeni savas: bitis finalize'i yeniden kurulacak
+					g_zwEmptyFinalizeSince = 0; // yeni savas: bos-finalize sayaci sifirlanir
 				Log("[KILLLIST] Yakalayici savas boyunca acik (kill list textdraw'lari toplanacak).");
 				// Kisa GZ giris: takim rengimizi ogren (skorboard textdraw'inda kendi adimizin
 				// rengi bizim takim rengidir). 4 sn iceride kal, sonra /pos ile geri don.
@@ -5528,7 +5532,8 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 			{
 				const char *pArg = pGroupMsg + 6;
 				while(*pArg == ' ' || *pArg == '#') pArg++;
-				if(g_snipPermPending)
+				// off: bekleyen istegi/bekleyen yetki kontrolunu iptal edebilmeli, gecir.
+				if(g_snipPermPending && _stricmp(pArg, "off") != 0)
 				{
 					Log("[ZSNIP] Onceki yetki kontrolu hala suruyor, yeni istek yoksayildi.");
 					return;
@@ -5537,6 +5542,20 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 				// off da Co-Leader/Leader yetkisi gerektirir: /gmembers ile dogrulanir.
 				if(!_stricmp(pArg, "off"))
 				{
+					// Bekleyen (?yes/?no bekleyen) ?zsnip istegi varsa: off yetkisiz iptal eder.
+					if(g_snipInterrupt)
+					{
+						g_snipInterrupt = false;
+						g_snipPermPending = false;
+						g_waitingForGmembers = false;
+						g_snipZone = -1;
+						ResumeZoneScanAfterSnip();
+						Log("[ZSNIP] off: bekleyen istek iptal, zone taramasi devam ediyor.");
+						g_bridgeSuppressEcho++;
+						sendChat((char *)LM("!Sniper istegi iptal, zone taramasi devam ediyor.",
+							"!Pending sniper cancelled, zone scan continues."));
+						return;
+					}
 					g_snipAction = 1;
 					g_snipZone = -1;
 					g_snipSenderId = iSenderId;
@@ -5598,6 +5617,11 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 				}
 				// Yetki kapisi: /gmembers ile bot + kullanici Co-Leader/Leader mi?
 				// Onay gelince (OnGmembersCaptured) sniper baslatilir; degilse reddedilir.
+				// Kullanici istegi: ?zsnip, aktif zone taramasini HEMEN durdurur
+				// (taramanin /pos teleportlari sniperin /pos + /gz akisiyla cakisiyor).
+				// Onay gelirse sniper baslar; ?no gelirse tarama kaldigi yerden devam eder.
+				PauseZoneScanForSnip();
+				g_snipInterrupt = true; // istek beklemede: ?yes saldirir, ?no taramaya doner
 				g_snipAction = 0;
 				g_snipZone = iZone;
 				g_snipSenderId = iSenderId;
@@ -5613,7 +5637,30 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 			// --- ?yes : zsnip zincirinde siradaki zone'a saldir ---
 			else if(!strncmp(pGroupMsg, "?yes", 4) && (pGroupMsg[4] == '\0' || pGroupMsg[4] == ' '))
 			{
-				if(g_ztkAskNext && g_snipZoneCount > 0 && g_snipZoneIdx < g_snipZoneCount)
+				// Kesilmis tarama uzerine gelen ?yes: bekleyen ?zsnip hedefine saldir.
+				if(g_snipInterrupt && g_snipZone >= 0 && g_snipZone < g_zoneCount)
+				{
+					g_snipInterrupt = false;
+					g_snipPermPending = false;
+					g_waitingForGmembers = false;
+					int iZoneY = g_snipZone;
+					g_snipZone = -1;
+					float fCenterX = (g_zoneMinX[iZoneY] + g_zoneMaxX[iZoneY]) / 2.0f;
+					float fCenterY = (g_zoneMinY[iZoneY] + g_zoneMaxY[iZoneY]) / 2.0f;
+					char szCmd[128];
+					sprintf_s(szCmd, sizeof(szCmd), "/pos %.2f %.2f %.2f", fCenterX, fCenterY, ZGO_TELEPORT_Z);
+					sendServerCommand(szCmd);
+					g_ztkActive = true;
+					g_ztkZoneId = iZoneY;
+					g_ztkWaitAnnounced = false;
+					Log("[ZSNIP] ?yes: bekleyen zone #%d hedeflendi, sniper basladi.", iZoneY);
+					g_bridgeSuppressEcho++;
+					char szMsg[128];
+					sprintf_s(szMsg, sizeof(szMsg),
+						LM("!Zone #%d hedeflendi, savas aciliyor...", "!Zone #%d targeted, starting war..."), iZoneY);
+					sendChat(szMsg);
+				}
+				else if(g_ztkAskNext && g_snipZoneCount > 0 && g_snipZoneIdx < g_snipZoneCount)
 				{
 					g_ztkAskNext = false;
 					int iZone = g_snipZones[g_snipZoneIdx];
@@ -5643,7 +5690,20 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 			// --- ?no : zsnip zincirini iptal et ---
 			else if(!strncmp(pGroupMsg, "?no", 3) && (pGroupMsg[3] == '\0' || pGroupMsg[3] == ' '))
 			{
-				if(!g_ztkAskNext)
+				// Kesilmis tarama uzerine gelen ?no: istegi iptal et, taramayi devam ettir.
+				if(g_snipInterrupt)
+				{
+					g_snipInterrupt = false;
+					g_snipPermPending = false;
+					g_waitingForGmembers = false;
+					g_snipZone = -1;
+					ResumeZoneScanAfterSnip();
+					Log("[ZSNIP] ?no: istek iptal edildi, zone taramasi devam ediyor.");
+					g_bridgeSuppressEcho++;
+					sendChat((char *)LM("!Sniper iptal, zone taramasi devam ediyor.",
+						"!Sniper cancelled, zone scan continues."));
+				}
+				else if(!g_ztkAskNext)
 				{
 					Log("[ZSNIP] ?no: bekleyen zincir sorusu yok.");
 					g_bridgeSuppressEcho++;
@@ -6616,6 +6676,20 @@ void ScrGameText(RPCParameters *rpcParams)
 			g_gztCountdownAnnounced = 999;
 			g_gztLastRem = -1;
 			g_zwWarZone[0] = 0;
+			// Chat yoluyla ayni: kill list yakalayici aciksa bitis textdraw'lari
+			// icin finalize kur; yoksa /fr ile freeroam'a don. Aksi halde yakalayici
+			// acik kaliyor ve ?zf surekli capturing etiketi basiyordu (gametext lost vakasi).
+			if(g_zwCapturingKillList && !g_zwKillListSent)
+			{
+				g_zwFinalizeAt = GetTickCount() + 3000;
+				Log("[KILLLIST] Gametext: savas bitti, GZ'de kalinip sonuc textdraw'lari bekleniyor...");
+			}
+			else if(g_zwReturnPending)
+			{
+				g_zwReturnPending = false;
+				Log("[ZONEWAR] Gametext: savas bitti, /fr ile freeroam'a donuluyor.");
+				sendServerCommand((char *)"/fr");
+			}
 		}
 	}
 	else if(g_ztkAttackPending && strstr(szMessage, "can be attacked in"))
@@ -6639,6 +6713,20 @@ void ScrGameText(RPCParameters *rpcParams)
 			g_gztCountdownAnnounced = 999;
 			g_gztLastRem = -1;
 			g_zwWarZone[0] = 0;
+			// Chat yoluyla ayni: kill list yakalayici aciksa bitis textdraw'lari
+			// icin finalize kur; yoksa /fr ile freeroam'a don. Aksi halde yakalayici
+			// acik kaliyor ve ?zf surekli capturing etiketi basiyordu (gametext lost vakasi).
+			if(g_zwCapturingKillList && !g_zwKillListSent)
+			{
+				g_zwFinalizeAt = GetTickCount() + 3000;
+				Log("[KILLLIST] Gametext: savas bitti, GZ'de kalinip sonuc textdraw'lari bekleniyor...");
+			}
+			else if(g_zwReturnPending)
+			{
+				g_zwReturnPending = false;
+				Log("[ZONEWAR] Gametext: savas bitti, /fr ile freeroam'a donuluyor.");
+				sendServerCommand((char *)"/fr");
+			}
 		}
 	}
 }
@@ -7238,7 +7326,29 @@ void FinalizeKillList()
 		// finalize'de sent=true yapip kaptaji tum savas boyunca kilitliyordu
 		// ("gz sonucl.txt yazilmadi" vakasi).
 		g_zwCaptureStart = GetTickCount();
-		Log("[KILLLIST] Sonuc metni henuz bos, yakalama suruyor (pencere yenilendi).");
+		DWORD dwEmptyNow = GetTickCount();
+		if(g_zwEmptyFinalizeSince == 0)
+			g_zwEmptyFinalizeSince = dwEmptyNow;
+		if(dwEmptyNow - g_zwEmptyFinalizeSince < 30000)
+		{
+			// 30 sn: bitis textdraw'lari gec gelebilir; 10 sn'de bir yeniden dene.
+			// FIX: eskiden g_zwFinalizeAt sifirlanmiyordu -> scheduler her frame
+			// tekrar cagirip saniyede ~20 log spam'i uretiyordu.
+			g_zwFinalizeAt = dwEmptyNow + 10000;
+			Log("[KILLLIST] Sonuc metni henuz bos, 10 sn sonra tekrar denenecek.");
+			return;
+		}
+		Log("[KILLLIST] Bitis textdraw'lari gelmedi, kill list bu savas icin atlaniliyor.");
+		g_zwEmptyFinalizeSince = 0;
+		g_zwCapturingKillList = false;
+		g_zwKillListSent = true;
+		g_zwFinalizeAt = 0;
+		if(g_zwReturnPending)
+		{
+			g_zwReturnPending = false;
+			Log("[KILLLIST] GZ'de kalindi, /fr ile freeroam'a donuluyor.");
+			sendServerCommand((char *)"/fr");
+		}
 		return;
 	}
 
@@ -7411,6 +7521,11 @@ void FinalizeKillList()
 	const char *pRedTag = "", *pBlueTag = "";
 	int giR = FindGroupColorByName(pRedName);  if(giR >= 0) pRedTag = g_groupColors[giR].szTag;
 	int giB = FindGroupColorByName(pBlueName); if(giB >= 0) pBlueTag = g_groupColors[giB].szTag;
+	// Tagsiz grubun UIF tag'i '~' sentinel'idir (netrpc 2705). Discord'a ham gidince
+	// embed'te isim yerine '~' gorunuyordu (orn: Supreme tagsiz -> '~'). Sentinel /
+	// NULL / - tag'leri BOS gonder -> Discord isimle gosterir.
+	if(pRedTag[0] == '~' || !_stricmp(pRedTag, "NULL") || !_stricmp(pRedTag, "-")) pRedTag = "";
+	if(pBlueTag[0] == '~' || !_stricmp(pBlueTag, "NULL") || !_stricmp(pBlueTag, "-")) pBlueTag = "";
 	if(!bWeAreBlue)
 	{
 		strRedRows = strMine;  iRedK = g_zwMineK;  iRedA = g_zwMineA;  iRedD = g_zwMineD;  iRedDmg = g_zwMineDmg;
@@ -7545,6 +7660,7 @@ void FinalizeKillList()
 	g_zwKillListSent = true;
 	g_zwKillTdCount = 0;
 	g_zwFinalizeAt = 0;
+	g_zwEmptyFinalizeSince = 0;
 	g_zwBestK = 0; g_zwBestDmg = 0; g_zwBestD = 0;
 	g_zwMvpName[0] = 0; g_zwFeederName[0] = 0;
 	g_zwMineK = 0; g_zwMineA = 0; g_zwMineD = 0; g_zwMineDmg = 0;
@@ -7867,6 +7983,16 @@ void OnGmembersFinalize()
 	}
 	if(!s_bGmBotOk || !s_bGmUserOk)
 	{
+		// Kullanici istegi: yetki reddi otomatik iptal degil. Kesilen zone taramasi
+		// bekler; ?yes gelirse yine de saldirilir, ?no gelirse tarama devam eder.
+		if(g_snipInterrupt && g_snipAction == 0)
+		{
+			Log("[ZSNIP] Yetki reddi: ?yes ile yine de saldirilir, ?no ile tarama devam eder.");
+			g_bridgeSuppressEcho++;
+			sendChat((char *)LM("!Yetki yok - saldiri icin ?yes, taramaya donmek icin ?no.",
+				"?No permission - ?yes to attack anyway, ?no to resume zone scan."));
+			return;
+		}
 		g_bridgeSuppressEcho++;
 		sendChat((char *)LM("!Zone sniper icin bot ve kullanici Co-Leader olmali.",
 			"!Zone sniper requires both bot and user to be Co-Leader."));
@@ -7876,6 +8002,7 @@ void OnGmembersFinalize()
 	// Yetki tamam: istege gore sniper'i kapat veya baslat.
 	if(g_snipAction == 1)
 	{
+		g_snipInterrupt = false; // off: bekleyen istek de iptal
 		g_ztkActive = false;
 		g_ztkZoneId = -1;
 		g_ztkWaitAnnounced = false;
@@ -7914,6 +8041,7 @@ Log("[ZSNIP] Kullanici iptal etti (yetki dogrulandi), sniper kapatildi.");
 	sendServerCommand(szCmd);
 
 	PauseZoneScanForSnip();
+	g_snipInterrupt = false; // istek onayla tamamlandi
 	g_ztkActive = true;
 	g_ztkZoneId = iZone;
 	g_ztkWaitAnnounced = false;

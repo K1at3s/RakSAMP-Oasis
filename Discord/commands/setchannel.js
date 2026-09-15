@@ -16,7 +16,9 @@ module.exports = {
                 { name: '📊 GStats Verileri', value: 'gstats' },
                 { name: '💬 Grup Chat Koprusu', value: 'group-chat' },
                 { name: '⚔️ ZONE WAR Bildirimleri', value: 'zone-war' },
-                { name: '🆘 Backup Cagrilari (?1414)', value: 'backup' }
+                { name: '🆘 Backup Cagrilari (?1414)', value: 'backup' },
+                { name: '📋 Grup Log (?post)', value: 'group-log' },
+                { name: '🤖 Bot Komut Kanali', value: 'bot-commands' }
             ))
         .addChannelOption(o => o.setName('kanal')
             .setDescription('Hedef kanal')
@@ -32,7 +34,9 @@ module.exports = {
             gstats: 'gstatsChannelId',
             'group-chat': 'groupChatChannelId',
             'zone-war': 'zoneWarChannelId',
-            backup: 'backupChannelId'
+            backup: 'backupChannelId',
+            'group-log': 'groupLogChannelId',
+            'bot-commands': 'botCommandsChannelId'
         };
         const field = fieldMap[type] || `${type}ChannelId`;
 

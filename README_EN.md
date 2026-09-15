@@ -110,20 +110,36 @@ Command names are localized per server language (English base, Turkish localizat
 
 | Command (EN / TR) | Description |
 |-------|-------------|
-| `/link <hwid>` | Link HWID to Discord server |
-| `/unlink` | Remove the link |
-| `/setup` / `/kurulum` | Create log channels (empty) / delete (`off` or `kapat`) |
-| `/setchannel` / `/kanalayarla` | Channel assignments |
-| `/gstats [group_id]` | Group stats |
-| `/admins` | Online admins |
-| `/send <message>` | Send a message in-game |
-| `/pm <message>` / `/mesaj` | Send `[Discord][name]`-prefixed message in-game; replies come back ephemeral |
-| `/backup` | Emergency call (@here) |
-| `/grole [name] [role]` | Give a group member a role (Member/Co-Leader) — interactive member/role picker |
-| `/grank [name] [rank]` | Give a group member a rank — interactive |
-| `/setallowedrole <role>` | Set the role allowed to use Grole/Grank menus |
-| `/stats` | Bot/player stats |
-| `/zonewar` | Zone wars channel setting |
+| `/link <hwid>` | Link a HWID to this Discord server (admin) |
+| `/unlink <hwid>` | Remove the link (admin) |
+| `/setup` / `/kurulum` | Create channels (empty) / delete (`off`) (admin) |
+| `/setchannel` / `/kanalayarla` | Channel assignment: log, war, gstats, group-chat, zone-war, backup, group-log, bot-commands |
+| `/help` / `/yardim` | Command list; `share:true` posts it to the bot-commands channel |
+| `/gstats [group_id]` | Group stats (fetched from the game, ephemeral) |
+| `/stats [id]` | Group/player stats (blank = own) |
+| `/astats <account_id>` | Account stats |
+| `/admins` | Online admin list |
+| `/alog <player\|id>` | Admin punishment history (ban/mute/kick) |
+| `/glog <player\|id>` | Group role/rank change history |
+| `/oyuncu <name\|id>` | Cached packetloss/FPS/ping values (age-stamped) |
+| `/bolge <group\|tag>` | Group tag + owned zones (DB `gangs`) |
+| `/botdurum` | Bot record: group name + zscan/gzt/zgrp state (DB `bots`) |
+| `/send <command>` | Send a free-form command/message in-game (admin) |
+| `/pm <player> <message>` / `/mesaj` | Private message to a player; the reply comes back ephemeral |
+| `/duyuru <message>` | Broadcast to the group chat (stays in-game, not mirrored to the bridge channel) |
+| `/backup <group> [message]` | Emergency call (@here) |
+| `/zonewar ...` | Manual ZONE WAR notification |
+| `/grole [name] [role]` | Give a member a role (Member/Co-Leader) — interactive member/role picker |
+| `/grank [name] [rank]` | Give a member a rank — interactive member/rank picker |
+| `/gkick [name] [reason]` | Kick a member — reason modal + paginated list + dialog automation |
+| `/ginv <id>` | Invite a player to the group (`/ginvite id`) |
+| `/gmembers` | Member list + VIP harvest → Google Sheets roster |
+| `/dil <tr\|en>` | Bot language (embeds + in-game announcements; the client syncs within 2s) |
+| `/kopru [on\|off]` | Discord ↔ in-game group chat bridge |
+| `/zscan [on\|off\|sn]` | Automatic zone scan (`sn` = one-shot full verify) |
+| `/gzt [on\|off\|time]` | Zone-war countdown announcements |
+| `/gname` | Re-learn the group name |
+| `/setallowedrole [role]` | Allowed role for group commands (blank = everyone) |
 
 ---
 
@@ -139,6 +155,7 @@ Command names are localized per server language (English base, Turkish localizat
 | `players` | Player stats cache (packetloss/FPS/ping) |
 | `admin_logs` | Admin action logs |
 | `group_logs` | Group role change logs |
+| `roster_messages` | Roster link message posted/edited on `/gmembers` completion |
 
 ---
 
