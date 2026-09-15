@@ -1,3 +1,19 @@
+# beta v4 - 2026-09-14 (beta branch)
+
+## Türkçe
+- **Sniper saldırı-doğrulama**: her adımda `/gzinfo` ile sahip zincir grubuyla karşılaştırılıyor; uyuşmazsa `!Zone #N artik X degil (Y), atlaniyor.` + sıradaki zone (AnR→A$AP vakası kapandı)
+- **Sahte win kilidi**: `/gz` sonrası savaş gerçekten başlamadan sonuç yazılmıyor (`g_ztkWarSeen` + 20 sn); `This zone can be attacked in` gametext'i anında fail
+- **Cooldown okuma**: `can be attacked in` süresi 5 dk üstüyse saldırmadan atlanıyor
+- **Savaşta bekleme**: kendi savaşı sürerken `/gz` atılmıyor, `won` gelir gelmez saldırılıyor
+- **`?yes/?no` yanıtı**: bekleyen zincir sorusu yoksa sessiz kalınmıyor
+
+## English
+- **Snipe verify-before-attack**: each step checks owner via `/gzinfo` against the chain group; on mismatch `!Zone #N is no longer X (Y), skipping.` + next zone (AnR→A$AP case closed)
+- **Phantom-win lock**: no outcome until the war actually starts after `/gz` (`g_ztkWarSeen` + 20s); `This zone can be attacked in` gametext fails fast
+- **Cooldown read**: zones with `can be attacked in` over 5 min are skipped without attacking
+- **Wait while own war runs**: no `/gz` mid-war, attacks the moment `won` arrives
+- **`?yes/?no` replies**: no more silence without a pending chain question
+
 # beta v3 - 2026-09-14 (beta branch)
 
 ## Türkçe
