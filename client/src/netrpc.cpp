@@ -2146,6 +2146,7 @@ static void SyncBotStatusToDb()
 void StartZoneScan(bool bAuto); // tanim asagida (netrpc.cpp); SyncZscanFromDb'den cagrilir
 // adi biliniyorsa GET /api/bot/toggles ile cekilip g_zscanAuto/g_gztOn uygulanir.
 bool g_waitingForGroupName = false;   // /stats sonucundan kendi grup adi okunuyor (SAMPRPC extern)
+static int s_gnameMode = 0; // 0: once /gstats dene, 1: /stats dongusu
 int  g_groupNamePhase = 0;            // 0=idle, 1=ilk diyalog, 2=ikinci diyalog (grup adi)
 DWORD g_groupNameReqTime = 0;         // zaman asimi (SAMPRPC extern)
 
@@ -2338,7 +2339,15 @@ static void SyncZscanFromDb()
 		{
 			g_waitingForGroupName = false;
 			g_groupNamePhase = 0;
-			Log("[GSTATS] Grup adi beklemasi zaman asimina ugradi, yeniden deneniyor.");
+						if(s_gnameMode == 0)
+			{
+				s_gnameMode = 1;
+				Log("[GSTATS] /gstats ile grup adi alinamadi, /stats dongusune dusuluyor.");
+			}
+			else
+			{
+				Log("[GSTATS] Grup adi beklemasi zaman asimina ugradi, yeniden deneniyor.");
+			}
 		}
 		// SPAWN GATE: /stats yalnizca spawn sonrasi gonderilir. Spawn menusu/
 		// gecisi sirasinda gonderilirse sunucu grup stats diyalogunu bastiriyor.
@@ -2382,6 +2391,24 @@ static void SyncZscanFromDb()
 				Log("[GSTATS] DB yukleme atlandi: g_szNickName bos.");
 			if(!bLoadedFromDb)
 			{
+				if(s_gnameMode == 0)
+				{
+					// ONCE /gstats dene: parametresiz grup stats (bos submit -> kendi grubu).
+					// 15 sn timeout /stats dongusune duser. Faz 2 sonucu isler.
+					g_waitingForGroupName = true;
+					g_groupNamePhase = 2;
+					g_groupNameReqTime = GetTickCount();
+					g_waitingForGStats = true;
+					g_gstatsReqTime = GetTickCount();
+					g_gstatsAutoSubmit = true;
+					g_gstatsInput = "";
+					g_gstatsRequesterId = "";
+					g_gstatsSentFirst = false;
+					Log("[GSTATS] Grup adi icin /gstats gonderiliyor (tek diyalog denemesi)...");
+					sendServerCommand((char *)"/gstats");
+				}
+				else
+				{
 				g_waitingForGroupName = true;
 				g_groupNamePhase = 1;
 				g_groupNameReqTime = GetTickCount();
@@ -2397,6 +2424,7 @@ static void SyncZscanFromDb()
 				sprintf_s(szCmd, sizeof(szCmd), "/stats %d", g_myPlayerID);
 				Log("[GSTATS] Grup adi icin /stats %d gonderiliyor (Group Stats butonu bekleniyor)...", g_myPlayerID);
 				sendServerCommand(szCmd);
+			}
 			}
 		}
 		else if(!g_waitingForGroupName)
@@ -5171,6 +5199,7 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 				g_zscanDbLoaded = false;
 				g_waitingForGroupName = false;
 				g_groupNamePhase = 0;
+				s_gnameMode = 0; // grup degisti: once /gstats dene
 				// DB'deki eski adi da temizle ki /stats ile YENIDEN ogrensin
 				try
 				{
