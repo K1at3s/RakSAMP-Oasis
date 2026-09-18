@@ -710,8 +710,8 @@ const mvpDmg = Number(body.mvpDmg) || 0;
 
     // Veri yoksa alan GÖSTERILMEZ (MVP '?' / feeder '?' / firstBlood-topWeapons bos)
     const fields = [
-        { name: `⚔️ **${redTag || redName}**`, value: `\`\`\`\n${redBox}\n\`\`\`` },
-        { name: `⚔️ **${blueTag || blueName}**`, value: `\`\`\`\n${blueBox}\n\`\`\`` }
+        { name: `⚔️ **${redName}**${redTag ? ` (${redTag})` : ''}`, value: `\`\`\`\n${redBox}\n\`\`\`` },
+        { name: `⚔️ **${blueName}**${blueTag ? ` (${blueTag})` : ''}`, value: `\`\`\`\n${blueBox}\n\`\`\`` }
     ];
     if (mvp && mvp !== '?') fields.push({ name: t.mvp, value: `${mvp} (${mvpDmg} dmg, ${mvpKills} kills)`, inline: true });
     if (feeder && feeder !== '?') fields.push({ name: t.feeder, value: `${feeder} (${feederDeaths} deaths)`, inline: true });
