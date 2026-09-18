@@ -7546,6 +7546,25 @@ void FinalizeKillList()
 	// Takim yonumuz: "vs" duyurusundaki konum (sol=kirmizi, sag=mavi) en guvenilir;
 	// bilinmiyorsa renk fallback'i (mavi 0x0000FF). bWeAreBlue=true ise biz sag grup.
 	bool bWeAreBlue = g_zwWeAreBlueKnown ? g_zwWeAreBlue : ((g_zwMyColor & 0xFFFFFF) == 0x0000FF);
+	// Yedek: savas zonunun hafizadaki sahibi (duyuru kacmissa "Kirmizi"/"Mavi" kalirdi).
+	{
+		int wz = g_zwWarZone[0] ? atoi(g_zwWarZone) : -1;
+		const char *pOwn = (wz >= 0 && wz < MAX_GANG_ZONES) ? g_zoneOwnerName[wz] : NULL;
+		const char *pMe = g_myGroupName.empty() ? NULL : g_myGroupName.c_str();
+		if(pOwn && pOwn[0] && _stricmp(pOwn, "Free") != 0)
+		{
+			if(pMe && !_stricmp(pOwn, pMe))
+			{
+				if(bWeAreBlue && !strcmp(pBlueName, "Mavi")) pBlueName = pOwn;
+				if(!bWeAreBlue && !strcmp(pRedName, "Kirmizi")) pRedName = pOwn;
+			}
+			else
+			{
+				if(bWeAreBlue && !strcmp(pRedName, "Kirmizi")) pRedName = pOwn;
+				if(!bWeAreBlue && !strcmp(pBlueName, "Mavi")) pBlueName = pOwn;
+			}
+		}
+	}
 	const char *pMineName  = bWeAreBlue ? pBlueName : pRedName;
 	const char *pEnemyName = bWeAreBlue ? pRedName  : pBlueName;
 
