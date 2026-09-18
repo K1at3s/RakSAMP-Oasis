@@ -2389,7 +2389,7 @@ static void SyncZscanFromDb()
 			}
 			else
 				Log("[GSTATS] DB yukleme atlandi: g_szNickName bos.");
-			if(!bLoadedFromDb)
+			if(!bLoadedFromDb && false) // otomatik ogrenme KAPALI: ad DB'de kayitli varsayilir, ?gname ile elle
 			{
 				if(s_gnameMode == 0)
 				{
@@ -2434,7 +2434,7 @@ static void SyncZscanFromDb()
 			if(s_lastGroupNameBlkLog == 0 || GetTickCount() - s_lastGroupNameBlkLog >= 2000)
 			{
 				s_lastGroupNameBlkLog = GetTickCount();
-				Log("[GSTATS] Grup adi ogrenme bekliyor (spawn=%d scan=%d ghp=%d war=%d)...",
+				Log("[GSTATS] Grup adi yok - ?gname ile ogret (spawn=%d scan=%d ghp=%d war=%d)...",
 					iSpawned, g_zoneScanIdx, g_ghpActive, g_inZoneWar);
 			}
 		}
@@ -5194,13 +5194,13 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 				g_bridgeSuppressEcho++;
 				sendChat((char *)LM("!Grup adi yeniden ogreniliyor...", "!Re-learning group name..."));
 				// Mevcut adi sifirla -> SyncZscanFromDb yeniden ogrenir (DB'de yoksa
-				// /stats akisi; varsa DB'den yuklenir). Zorla /stats icin DB de sifirlanir.
+				// asagida tek seferlik /gstats ile ogrenilir).
 				g_myGroupName.clear();
 				g_zscanDbLoaded = false;
 				g_waitingForGroupName = false;
 				g_groupNamePhase = 0;
 				s_gnameMode = 0; // grup degisti: once /gstats dene
-				// DB'deki eski adi da temizle ki /stats ile YENIDEN ogrensin
+				// DB'deki eski adi da temizle ki ogrenilen taze ad yazilsin
 				try
 				{
 					httplib::Client cli(g_szBackendBase);
@@ -5209,6 +5209,18 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 					cli.Post("/api/bot/status", body.dump(), "application/json");
 				}
 				catch(...) {}
+				// Tek seferlik ogrenme: /gstats (bos submit -> kendi grubu), faz 2 isler.
+				g_waitingForGroupName = true;
+				g_groupNamePhase = 2;
+				g_groupNameReqTime = GetTickCount();
+				g_waitingForGStats = true;
+				g_gstatsReqTime = GetTickCount();
+				g_gstatsAutoSubmit = true;
+				g_gstatsInput = "";
+				g_gstatsRequesterId = "";
+				g_gstatsSentFirst = false;
+				Log("[GSTATS] ?gname: grup adi icin /gstats gonderiliyor...");
+				sendServerCommand((char *)"/gstats");
 				g_bridgeSuppressEcho++;
 			}
 			// --- ?post [gerekce] : son grup aksiyonunu (rol/rank/kick) Discord log kanalina embed gonder ---
