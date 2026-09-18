@@ -1627,14 +1627,25 @@ app.get('/api/groups/zone', async (req, res) => {
 app.get('/api/groups', async (req, res) => {
     try {
         // db.query() zaten dogrudan satir dizisini dondurur (tekrar destructure ETME).
-        const rows = await db.query(
-            'SELECT group_name, tag, zones FROM gangs WHERE DATE(updated_at) = CURDATE()'
+        // TAG'ler zamansizdir (tum gruplar), ZONE sahipligi gunluktur (bugun).
+        // (CURDATE filtresi tag'leri de budayip ?zf'de isim gosteriyordu: 41/200+ vakasi.)
+        const tagRows = await db.query(
+            'SELECT group_name, MAX(tag) AS tag FROM gangs GROUP BY group_name'
         );
-        const out = (Array.isArray(rows) ? rows : []).map(r => ({
-            name: r.group_name,
-            tag: r.tag || '',
-            zones: r.zones ? JSON.parse(r.zones) : []
-        }));
+        const zoneRows = await db.query(
+            'SELECT group_name, zones FROM gangs WHERE DATE(updated_at) = CURDATE()'
+        );
+        const zoneByName = {};
+        for (const r of (Array.isArray(zoneRows) ? zoneRows : [])) {
+            zoneByName[r.group_name] = r.zones ? JSON.parse(r.zones) : [];
+        }
+        const out = (Array.isArray(tagRows) ? tagRows : [])
+            .filter(r => r.group_name)
+            .map(r => ({
+                name: r.group_name,
+                tag: r.tag || '',
+                zones: zoneByName[r.group_name] || []
+            }));
         return res.json({ success: true, groups: out });
     } catch (err) {
         console.error('GROUPS-GET hatasi:', err.message);
