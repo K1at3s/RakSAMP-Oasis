@@ -2709,12 +2709,7 @@ void BuildFlashZoneSummary()
 		if(agg[a].gi == -2 || (idx >= 0 && !g_groupColors[idx].szTag[0] && !g_groupColors[idx].szName[0]))
 			pszLabel = "Free";
 		else if(idx >= 0 && !bNoTag)
-		{
-			// Sayisal tag ("737") kafa karistiriyor: tam isim goster
-			bool bNumTag = true;
-			for(const char *pT = g_groupColors[idx].szTag; *pT; pT++) if(*pT < '0' || *pT > '9'){ bNumTag = false; break; }
-			pszLabel = (bNumTag && g_groupColors[idx].szName[0]) ? g_groupColors[idx].szName : g_groupColors[idx].szTag;
-		}
+		pszLabel = g_groupColors[idx].szTag; // tag varsa hep tag (sayisal da dahil: "737")
 		else if(idx >= 0)
 			pszLabel = g_groupColors[idx].szName;  // tag yoksa tam ad
 		else
