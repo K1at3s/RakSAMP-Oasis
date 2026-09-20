@@ -856,6 +856,9 @@ static int   g_zoneScanQueue[MAX_GANG_ZONES] = {0};
 static int   g_zoneScanQ = 0;          // kuyruktaki ornek zone sayisi
 static int   g_zoneScanIdx = -1;       // -1: tarama yok; 0..: siradaki ornek
 static bool  g_zscanPausedForSnip = false; // sniper suresince tarama duraklatildi mi
+// Kullanici istegi: ?zsnip sonrasi tarama OTOMATIK devam etmesin.
+// ?zscan on/sn ile bilerek baslatilir; ?zsnip off / ?no bu bayragi temizler.
+static bool  g_zsnipeHoldScan = false;
 static int   g_zscanPausedIdx = -1;        // duraklatilan ornek (devam icin)
 static bool  g_forceFullVerifyOnce = false; // ?zscan sn: tek seferlik tam kontrol istegi
 // Sniper suresince zone taramasi DURAKLATILIR: taramanin /pos isinlamalari
@@ -863,6 +866,15 @@ static bool  g_forceFullVerifyOnce = false; // ?zscan sn: tek seferlik tam kontr
 // Bitince kalinan ornekten devam eder.
 static void PauseZoneScanForSnip()
 {
+	// Kullanici istegi: sniper aktifken harvest de dursun (sadece sniper odak).
+	if(g_ghpActive || g_zgrpAuto)
+	{
+		g_ghpActive = false;
+		g_zgrpAuto = false;
+		Log("[ZSNIP] Harvest durduruldu (sadece sniper odak).");
+	}
+	// Sniper bitince tarama otomatik baslamasin (kullanici ?zscan on/sn yazana kadar).
+	g_zsnipeHoldScan = true;
 	if(g_zscanPausedForSnip) return;
 	g_zscanPausedForSnip = true;
 	if(g_zoneScanIdx < 0)
@@ -873,12 +885,18 @@ static void PauseZoneScanForSnip()
 	g_zscanPausedIdx = g_zoneScanIdx;
 	g_zoneScanIdx = -1;
 	g_zscanPausedForSnip = true;
-	Log("[ZSNIP] Aktif zone taramasi duraklatildi (sniper bitince devam edecek).");
+	Log("[ZSNIP] Aktif zone taramasi duraklatildi (sniper bitince devam etmeyecek).");
 }
 static void ResumeZoneScanAfterSnip()
 {
 	if(!g_zscanPausedForSnip) return;
-	if(g_ztkActive) return; // sniper suruyor: tarama kapali kalsin, sniper bitince resume gelir
+	if(g_ztkActive) return;
+	// Kullanici istegi: ?zsnip sonrasi tarama OTOMATIK devam ETMEZ; ?zscan on/sn gerekir.
+	if(g_zsnipeHoldScan)
+	{
+		Log("[ZSNIP] Tarama duraklatilmis birakildi (devam icin ?zscan on).");
+		return;
+	}
 	g_zscanPausedForSnip = false;
 	if(g_zoneScanIdx < 0 && g_zscanPausedIdx >= 0 && g_zscanPausedIdx < MAX_GANG_ZONES)
 	{
@@ -5345,6 +5363,14 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 				if(!_stricmp(pArg, "on"))
 				{
 					g_zscanAuto = true;
+					// ?zsnip sonrasi birakilan duraklamayi kaldir (kullanici bilerek aciyor).
+					if(g_zscanPausedForSnip)
+					{
+						g_zscanPausedForSnip = false;
+						g_zscanPausedIdx = -1;
+						g_zsnipeHoldScan = false;
+						Log("[ZF:SCAN] ?zscan on: sniper duraklamasi kaldirildi.");
+					}
 					SyncBotStatusToDb(); // gruba gore DB'ye kaydet
 					// TARAMA ANINDA BASLATILMAZ: sadece bayrak acilir. Tarama ilk
 					// giris sonrasi + periyodik akista (ProcessZoneScan) baslar.
@@ -5370,6 +5396,14 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 				}
 				else if(!_stricmp(pArg, "sn"))
 				{
+					// Kullanici bilerek tam tarama istedi: aktif sniper yoksa duraklamayi kaldir.
+					if(g_zscanPausedForSnip && !g_ztkActive)
+					{
+						g_zscanPausedForSnip = false;
+						g_zscanPausedIdx = -1;
+						g_zsnipeHoldScan = false;
+						Log("[ZF:SCAN] ?zscan sn: sniper duraklamasi kaldirildi.");
+					}
 					// Tek seferlik TAM tarama: tum zonalar dogrulanir, bitince DB
 					// senkronu tek-sahipligi kurar (yeni gruba yaz, eskiden sil).
 					if(g_zscanPausedForSnip)
@@ -5578,6 +5612,7 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 				// off da Co-Leader/Leader yetkisi gerektirir: /gmembers ile dogrulanir.
 				if(!_stricmp(pArg, "off"))
 				{
+					g_zsnipeHoldScan = false; // off: tarama normale doner
 					// Bekleyen (?yes/?no bekleyen) ?zsnip istegi varsa: off yetkisiz iptal eder.
 					if(g_snipInterrupt)
 					{
@@ -5726,6 +5761,7 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 			// --- ?no : zsnip zincirini iptal et ---
 			else if(!strncmp(pGroupMsg, "?no", 3) && (pGroupMsg[3] == '\0' || pGroupMsg[3] == ' '))
 			{
+				g_zsnipeHoldScan = false; // ?no: tarama normale doner
 				// Kesilmis tarama uzerine gelen ?no: istegi iptal et, taramayi devam ettir.
 				if(g_snipInterrupt)
 				{
@@ -7540,12 +7576,17 @@ void FinalizeKillList()
 		}
 	}
 
-	// Takim adlari: once "vs" duyurusu (sol=kirmizi, sag=mavi), yoksa fallback.
-	const char *pRedName  = !g_zwWarTeamLeft.empty()  ? g_zwWarTeamLeft.c_str()  : (!g_enemyGroupName.empty() ? g_enemyGroupName.c_str() : "Kirmizi");
-	const char *pBlueName = !g_zwWarTeamRight.empty() ? g_zwWarTeamRight.c_str() : (!g_myGroupName.empty()    ? g_myGroupName.c_str()    : "Mavi");
 	// Takim yonumuz: "vs" duyurusundaki konum (sol=kirmizi, sag=mavi) en guvenilir;
 	// bilinmiyorsa renk fallback'i (mavi 0x0000FF). bWeAreBlue=true ise biz sag grup.
 	bool bWeAreBlue = g_zwWeAreBlueKnown ? g_zwWeAreBlue : ((g_zwMyColor & 0xFFFFFF) == 0x0000FF);
+	// Takim adlari: once "vs" duyurusu (sol=kirmizi, sag=mavi). Duyuru yoksa isimleri
+	// bWeAreBlue ile TUTARLI sec: biz kirmiziysak kirmizi=biz, maviysek mavi=biz.
+	const char *pRedName  = !g_zwWarTeamLeft.empty()  ? g_zwWarTeamLeft.c_str()
+		: (bWeAreBlue ? (!g_enemyGroupName.empty() ? g_enemyGroupName.c_str() : "Kirmizi")
+		              : (!g_myGroupName.empty()    ? g_myGroupName.c_str()    : "Kirmizi"));
+	const char *pBlueName = !g_zwWarTeamRight.empty() ? g_zwWarTeamRight.c_str()
+		: (bWeAreBlue ? (!g_myGroupName.empty()    ? g_myGroupName.c_str()    : "Mavi")
+		              : (!g_enemyGroupName.empty() ? g_enemyGroupName.c_str() : "Mavi"));
 	// Yedek: savas zonunun hafizadaki sahibi (duyuru kacmissa "Kirmizi"/"Mavi" kalirdi).
 	{
 		int wz = g_zwWarZone[0] ? atoi(g_zwWarZone) : -1;
