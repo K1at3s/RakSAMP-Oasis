@@ -158,6 +158,8 @@ static DWORD g_zaPermUntil = 0;
 static bool  g_ztkActive = false;
 static bool  g_ztkVerifyPending = false; // /gzinfo ile sahip dogrulama bekleniyor mu
 static int   g_ztkVerifyZone = -1;        // dogrulanan zone
+static DWORD  g_ztkTeleportAt = 0;        // son sniper teleportu (?zgo mantigi varis payi)
+static int   g_ztkVerifyTries = 0;         // cevapsiz /gzinfo sayisi (3 denemede siradakine gec)
 static DWORD  g_ztkVerifyAt = 0;           // /gzinfo gonderim ani (12 sn timeout)
 static bool   g_ztkWarSeen = false;       // /gz sonrasi savasimiz basladi mi (sahte-win kilidi)
 static DWORD  g_ztkAttackAt = 0;           // /gz gonderim ani (20 sn savas-bekleme)
@@ -1324,7 +1326,9 @@ static void SendAdminLog(const char *admin, const char *target, long long target
 	catch(...) {}
 }
 
-// Grup rol/rank/kick degisikligi mesajini DB'ye POST et + son kaydi sakla (?post icin).
+// Grup rol/rank/kick/invite degisikligi mesajini DB'ye POST et + son kaydi sakla (?post icin).
+// Otomatik sebep penceresi: botun kendisi yapmadiysa gruba sebep sorulur (30 sn),
+// ?post yazmaya gerek kalmaz. Bot aksiyonlarinda (Discord otomasyonu) sessiz kalinir.
 static void SendGroupLog(const char *actor, long long actorAcc,
 	const char *target, long long targetAcc, const char *oldRank, const char *newRank, int type)
 {
@@ -1355,6 +1359,15 @@ static void SendGroupLog(const char *actor, long long actorAcc,
 			Log("[GLOG] Grup log kaydedildi: %s(%lld) -> %s(%lld) '%s'->'%s'", actor, actorAcc, target, targetAcc, oldRank ? oldRank : "", newRank ? newRank : "");
 	}
 	catch(...) {}
+	// ponytail: botun kendi otomasyonu (actor==bot nick) sebepli/sebepsiz bilerek yapildi, sorma
+	if(g_szNickName[0] && !_stricmp(actor, g_szNickName)) return;
+	g_pushPending = true;
+	g_pushUntil = GetTickCount() + 30000;
+	g_pushReason[0] = 0;
+	g_bridgeSuppressEcho++;
+	// ponytail: LM() asagida tanimli (satir ~2626), burada g_langTurkish dogrudan
+	sendChat((char *)(g_langTurkish ? "!Gerekce yazabilirsin (30 sn)." : "!You can type a reason (30 secs)."));
+	Log("[POST] Otomatik sebep penceresi acildi: %s -> %s (tip %d).", actor, target, type);
 }
 
 // /pm: Discord'dan hedef oyuncuya mesaj gonder (grup chat'inde gorunur).
@@ -1493,6 +1506,55 @@ static void CheckGroupLogMessage(const char *msg)
 	if(!pChg){ pChg = strstr(msg, "changed the role of"); iType = 1; }
 	if(!pChg)
 	{
+		// invite: "GROUP: X invited/invite Y ..." - kick ile ayni Name(acc) formu
+		// ponytail: kick parse'inin kopyasi, mesaj formati netlesince birlesir
+		const char *pI = strstr(msg, " invited ");
+		if(!pI) pI = strstr(msg, " invite ");
+		if(!pI) pI = strstr(msg, " invites ");
+		if(pI)
+		{
+			{ const char *pA = msg; while(*pA == ' ' || *pA == '\t') pA++; if(!strncmp(pA, "ADMIN:", 6)) pI = NULL; }
+		}
+		if(pI)
+		{
+			char actor[64] = {0}, target[64] = {0};
+			long long actorAcc = 0, targetAcc = 0;
+			{
+				const char *q = strstr(msg, "GROUP:") ? strstr(msg, "GROUP:") + 6 : msg;
+				while(*q == ' ' || *q == '\t') q++;
+				const char *pAO = strchr(q, '(');
+				if(pAO && pAO < pI)
+				{
+					const char *pAE = pAO;
+					while(pAE > q && (pAE[-1] == ' ' || pAE[-1] == '\t')) pAE--;
+					CopyToken(actor, sizeof(actor), q, pAE);
+					const char *pAC = strchr(pAO + 1, ')');
+					if(pAC) actorAcc = _strtoi64(pAO + 1, NULL, 10);
+				}
+				else
+				{
+					int n = 0; while(q[n] && q[n] != ' ' && q[n] != '\t' && n < 63){ actor[n] = q[n]; n++; } actor[n] = 0;
+				}
+			}
+			const char *pT = strchr(pI + 1, ' ');
+			pT = pT ? pT + 1 : NULL;
+			if(pT){ while(*pT == ' ') pT++; if(!strncmp(pT, "the ", 4)) { pT += 4; while(*pT == ' ') pT++; } }
+			if(pT && *pT)
+			{
+				const char *pTO = strchr(pT, '(');
+				int tn = 0;
+				for(const char *q = pT; *q && *q != ' ' && *q != '\t' && q != pTO && tn < 63; q++) target[tn++] = *q;
+				target[tn] = 0;
+				const char *pTClose = pTO ? strchr(pTO + 1, ')') : NULL;
+				if(pTClose) targetAcc = _strtoi64(pTO + 1, NULL, 10);
+			}
+			if(actor[0] && target[0])
+			{
+				Log("[GLOG] Invite yakalandi: %s(%lld) -> %s(%lld)", actor, actorAcc, target, targetAcc);
+				SendGroupLog(actor, actorAcc, target, targetAcc, "", "Invited", 4);
+			}
+			return;
+		}
 		// kick: "GROUP: (Ad)(acc) kicked Hedef(acc) ..." — rol/rank degil, kick yakala
 		const char *pK = strstr(msg, " kicked ");
 		if(!pK) return;
@@ -2825,23 +2887,37 @@ static int ParseAttackCooldownMin(const char *szInfo)
 	if(pA) { pA += 3; while(*pA && (*pA < '0' || *pA > '9')) pA++; m = atoi(pA); }
 	return h * 60 + m;
 }
+// Sniper teleport: ?zgo ile ayni (/pos + varis payi + durum sifirlama).
+// Tum sniper isinlanmalari buradan gecer: ayni zone'e cift /pos ve dusus
+// sirasinda atilan /gzinfo (eski zone okuma) engellenir.
+static void ZtkGotoZone(int zid)
+{
+	g_ztkZoneId = zid;
+	g_ztkWaitAnnounced = false;
+	g_ztkTargetWar = false;
+	g_ztkVerifyPending = false;
+	g_ztkVerifyZone = -1;
+	g_ztkVerifyTries = 0;
+	g_ztkTeleportAt = GetTickCount();
+	float fCX = (g_zoneMinX[zid] + g_zoneMaxX[zid]) / 2.0f;
+	float fCY = (g_zoneMinY[zid] + g_zoneMaxY[zid]) / 2.0f;
+	char szCmd[128];
+	sprintf_s(szCmd, sizeof(szCmd), "/pos %.2f %.2f %.2f", fCX, fCY, ZGO_TELEPORT_Z);
+	sendServerCommand(szCmd);
+}
+
 // Zincirde sonrakine gec ya da bitir (dogrulama uyusmazligi / cooldown / basarisiz saldiri sonrasi).
 static void ZtkChainAdvance()
 {
 	g_ztkTargetWar = false;
 	g_ztkWaitAnnounced = false;
 	g_ztkOutcome = 0;
+	g_ztkVerifyTries = 0;
 	if(g_snipZoneCount > 0 && g_snipZoneIdx + 1 < g_snipZoneCount)
 	{
 		g_snipZoneIdx++;
 		int nNext = g_snipZones[g_snipZoneIdx];
-		g_ztkZoneId = nNext;
-		g_ztkWaitAnnounced = false;
-		float fCX = (g_zoneMinX[nNext] + g_zoneMaxX[nNext]) / 2.0f;
-		float fCY = (g_zoneMinY[nNext] + g_zoneMaxY[nNext]) / 2.0f;
-		char szCmd2[128];
-		sprintf_s(szCmd2, sizeof(szCmd2), "/pos %.2f %.2f %.2f", fCX, fCY, ZGO_TELEPORT_Z);
-		sendServerCommand(szCmd2);
+		ZtkGotoZone(nNext);
 		Log("[ZSNIP] Siradaki zone #%d hedeflendi.", nNext);
 	}
 	else
@@ -2872,6 +2948,7 @@ static void ZtkVerifyComplete(const char *szInfo)
 	int zid = g_ztkVerifyZone;
 	g_ztkVerifyPending = false;
 	g_ztkVerifyZone = -1;
+	g_ztkVerifyTries = 0;
 	if(!g_ztkActive || zid < 0 || zid >= MAX_GANG_ZONES) return;
 	int iCd = ParseAttackCooldownMin(szInfo);
 	// Flashing zone her zaman vurulabilir: cooldown gosterilse bile yoksayilir.
@@ -2891,7 +2968,8 @@ static void ZtkVerifyComplete(const char *szInfo)
 	NormalizeGroupName(szHave);
 	char szNeed[80]; strncpy_s(szNeed, sizeof(szNeed), g_snipGroupName, sizeof(szNeed) - 1);
 	NormalizeGroupName(szNeed);
-	if(szHave[0] && szNeed[0] && !_stricmp(szHave, szNeed))
+	// Sayisal ?zsnip (?zgo mantigi): grup adi yoksa zone dogrudan vurulur.
+	if(!szNeed[0] || (szHave[0] && !_stricmp(szHave, szNeed)))
 	{
 		Log("[ZSNIP] Zone #%d sahibi dogrulandi (%s), /gz gonderiliyor.", zid, g_zoneOwnerName[zid]);
 		g_ztkAttackPending = true;
@@ -2912,13 +2990,7 @@ static void ZtkVerifyComplete(const char *szInfo)
 	{
 		g_snipZoneIdx++;
 		int nNext = g_snipZones[g_snipZoneIdx];
-		g_ztkZoneId = nNext;
-		g_ztkWaitAnnounced = false;
-		float fCX = (g_zoneMinX[nNext] + g_zoneMaxX[nNext]) / 2.0f;
-		float fCY = (g_zoneMinY[nNext] + g_zoneMaxY[nNext]) / 2.0f;
-		char szCmd2[128];
-		sprintf_s(szCmd2, sizeof(szCmd2), "/pos %.2f %.2f %.2f", fCX, fCY, ZGO_TELEPORT_Z);
-		sendServerCommand(szCmd2);
+		ZtkGotoZone(nNext);
 		Log("[ZSNIP] Dogrulama sonrasi siradaki zone #%d hedeflendi.", nNext);
 	}
 	else
@@ -4018,13 +4090,7 @@ void ClientMessage(RPCParameters *rpcParams)
 						{
 							g_snipZoneIdx++;
 							int nNext = g_snipZones[g_snipZoneIdx];
-							g_ztkZoneId = nNext;
-							g_ztkTargetWar = false;
-							float fCX = (g_zoneMinX[nNext] + g_zoneMaxX[nNext]) / 2.0f;
-							float fCY = (g_zoneMinY[nNext] + g_zoneMaxY[nNext]) / 2.0f;
-							char szCmd2[128];
-							sprintf_s(szCmd2, sizeof(szCmd2), "/pos %.2f %.2f %.2f", fCX, fCY, ZGO_TELEPORT_Z);
-							sendServerCommand(szCmd2);
+							ZtkGotoZone(nNext);
 							Log("[ZSNIP] Hedef zone #%d savasta, atlanip #%d'e geciliyor.", nZ2, nNext);
 						}
 						else
@@ -4237,13 +4303,7 @@ void ClientMessage(RPCParameters *rpcParams)
 							{
 								g_snipZoneIdx++;
 								int nNext = g_snipZones[g_snipZoneIdx];
-								g_ztkZoneId = nNext;
-								g_ztkWaitAnnounced = false;
-								float fCX = (g_zoneMinX[nNext] + g_zoneMaxX[nNext]) / 2.0f;
-								float fCY = (g_zoneMinY[nNext] + g_zoneMaxY[nNext]) / 2.0f;
-								char szCmd[128];
-								sprintf_s(szCmd, sizeof(szCmd), "/pos %.2f %.2f %.2f", fCX, fCY, ZGO_TELEPORT_Z);
-								sendServerCommand(szCmd);
+								ZtkGotoZone(nNext);
 								g_bridgeSuppressEcho++;
 								char szMsg[128];
 								sprintf_s(szMsg, sizeof(szMsg),
@@ -5716,14 +5776,8 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 					g_waitingForGmembers = false;
 					int iZoneY = g_snipZone;
 					g_snipZone = -1;
-					float fCenterX = (g_zoneMinX[iZoneY] + g_zoneMaxX[iZoneY]) / 2.0f;
-					float fCenterY = (g_zoneMinY[iZoneY] + g_zoneMaxY[iZoneY]) / 2.0f;
-					char szCmd[128];
-					sprintf_s(szCmd, sizeof(szCmd), "/pos %.2f %.2f %.2f", fCenterX, fCenterY, ZGO_TELEPORT_Z);
-					sendServerCommand(szCmd);
+					ZtkGotoZone(iZoneY);
 					g_ztkActive = true;
-					g_ztkZoneId = iZoneY;
-					g_ztkWaitAnnounced = false;
 					Log("[ZSNIP] ?yes: bekleyen zone #%d hedeflendi, sniper basladi.", iZoneY);
 					g_bridgeSuppressEcho++;
 					char szMsg[128];
@@ -5735,15 +5789,9 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 				{
 					g_ztkAskNext = false;
 					int iZone = g_snipZones[g_snipZoneIdx];
-					float fCenterX = (g_zoneMinX[iZone] + g_zoneMaxX[iZone]) / 2.0f;
-					float fCenterY = (g_zoneMinY[iZone] + g_zoneMaxY[iZone]) / 2.0f;
-					char szCmd[128];
-					sprintf_s(szCmd, sizeof(szCmd), "/pos %.2f %.2f %.2f", fCenterX, fCenterY, ZGO_TELEPORT_Z);
-					sendServerCommand(szCmd);
+					ZtkGotoZone(iZone);
 					PauseZoneScanForSnip();
 					g_ztkActive = true;
-					g_ztkZoneId = iZone;
-					g_ztkWaitAnnounced = false;
 					Log("[ZSNIP] ?yes: siradaki zone #%d hedeflendi.", iZone);
 					g_bridgeSuppressEcho++;
 					char szMsg[128];
@@ -8130,17 +8178,11 @@ Log("[ZSNIP] Kullanici iptal etti (yetki dogrulandi), sniper kapatildi.");
 			iWaitSec = (int)((ZONE_WAR_TOTAL_MS - (dwNow - g_zoneWarStartTick)) / 1000);
 		if(iWaitSec < 0) iWaitSec = 0;
 	}
-	float fCenterX = (g_zoneMinX[iZone] + g_zoneMaxX[iZone]) / 2.0f;
-	float fCenterY = (g_zoneMinY[iZone] + g_zoneMaxY[iZone]) / 2.0f;
-	char szCmd[128];
-	sprintf_s(szCmd, sizeof(szCmd), "/pos %.2f %.2f %.2f", fCenterX, fCenterY, ZGO_TELEPORT_Z);
-	sendServerCommand(szCmd);
+	ZtkGotoZone(iZone);
 
 	PauseZoneScanForSnip();
 	g_snipInterrupt = false; // istek onayla tamamlandi
 	g_ztkActive = true;
-	g_ztkZoneId = iZone;
-	g_ztkWaitAnnounced = false;
 	Log("[ZSNIP] Zone sniper basladi: zone #%d, bekleyis %d sn.", iZone, iWaitSec);
 
 	char szMsg[160];
@@ -8304,11 +8346,21 @@ void ProcessZtkTick()
 	}
 
 	// Faz 1 bitti (savas yok/bitmis): hedef zone /gzinfo ile dogrulanir, eslesirse /gz.
+	// ?zgo mantigi: teleport sonrasi 6 sn varis payi (duserken atilan /gzinfo eski
+	// zone'u okuyup yanlis dogrulama uretiyordu); cevapsiz /gzinfo 3 denemede kesilir.
 	if(g_ztkZoneId >= 0 && g_ztkZoneId < g_zoneCount)
 	{
+		if(GetTickCount() - g_ztkTeleportAt < 6000) return;
 		if(g_ztkVerifyPending && GetTickCount() - g_ztkVerifyAt > 12000)
 		{
 			g_ztkVerifyPending = false;
+			if(++g_ztkVerifyTries >= 3)
+			{
+				g_ztkVerifyTries = 0;
+				Log("[ZSNIP] Zone #%d /gzinfo cevapsiz (3 deneme), siradakine geciliyor.", g_ztkZoneId);
+				ZtkChainAdvance();
+				return;
+			}
 			Log("[ZSNIP] Dogrulama cevabi gelmedi, /gzinfo tekrar gonderiliyor.");
 		}
 		if(!g_ztkVerifyPending)

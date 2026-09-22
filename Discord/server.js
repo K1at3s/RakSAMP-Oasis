@@ -863,7 +863,7 @@ app.post('/api/grouplog', async (req, res) => {
     return res.json({ success: true });
 });
 
-// ?post — son grup aksiyonu (rol/rank/kick) gerekceyle grup log kanalina embed gonderilir.
+// ?post — son grup aksiyonu (rol/rank/kick/invite) gerekceyle grup log kanalina embed gonderilir.
 // Dil guild.lang'dan (bot dili) alinir: tr -> Turkce, en -> Ingilizce.
 app.post('/api/grouppost', async (req, res) => {
     const body = req.body || {};
@@ -881,6 +881,7 @@ app.post('/api/grouppost', async (req, res) => {
         actionRole: isTr ? 'Rol Değişikliği' : 'Role Change',
         actionRank: isTr ? 'Rank Değişikliği' : 'Rank Change',
         actionKick: isTr ? 'Kick' : 'Kick',
+        actionInvite: isTr ? 'Davet' : 'Invite',
         by: isTr ? 'Yapan' : 'Action taken by',
         on: isTr ? 'Üzerinde' : 'On whom',
         reason: isTr ? 'Gerekçe' : 'Reason',
@@ -888,7 +889,8 @@ app.post('/api/grouppost', async (req, res) => {
         change: isTr ? 'Değişiklik' : 'Change',
     };
     let action;
-    if (actionType === 3) action = t.actionKick;
+    if (actionType === 4) action = t.actionInvite;
+    else if (actionType === 3) action = t.actionKick;
     else if (actionType === 2) action = t.actionRank;
     else action = t.actionRole;
 
@@ -903,8 +905,8 @@ app.post('/api/grouppost', async (req, res) => {
         )
         .setTimestamp();
 
-    // Kick icin eski/yeni yok; rol/rank icin degisim gosterilir.
-    if (actionType !== 3 && (body.oldRank || body.newRank)) {
+    // Kick/invite icin eski/yeni yok; rol/rank icin degisim gosterilir.
+    if ((actionType === 1 || actionType === 2) && (body.oldRank || body.newRank)) {
         embed.addFields({ name: t.change, value: `\`${body.oldRank || '-'}\` → \`${body.newRank || '-'}\``, inline: true });
     }
     embed.addFields({ name: t.reason, value: reason || t.noReason });
