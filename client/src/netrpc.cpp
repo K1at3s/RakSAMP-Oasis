@@ -6982,8 +6982,13 @@ void ScrDialogBox(RPCParameters *rpcParams)
 		return;
 	}
 
-	// Oasis savas-sonu kill list dialogu: tabloyu al + Discord, kapatma AUTOCLOSE yapar.
-	OasisKillListDialog(sampDialog.szTitle, szDlgInfo);
+	// Oasis savas-sonu kill list dialogu (tek OK butonu): tabloyu al + Discord, OK ile kapat.
+	if(OasisKillListDialog(sampDialog.szTitle, szDlgInfo))
+	{
+		sendDialogResponse(sampDialog.wDialogID, 1, 0xFFFF, (char *)"");
+		sampDialog.iIsActive = 0;
+		return;
+	}
 
 	// --- GLOBAL AUTOCLOSE ---
 	// Acik kalmasi zorunlu diyaloglar disindakileri otomatik kapat (ekranda birikmesin).

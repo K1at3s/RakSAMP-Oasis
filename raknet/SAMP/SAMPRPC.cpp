@@ -731,7 +731,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                 bsGM.Write((uint8_t)iBtn);
                 bsGM.Write((uint16_t)(iItem >= 0 ? iItem : 0xFFFF));
             } else {
-                bsGM.Write((uint8_t)1);
+                bsGM.Write((uint8_t)0);            // bitis: Cancel ile kapat (Select/Cancel listesi)
                 bsGM.Write((uint16_t)0xFFFF);
             }
             bsGM.Write((uint8_t)0);
@@ -803,7 +803,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                 bsR.Write((uint8_t)iBtn);          // ">>" satiri sec (1) veya '>>' butonu (0)
                 bsR.Write((uint16_t)(iItem >= 0 ? iItem : 0xFFFF));
             } else {
-                bsR.Write((uint8_t)1);             // bitis: OK ile kapat
+                bsR.Write((uint8_t)0);             // bitis: Cancel ile kapat (Select/Cancel listesi)
                 bsR.Write((uint16_t)0xFFFF);
             }
             bsR.Write((uint8_t)0);                 // Input Text Length
