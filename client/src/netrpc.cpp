@@ -8870,6 +8870,7 @@ void OnGroupsListCaptured(const char *szInfo)
 		size_t nLen = pE ? (size_t)(pE - pL) : strlen(pL);
 		if(nLen == 0 || nLen >= sizeof(szLine)) { pL = pE ? pE + 1 : NULL; continue; }
 		memcpy(szLine, pL, nLen); szLine[nLen] = 0;
+		StripColorCodes(szLine); // Oasis satirlari {RRGGBB} kodlu gelir
 		pL = pE ? pE + 1 : NULL;
 
 		char *pCur = szLine;
@@ -8904,7 +8905,7 @@ void OnGroupsListCaptured(const char *szInfo)
 			if(nEnd > 0 && nEnd < nLen && szName[nEnd-1] == ' ')
 				szName[nEnd-1] = 0;
 		}
-		if(iId <= 0 || !szName[0]) continue;
+		if(iId < 0 || !szName[0]) continue; // Oasis slot 0 gecerli
 
 		// DB'de GERCEK kisa tag'i olan grup atlanir: /gstats sadece BILINMEYENLER
 		// icin gonderilir (komut mute riski + gereksiz tekrar).
