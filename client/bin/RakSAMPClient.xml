@@ -20,7 +20,7 @@ Avalable runmodes:
 	<sendrates force="0" onfoot="40" incar="40" firing="40" multiplier="1" />
 
 	<!-- In normal mode this will be your default position, but if you don't set 'force' to 1, then the server can move you with SetPlayerPos, SetPlayerFacingAngle or SetSpawnInfo. -->
-	<normal_pos position="742.4169 -1300.8645 18.2849" rotation="9.0100" force="0" />
+	<normal_pos position="0 0 0" rotation="0" force="0" />
 
 	<!-- These get called when we successfully connected to a server. -->
 	<!-- autorun>?zf</autorun> -->
