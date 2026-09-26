@@ -11,7 +11,6 @@ module.exports = {
             .setDescription('Kanal turu')
             .setRequired(true)
             .addChoices(
-                { name: '🛡️ Lisans Bildirimleri', value: 'log' },
                 { name: '⚔️ War Mesajlari', value: 'war' },
                 { name: '📊 GStats Verileri', value: 'gstats' },
                 { name: '💬 Grup Chat Koprusu', value: 'group-chat' },
@@ -29,7 +28,6 @@ module.exports = {
         const channel = interaction.options.getChannel('kanal');
 
         const fieldMap = {
-            log: 'logChannelId',
             war: 'warChannelId',
             gstats: 'gstatsChannelId',
             'group-chat': 'groupChatChannelId',

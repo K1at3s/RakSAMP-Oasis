@@ -7,8 +7,8 @@ const Guild = require('../models').Guild;
 //   EN: /setup              -> create
 //   EN: /setup action:off   -> close
 // Kanallar otomatik OLUSTURULMAZ; yalnizca bu komutla kurulur.
+const CATEGORY = '🤖-raksamp';
 const CHANNELS = [
-    { key: 'logChannelId', name: '📜-lisans-log' },
     { key: 'warChannelId', name: '⚔️-war' },
     { key: 'gstatsChannelId', name: '📊-gstats' },
     { key: 'groupChatChannelId', name: '💬-grup-chat' },
@@ -53,9 +53,16 @@ async function create(interaction) {
     const created = [];
     const skipped = [];
 
+    // Once kategori: kanallar onun altinda acilir.
+    let parentId = null;
+    try {
+        const cat = await guild.channels.create({ name: CATEGORY, type: ChannelType.GuildCategory });
+        parentId = cat.id;
+    } catch (e) { /* kategorisiz devam */ }
+
     for (const c of CHANNELS) {
         try {
-            const ch = await guild.channels.create({ name: c.name, type: ChannelType.GuildText });
+            const ch = await guild.channels.create({ name: c.name, type: ChannelType.GuildText, ...(parentId ? { parent: parentId } : {}) });
             updates[c.key] = ch.id;
             created.push(c.name);
         } catch (e) {
@@ -114,6 +121,16 @@ async function close(interaction) {
     if (Object.keys(updates).length) {
         await Guild.findOneAndUpdate({ guildId: guild.id }, { $set: updates });
     }
+
+    // Kategori bossa dustuyse sil.
+    try {
+        const all = await guild.channels.fetch();
+        const cat = [...all.values()].find(c => c && c.type === ChannelType.GuildCategory && c.name === CATEGORY);
+        if (cat) {
+            const kids = [...all.values()].filter(c => c && c.parentId === cat.id);
+            if (!kids.length) await cat.delete('RakSAMP /kurulum kapat');
+        }
+    } catch (e) {}
 
     let msg;
     if (isTr) {
