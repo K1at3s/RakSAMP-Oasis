@@ -51,7 +51,7 @@ static int g_knownGroupMembers[MAX_PLAYERS];
 
 // Zone war süresi: sabit 10 dk (sunucu kuralý). ?gzt kalan süreyi bundan hesaplar;
 // "Type /gz2 to join" bildirimi sava-sýn ba-slangý-g anýdýr (g_zoneWarStartTick).
-#define ZONE_WAR_TOTAL_MS 600000
+#define ZONE_WAR_TOTAL_MS 60000 // Oasis: savas ~60 sn
 #define KILL_LIST_CAPTURE_WINDOW_MS 90000 // sonu-g textdraw'larý i-gin toplama penceresi (son 60 sn giri? + bitis textdraw'lari)
 static DWORD g_zoneWarStartTick = 0;
 
@@ -3560,8 +3560,8 @@ void ServerJoin(RPCParameters *rpcParams)
 		Log("[WELCOME] Grup uyesi (%d) %s baglandi, savas aktif (%s).", playerId, szPlayerName, g_enemyGroupName.c_str());
 		static char szWarNotice[192];
 		sprintf_s(szWarNotice, sizeof(szWarNotice),
-			LM("!%s oyuna katildi. Zone war devam ediyor! /gz2 yazarak savasa katil.",
-			   "!%s joined. Zone war is ongoing! Type /gz2 to join the fight."),
+			LM("!%s oyuna katildi. Zone war devam ediyor! /gz yazarak savasa katil.",
+			   "!%s joined. Zone war is ongoing! Type /gz to join the fight."),
 			szPlayerName);
 		sendChat(szWarNotice);
 	}
@@ -3899,9 +3899,9 @@ static void ZwJoinCaptureReturn()
 	g_zwKillListStay = false;
 	// 2 sn: takim rengi + war timer textdraw'inin ilk edit'i gelene kadar kal,
 	// sonra /fr ile geri don. (Uzun kalma GZ'de takilma/ban riski tasir.)
-	g_zwReturnAt = GetTickCount() + 2000;
+	g_zwReturnAt = GetTickCount() + 3000; // ilk 3 sn kurali: Oasis
 	Log("[ZONEWAR] Kisa GZ giris yapiliyor, takim rengi ogrenilip /fr ile geri donulecek.");
-	sendServerCommand((char *)"/gz2");
+	sendServerCommand((char *)"/gz");
 }
 
 void ClientMessage(RPCParameters *rpcParams)
@@ -4055,6 +4055,8 @@ void ClientMessage(RPCParameters *rpcParams)
 		// Grup uyelerine ozel gider -> dogrudan bizim savasimizdir.
 		bool bOasisUnderAttack = (strstr(pZoneMsg, "Your group is under attack") != NULL);
 		bool bOasisAttacking = (strstr(pZoneMsg, "Your group is attacking a zone") != NULL);
+		bool bOasisStarted = (strstr(pZoneMsg, "Started at ") != NULL && strstr(pZoneMsg, " vs. ") != NULL
+			&& !g_myGroupName.empty() && strstr(pZoneMsg, g_myGroupName.c_str()) != NULL);
 		bool bNamedOurWar = false;
 		const char *pVS = strstr(pZoneMsg, " vs ");
 		if(pVS && !g_myGroupName.empty())
@@ -4126,7 +4128,7 @@ void ClientMessage(RPCParameters *rpcParams)
 				Log("[ZONEWAR] Aktif sava? zone #%s duyurusu alindi.", g_zwWarZone);
 			}
 		}
-		if(bNamedOurWar || bOasisUnderAttack || bOasisAttacking)
+		if(bNamedOurWar || bOasisUnderAttack || bOasisAttacking || bOasisStarted)
 		{
 			// Duyurunun zone'sunu cikar: "Zone: '# 146'." -> "146"
 			// Canli format "Zone: '# 157'" - týrnak sonrasi bo-sluk olabilir, atla.
@@ -4390,7 +4392,7 @@ void ClientMessage(RPCParameters *rpcParams)
 			// 60 sn anti-spam: YALNIZCA zone-war mesajlari bu zamanlayiciyi gunceller.
 			// (?za/?gz kendi g_lastZoneWarTime'i kullanir â€” paylasilirsa "loses to"
 			// war-end mesaji sessizce yutulur, savas hic bitmezdi.)
-			if(g_lastZoneWarMsgTime == 0 || (dwNow - g_lastZoneWarMsgTime) >= 60000)
+			if(g_lastZoneWarMsgTime == 0 || (dwNow - g_lastZoneWarMsgTime) >= 30000)
 			{
 				g_lastZoneWarMsgTime = dwNow;
 
@@ -4521,7 +4523,7 @@ if(g_zwCapturingKillList && !g_zwKillListSent)
 				}
 				else
 				{
-					// - Savas varsa: " Welcome <isim>! We are in a ZONE WAR against <rakip>! Type /gz2 for backup!"
+					// - Savas varsa: " Welcome <isim>! We are in a ZONE WAR against <rakip>! Type /gz for backup!"
 					// - Ozel mesaj ayarliysa (?welcomemsg): o mesaj gonderilir
 					// - Bot dili TR ise: " Tekrar hos geldin <isim>!" / EN: " Welcome back <isim>!"
 					char szGreet[224];
@@ -4538,9 +4540,9 @@ if(g_zwCapturingKillList && !g_zwKillListSent)
 						if(!strPick.empty()) strEnemy = strPick;
 					}
 					if(strEnemy.empty())
-						sprintf_s(szGreet, sizeof(szGreet), LM("!Welcome %s! Grup savasindayiz! Yedek icin /gz2 yaz!", "!Welcome %s! We are in a ZONE WAR! Type /gz2 for backup!"), szName);
+						sprintf_s(szGreet, sizeof(szGreet), LM("!Welcome %s! Grup savasindayiz! Yedek icin /gz yaz!", "!Welcome %s! We are in a ZONE WAR! Type /gz for backup!"), szName);
 					else
-						sprintf_s(szGreet, sizeof(szGreet), "!Welcome %s! We are in a ZONE WAR against %s! Type /gz2 for backup!", szName, strEnemy.c_str());
+						sprintf_s(szGreet, sizeof(szGreet), "!Welcome %s! We are in a ZONE WAR against %s! Type /gz for backup!", szName, strEnemy.c_str());
 				}
 				else
 				{
@@ -5963,8 +5965,8 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 			{
 				Log("[ZONEWAR] ?gz2 yakalandi, grup chatine belirgin duyuru atiliyor (bot GZ'ye girmiyor).");
 				g_bridgeSuppressEcho++;
-				sendChat((char *)LM("!@@@@ /gz2 @@@@ GZ'ye girin! (savas devam ediyor) @@@@ /gz2 @@@@",
-					"!@@@@ /gz2 @@@@ Enter GZ! (war is ongoing) @@@@ /gz2 @@@@"));
+				sendChat((char *)LM("!@@@@ /gz @@@@ GZ'ye girin! (savas devam ediyor) @@@@ /gz @@@@",
+					"!@@@@ /gz @@@@ Enter GZ! (war is ongoing) @@@@ /gz @@@@"));
 			}
 			// --- ?grole <isim> <rol> : oyun ici rol degisikligi (memb -> Member, co -> Co-Leader) ---
 			// Diskot/direkt ile ayni otomasyonu kullanir (diyalog + cift tik + inputtext).
@@ -6285,7 +6287,7 @@ void SpawnConfirmed(RPCParameters *rpcParams)
 		g_zwReturnPending = true;
 		g_zwReturnAt = GetTickCount() + 4000;
 		Log("[WAR:TIMER] Restore sonrasi kisa GZ girisii: timer dogrulaniyor (%d sn restore).", g_warRemainingSec);
-		sendServerCommand((char *)"/gz2");
+		sendServerCommand((char *)"/gz");
 	}
 }
 
@@ -7891,8 +7893,8 @@ void ProcessZoneWarAutoJoin()
 {
 	DWORD dwNow = GetTickCount();
 	// Stuck war temizleme
-	if(g_inZoneWar && g_zoneWarStartTick != 0 && dwNow - g_zoneWarStartTick > 15*60*1000){
-		Log("[ZONEWAR] Savas 15dk'yi asti (stuck), temizleniyor.");
+	if(g_inZoneWar && g_zoneWarStartTick != 0 && dwNow - g_zoneWarStartTick > 3*60*1000){
+		Log("[ZONEWAR] Savas 3dk'yi asti (stuck), temizleniyor.");
 		g_inZoneWar = false;
 		g_warRemainingSec = -1;
 		g_warTimerTick = 0;
@@ -8009,23 +8011,9 @@ void ProcessZoneWarAutoJoin()
 		else if(g_zoneWarStartTick != 0)
 			iLeft = (int)((ZONE_WAR_TOTAL_MS - (dwNow - g_zoneWarStartTick)) / 1000);
 
-		// 1) 09:02 kontrol girisii (bir kez): timer 09:02'ye indi-sinde GZ'ye gir,
-		//    sava-s aktifse timer'ý da tazeler; 2 sn sonra /fr ile geri don.
-		if(!g_zwCheckJoinSent && !g_zwReturnPending)
-		{
-			if(iLeft >= 0 && iLeft <= 9 * 60 + 2)
-			{
-				g_zwCheckJoinSent = true;
-				g_zwReturnPending = true;
-				g_zwReturnAt = dwNow + 2000; // 2 sn kontrol
-				Log("[KILLLIST] 09:02 kontrol girisii: sava-s aktif mi bakiliyor (kalan %d sn).", iLeft);
-				sendServerCommand((char *)"/gz2");
-			}
-		}
-
-		// 2) 00:02 kill-list girisii (bir kez): son 2 saniyede GZ'ye gir, iceride kal.
+		// 00:03 kill-list girisi: son 3 saniyede GZ'ye gir, iceride kal.
 		bool bEnterNow = false;
-		if(iLeft >= 0 && iLeft <= 2)
+		if(iLeft >= 0 && iLeft <= 3) // son 3 sn: gir ve kal
 			bEnterNow = true;
 
 		if(bEnterNow)
@@ -8040,10 +8028,10 @@ void ProcessZoneWarAutoJoin()
 			g_zwReturnPending = true;
 			g_zwReturnAt = dwNow + KILL_LIST_CAPTURE_WINDOW_MS;
 			if(g_zwMyColor == 0)
-				Log("[KILLLIST] GZ bitimine 00:02 kala giriliyor (takim rengi bilinmiyor, giris sirasinda ogrenilecek).");
+				Log("[KILLLIST] GZ bitimine 00:03 kala giriliyor (takim rengi bilinmiyor, giris sirasinda ogrenilecek).");
 			else
-				Log("[KILLLIST] GZ bitimine 00:02 kala giriliyor, kill/death/assist/DMG textdraw'lari toplanacak.");
-			sendServerCommand((char *)"/gz2");
+				Log("[KILLLIST] GZ bitimine 00:03 kala giriliyor, kill/death/assist/DMG textdraw'lari toplanacak.");
+			sendServerCommand((char *)"/gz");
 		}
 	}
 
