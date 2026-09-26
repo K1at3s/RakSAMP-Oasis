@@ -4054,6 +4054,7 @@ void ClientMessage(RPCParameters *rpcParams)
 		// Oasis: "SYSTEM: Your group is under attack! Use /GZ or /CZ to join the war."
 		// Grup uyelerine ozel gider -> dogrudan bizim savasimizdir.
 		bool bOasisUnderAttack = (strstr(pZoneMsg, "Your group is under attack") != NULL);
+		bool bOasisAttacking = (strstr(pZoneMsg, "Your group is attacking a zone") != NULL);
 		bool bNamedOurWar = false;
 		const char *pVS = strstr(pZoneMsg, " vs ");
 		if(pVS && !g_myGroupName.empty())
@@ -4125,7 +4126,7 @@ void ClientMessage(RPCParameters *rpcParams)
 				Log("[ZONEWAR] Aktif sava? zone #%s duyurusu alindi.", g_zwWarZone);
 			}
 		}
-		if(bNamedOurWar || bOasisUnderAttack)
+		if(bNamedOurWar || bOasisUnderAttack || bOasisAttacking)
 		{
 			// Duyurunun zone'sunu cikar: "Zone: '# 146'." -> "146"
 			// Canli format "Zone: '# 157'" - týrnak sonrasi bo-sluk olabilir, atla.
@@ -6602,7 +6603,9 @@ void ScrDialogBox(RPCParameters *rpcParams)
 	// secip dialogu gondeririz. Bu sayede bot virtual map'e dusmez, gercek freeroam
 	// bolgesine spawn olur. Bulunamazsa menu acik birakilir (asla kapatilmaz).
 	bool bIsSpawnMenu = (strstr(sampDialog.szTitle, "Where would you like to go") != NULL);
-	if(bIsSpawnMenu && (sampDialog.bDialogStyle == DIALOG_STYLE_LIST ||
+	// Oasis: spawn basinda "Oasis | Mode" listesi gelir - secim ayni, /fr YOK.
+	bool bIsOasisMode = (strstr(sampDialog.szTitle, "Oasis") != NULL && strstr(sampDialog.szTitle, "Mode") != NULL);
+	if((bIsSpawnMenu || bIsOasisMode) && (sampDialog.bDialogStyle == DIALOG_STYLE_LIST ||
 		sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST || sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST_HEADERS))
 	{
 		int iRow = 0, iItem = 0;
@@ -6647,8 +6650,13 @@ void ScrDialogBox(RPCParameters *rpcParams)
 					// Freeroam secimi cevaplandigina gore /fr'yi gonder.
 					// VIRTUAL WORLD FIX: BYTE formatli cevap + /fr â€” bot gercek freeroam'da
 					// spawn olur (SF kulesi/virtual world'de kalmaz).
-					Log("[SPAWN] Spawn menusu 'Freeroam' cevaplandi, /fr (freeroam) gonderiliyor.");
-					sendServerCommand((char *)"/fr");
+					if(bIsSpawnMenu)
+					{
+						Log("[SPAWN] UIF spawn menusu cevaplandi, /fr gonderiliyor.");
+						sendServerCommand((char *)"/fr");
+					}
+					else
+						Log("[SPAWN] Oasis Mode menusu cevaplandi (/fr yok).");
 					break;
 				}
 			}
