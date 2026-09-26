@@ -4,7 +4,7 @@ module.exports = {
     PORT: process.env.PORT || 3000,
 
     // Ortam degiskeni yoksa eski sabitler kullanilir (uretimde .env onerilir)
-    DISCORD_BOT_TOKEN: process.env.DISCORD_BOT_TOKEN || "MTUzNTM0NzEyMDgzMDI4ODA0Mw.GjAI6z.kdFOUp4wAPrrni9pJOYO2AAR5imCcwkVY5klkw",
+    DISCORD_BOT_TOKEN: process.env.DISCORD_BOT_TOKEN || "REDACTED_DISCORD_BOT_TOKEN",
 
     // Veri katmani: yalnizca MySQL (Mongo katmani kaldirildi)
     DB: 'mysql',
