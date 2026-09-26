@@ -335,6 +335,18 @@ int OnGmMembersPage(const char *szInfo, int *outButton, int *outItem)
 				szName[k] = 0;
 			}
 			if(!szName[0] || strchr(szName, '>')) { iRow++; if(!pE) break; pL = pE + 1; continue; }
+		// Oasis: "Name[accid]" - account ID'yi ayikla (/astats atlanir), ismi temizle.
+		char szAccPre[24] = {0};
+		{
+			char *pAccO = strchr(szName, '[');
+			char *pAccC = pAccO ? strchr(pAccO, ']') : NULL;
+			if(pAccO && pAccC && pAccC > pAccO + 1)
+			{
+				size_t nA = (size_t)(pAccC - pAccO - 1);
+				if(nA < sizeof(szAccPre)) { memcpy(szAccPre, pAccO + 1, nA); szAccPre[nA] = 0; }
+				*pAccO = 0;
+			}
+		}
 
 			// Rank/Role: gmembers formati - 2.kolon Rank, 3.kolon Role (ne ise o), bilinmeyen rank da alinir
 			const char *szRanksLow[] = { "co-leader", "co leader", "leader", "member", "elder", "veteran", "recruit", "non gz", "non-gz", "nongz", "gz" };
@@ -406,6 +418,7 @@ int OnGmMembersPage(const char *szInfo, int *outButton, int *outItem)
 				strncpy_s(g_gmRows[g_gmCount].szRank, sizeof(g_gmRows[0].szRank), szRank, sizeof(g_gmRows[0].szRank) - 1);
 				strncpy_s(g_gmRows[g_gmCount].szRole, sizeof(g_gmRows[0].szRole), szRole, sizeof(g_gmRows[0].szRole) - 1);
 				strncpy_s(g_gmRows[g_gmCount].szLast, sizeof(g_gmRows[0].szLast), szLast, sizeof(g_gmRows[0].szLast) - 1);
+				if(szAccPre[0]) strncpy_s(g_gmRows[g_gmCount].szAccount, sizeof(g_gmRows[0].szAccount), szAccPre, sizeof(g_gmRows[0].szAccount) - 1);
 				g_gmCount++;
 				Log("[GM] Uye #%d: '%s' (rank=%s, son=%s)", g_gmCount, szName, szRank[0] ? szRank : "?", szLast[0] ? szLast : "?");
 			}
@@ -3024,6 +3037,12 @@ static void GangZoneScanGzDialog(const char *szInfo)
 		while(*pZone == ' ') pZone++;
 		iZone = atoi(pZone);
 	}
+	// Oasis: "Zone: <ad>" ayri satir, ID "Zone ID: <N>" satirinda.
+	if(iZone < 0)
+	{
+		const char *pId = strstr(szInfo, "Zone ID:");
+		if(pId) iZone = atoi(pId + 8);
+	}
 
 	// Ogrenme guard'i: dialog baska/eski bir zone icinse ogrenme (iZone -1 = parse hatasi
 	// dahil). Stale dialog atlanir; siradaki ornege gecisi 7 sn'lik deadline yapar.
@@ -3049,6 +3068,63 @@ static void GangZoneScanGzDialog(const char *szInfo)
 			memcpy(szOwner, q + 1, n);
 			szOwner[n] = 0;
 			NormalizeGroupName(szOwner);
+		}
+	}
+	// Oasis: "Owned by: Nightmare Empire [nM]" - isim + [TAG].
+	if(!szOwner[0])
+	{
+		const char *pOb = strstr(szInfo, "Owned by:");
+		if(pOb)
+		{
+			pOb += 9;
+			while(*pOb == ' ' || *pOb == '\t') pOb++;
+			const char *pEol = pOb;
+			while(*pEol && *pEol != '\n' && *pEol != '\r') pEol++;
+			char szLine[96] = {0};
+			size_t nL = (size_t)(pEol - pOb);
+			if(nL > 95) nL = 95;
+			memcpy(szLine, pOb, nL); szLine[nL] = 0;
+			char szTag[16] = {0};
+			char *pBrO = strrchr(szLine, '[');
+			char *pBrC = pBrO ? strchr(pBrO, ']') : NULL;
+			if(pBrO && pBrC && pBrC > pBrO + 1 && pBrC - pBrO < 12 && pBrO > szLine)
+			{
+				size_t nT = (size_t)(pBrC - pBrO - 1);
+				if(nT > 15) nT = 15;
+				memcpy(szTag, pBrO + 1, nT); szTag[nT] = 0;
+				char *pTrim = pBrO;
+				while(pTrim > szLine && *(pTrim-1) == ' ') pTrim--;
+				*pTrim = 0;
+			}
+			NormalizeGroupName(szLine);
+			if(szLine[0])
+			{
+				strncpy_s(szOwner, sizeof(szOwner), szLine, _TRUNCATE);
+				if(szTag[0])
+				{
+					int idx = FindGroupColorByName(szOwner);
+					if(idx >= 0 && (!g_groupColors[idx].szTag[0] || !_stricmp(g_groupColors[idx].szTag, g_groupColors[idx].szName)))
+					{
+						strncpy_s(g_groupColors[idx].szTag, sizeof(g_groupColors[0].szTag), szTag, sizeof(g_groupColors[0].szTag) - 1);
+						SaveGroupColors();
+						Log("[ZF:SCAN] Zone #%d tag ogrenildi: '%s' -> '%s'.", iZone, szOwner, szTag);
+					}
+				}
+			}
+		}
+	}
+	// Oasis: "Attack cooldown: Ready to attack" (savasilabilir) ya da kalan sure.
+	{
+		const char *pCd = strstr(szInfo, "Attack cooldown:");
+		if(pCd)
+		{
+			char szCd[64] = {0};
+			const char *pS = pCd + 17;
+			while(*pS == ' ' || *pS == '\t') pS++;
+			size_t nC = strcspn(pS, "\r\n");
+			if(nC > 63) nC = 63;
+			memcpy(szCd, pS, nC); szCd[nC] = 0;
+			Log("[ZF:SCAN] Zone #%d cooldown: %s", iZone, szCd);
 		}
 	}
 	// ISIM BAZLI ogrenme: /gzinfo'nun "owned by group X" ismi -> DB isim->tag eslemesi.
@@ -4229,7 +4305,8 @@ void ClientMessage(RPCParameters *rpcParams)
 				// Kill list textdraw'lari (Name/Kills/Assists/Deaths/Dmg) GZ'de
 				// olmaya gerek kalmadan da gelebiliyor (SaveTextDrawData logladi).
 				// Savas boyunca yakalayiciyi ACIK tut; bitince finalize et.
-				g_zwCapturingKillList = true;
+				// Oasis repo: kill list dialogdan gelir - textdraw yakalama cop toplayip Discord'a spam atiyordu.
+			g_zwCapturingKillList = false;
 				g_zwCaptureStart = GetTickCount();
 				g_zwFinalizeAt = 0; // yeni savas: bitis finalize'i yeniden kurulacak
 					g_zwEmptyFinalizeSince = 0; // yeni savas: bos-finalize sayaci sifirlanir
@@ -6885,7 +6962,7 @@ void ScrDialogBox(RPCParameters *rpcParams)
 	if(g_waitingForGStats)
 	{
 		// Uye listesi dialogu (gmembers/grole/grank/gkick) grup stats DEGIL: ogrenme ve harvest adimi atlanir
-		bool bGmListDlg = (szDlgInfo && strstr(szDlgInfo, "Last Active") != NULL);
+		bool bGmListDlg = (szDlgInfo && (strstr(szDlgInfo, "Last Active") != NULL || strstr(sampDialog.szTitle, "Group Members") != NULL));
 		// gmembers harvest gstats makinesini ODUNC alir (uye listesi/astats/gvips):		// bu dialoglar grup stats DEGIL - grup ogrenmeye girerse gangs tablosuna
 		// account ID gibi cop yazilir ve ?zf tag eslesmesi bozulur.
 		bool bGmDialog = (g_gmPhase == 1 || g_gmAstatsWaiting || g_gmGvipsWaiting);

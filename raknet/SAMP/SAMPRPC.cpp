@@ -298,6 +298,13 @@ static double ExtractNumberNear(const char *szText, const char *key) {
     return -1.0;
 }
 
+// Uye listesi dialogu tanima: UIF "Last Active" kolonlular + Oasis "Group Members" basliklilar.
+static bool IsMemberListDlg(const char* szTitle, const char* szInfo) {
+    if (IsMemberListDlg(szTitle, szInfo)) return true;
+    if (szTitle && strstr(szTitle, "Group Members")) return true;
+    return false;
+}
+
 // netrpc.cpp'deki ScrDialogBox'tan cagrilir: dialog dogru decode edildikten sonra
 // /pnetstats ve /gstats yakalamasini yapar. Yakaladiysa 1, yakalamadiysa 0 dondurur.
 int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo) {
@@ -698,7 +705,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
         if ((sampDialog.bDialogStyle == DIALOG_STYLE_LIST ||
             sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST ||
             sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST_HEADERS ||
-            sampDialog.bDialogStyle == DIALOG_STYLE_MSGBOX) && szInfo && strstr(szInfo, "Last Active")) {
+            sampDialog.bDialogStyle == DIALOG_STYLE_MSGBOX) && IsMemberListDlg(szTitle, szInfo)) {
             int gmBefore = g_gmCount;
             int iBtn = 1, iItem = -1;
             int r = OnGmMembersPage(szInfo, &iBtn, &iItem);
@@ -776,7 +783,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
         if ((sampDialog.bDialogStyle == DIALOG_STYLE_LIST ||
             sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST ||
             sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST_HEADERS ||
-            sampDialog.bDialogStyle == DIALOG_STYLE_MSGBOX) && szInfo && strstr(szInfo, "Last Active")) {
+            sampDialog.bDialogStyle == DIALOG_STYLE_MSGBOX) && IsMemberListDlg(szTitle, szInfo)) {
             int iBtn = 0, iItem = -1;
             int r = OnGmembersPage(szInfo, &iBtn, &iItem);
             {
@@ -818,7 +825,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
         }
         if (sampDialog.bDialogStyle == DIALOG_STYLE_LIST ||
             sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST ||
-            sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST_HEADERS && szInfo && strstr(szInfo, "Last Active")) {
+            sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST_HEADERS && IsMemberListDlg(szTitle, szInfo)) {
             Log("[GROLE-LIST] Dialog yakalandi (page=%d baslik='%s')", g_groleListPage, szTitle);
             Log("[GROLE-LIST-DATA] %.1600s", szInfo ? szInfo : "");
             { size_t nD = szInfo ? strlen(szInfo) : 0; if(nD > 700) Log("[GROLE-LIST-TAIL] %.700s", szInfo + nD - 700); }
@@ -910,7 +917,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
         }
         if (sampDialog.bDialogStyle == DIALOG_STYLE_LIST ||
             sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST ||
-            sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST_HEADERS && szInfo && strstr(szInfo, "Last Active")) {
+            sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST_HEADERS && IsMemberListDlg(szTitle, szInfo)) {
             Log("[GRANK-LIST] Dialog yakalandi (page=%d baslik='%s')", g_grankListPage, szTitle);
             Log("[GRANK-LIST-DATA] %.500s", szInfo ? szInfo : "");
             int nextRow = -1;
@@ -997,7 +1004,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
         }
         if (sampDialog.bDialogStyle == DIALOG_STYLE_LIST ||
             sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST ||
-            sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST_HEADERS && szInfo && strstr(szInfo, "Last Active")) {
+            sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST_HEADERS && IsMemberListDlg(szTitle, szInfo)) {
             Log("[GKICK-LIST] Dialog yakalandi (page=%d baslik='%s')", g_gkickListPage, szTitle);
             int nextRow = -1;
             const char *pL = szInfo;
@@ -1116,7 +1123,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                 g_grolePhase = 2;
                 g_grolePage = 0;
             }
-            if (g_grolePhase == 1 && szInfo && strstr(szInfo, "Last Active")) {
+            if (g_grolePhase == 1 && IsMemberListDlg(szTitle, szInfo)) {
                 // Uye listesi: hedefi ara
                 int targetRow = -1, targetItem = -1, nextRow = -1, nextItem = -1;
                 char firstCol[128] = {0}; // hedef satirin ilk sutunu (renksiz) - TABLIST inputtext
@@ -1276,7 +1283,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                 g_grankPhase = 2;
                 g_grankPage = 0;
             }
-            if (g_grankPhase == 1 && szInfo && strstr(szInfo, "Last Active")) {
+            if (g_grankPhase == 1 && IsMemberListDlg(szTitle, szInfo)) {
                 int targetRow = -1, targetItem = -1, nextRow = -1, nextItem = -1;
                 char firstColG[128] = {0}; // grank hedef satirin ilk sutunu
                 const char *pL = szInfo;
@@ -1449,7 +1456,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                 g_gkickPhase = 2;
                 g_gkickPage = 0;
             }
-            if (g_gkickPhase == 1 && szInfo && strstr(szInfo, "Last Active")) {
+            if (g_gkickPhase == 1 && IsMemberListDlg(szTitle, szInfo)) {
                 int targetRow = -1, targetItem = -1, nextRow = -1, nextItem = -1;
                 char firstCol[128] = {0};
                 const char *pL = szInfo;

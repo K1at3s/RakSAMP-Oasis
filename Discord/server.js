@@ -518,23 +518,6 @@ app.post('/api/admins', async (req, res) => {
         }
     }
 
-    if (!replied && guild.logChannelId) {
-        try {
-            const channel = await client.channels.fetch(guild.logChannelId);
-            if (channel) {
-                const embed = new EmbedBuilder()
-                    .setTitle("🛡️ Online Adminler")
-                    .setDescription(adminsText.slice(0, 3000))
-                    .setColor(0xE67E22)
-                    .setTimestamp();
-                if (playerName) embed.setFooter({ text: `${playerName} tarafından istendi` });
-                await channel.send({ embeds: [embed] });
-            }
-        } catch (e) {
-            console.error("Admins Discord gönderim hatası:", e);
-        }
-    }
-
     return res.json({ success: true, replied });
 });
 
