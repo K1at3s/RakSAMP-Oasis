@@ -3996,6 +3996,26 @@ void ClientMessage(RPCParameters *rpcParams)
 			}
 		}
 	}
+	// Oasis kill feed: "* Rainy(22) killed lesonit(23) with Sawn-Off Shotgun (Distance: 11.12m / HP: 167.00)"
+	if(g_inZoneWar && !g_zwFirstBlood[0] && szNonColorEmbeddedMsg[0] == '*' && strstr(szNonColorEmbeddedMsg, " killed ") && strstr(szNonColorEmbeddedMsg, " with ") && strstr(szNonColorEmbeddedMsg, "(Distance:"))
+	{
+		const char *pK = strstr(szNonColorEmbeddedMsg, " killed ");
+		char szKiller[64] = {0};
+		const char *pOp = strchr(szNonColorEmbeddedMsg + 2, '(');
+		if(pOp && pOp < pK){ size_t n = (size_t)(pOp - (szNonColorEmbeddedMsg + 2)); if(n > 63) n = 63; memcpy(szKiller, szNonColorEmbeddedMsg + 2, n); szKiller[n] = 0; }
+		char szWpn[48] = {0};
+		const char *pW = strstr(pK, " with ");
+		const char *pD = pW ? strstr(pW, "(Distance:") : NULL;
+		if(pW && pD){ const char *pS = pW + 6; while(*pS == ' ') pS++; size_t n = (size_t)(pD - pS); while(n > 0 && pS[n-1] == ' ') n--; if(n > 47) n = 47; memcpy(szWpn, pS, n); szWpn[n] = 0; }
+		char szDist[16] = {0};
+		if(pD){ const char *pS = pD + 10; while(*pS == ' ') pS++; size_t n = 0; while(n < 15 && pS[n] >= '0' && pS[n] <= '9') { szDist[n] = pS[n]; n++; } szDist[n] = 0; }
+		if(szKiller[0])
+		{
+			sprintf_s(g_zwFirstBlood, sizeof(g_zwFirstBlood), "%s (Weapon: %s) (Distance: %sm)", szKiller, szWpn, szDist);
+			Log("[KILLLIST] First Blood: %s", g_zwFirstBlood);
+		}
+	}
+
 
 	// --- Zone War chat dedektoru (RakGravy desenleri) ---
 	// "keeps zone" / "takes over" / "wins against" / "loses to" iceren mesajlar
@@ -6574,6 +6594,136 @@ DWORD WINAPI DialogBoxThread(PVOID)
 	return 0;
 }
 
+// Oasis savas-sonu kill list dialogu: baslik ornegi Oasis Group Zone War [tRc (0) vs 9 (3)],
+// satirlar ornegi 1. Rainy(22)  2 / 0  2.00  301.00 (Player / K-D / Ratio / Damage).
+// UIF tarafindaki gibi textdraw yok: tablo dogrudan dialogdan alinir, ayni SendKillList
+// hatti ile Discord tarafina gider. Takim dagilimi dialogda yok: tum satirlar tek kutuda,
+// takim adlari + skor basliktan.
+static bool OasisKillListDialog(const char *szTitle, const char *szInfo)
+{
+	if(!strstr(szTitle, "Group Zone War [")) return false;
+	if(g_zwKillListSent) return true;
+	char szTagA[32] = "", szTagB[32] = "";
+	int iSA = 0, iSB = 0;
+	const char *pB = strchr(szTitle, '[');
+	if(pB)
+	{
+		const char *pPar = strchr(pB, '(');
+		if(pPar && pPar - pB - 1 > 0 && pPar - pB - 1 < 31)
+		{
+			size_t nA = (size_t)(pPar - pB - 1);
+			memcpy(szTagA, pB + 1, nA); szTagA[nA] = 0;
+			while(nA > 0 && szTagA[nA-1] == ' ') szTagA[--nA] = 0;
+			iSA = atoi(pPar + 1);
+		}
+		const char *pVs = strstr(pB, " vs ");
+		if(pVs)
+		{
+			const char *pR = pVs + 4;
+			const char *pPar2 = strchr(pR, '(');
+			if(pPar2 && pPar2 - pR > 0 && pPar2 - pR < 31)
+			{
+				size_t nB = (size_t)(pPar2 - pR);
+				memcpy(szTagB, pR, nB); szTagB[nB] = 0;
+				while(nB > 0 && szTagB[nB-1] == ' ') szTagB[--nB] = 0;
+				iSB = atoi(pPar2 + 1);
+			}
+		}
+	}
+	char szRows[2048] = "";
+	char szMvp[64] = "?", szFeeder[64] = "?";
+	int iBestK = -1, iBestD = -1, iTotK = 0, iTotD = 0;
+	double fBestDmg = 0, fTotDmg = 0;
+	int nRows = 0;
+	char szCopy[2048];
+	strncpy_s(szCopy, sizeof(szCopy), szInfo ? szInfo : "", _TRUNCATE);
+	for(char *pLine = strtok(szCopy, "\n"); pLine; pLine = strtok(NULL, "\n"))
+	{
+		while(*pLine == ' ' || *pLine == '\t' || *pLine == '\r') pLine++;
+		if(!*pLine) continue;
+		if(strstr(pLine, "Player") && (strstr(pLine, "Damage") || strstr(pLine, "K/D"))) continue;
+		char *pRow = pLine;
+		char *pDot = strchr(pLine, '.');
+		if(pDot && pDot - pLine >= 1 && pDot - pLine <= 3)
+		{
+			bool bNum = true;
+			for(char *q = pLine; q < pDot; q++) if(*q < '0' || *q > '9') { bNum = false; break; }
+			if(bNum) pRow = pDot + 1;
+		}
+		while(*pRow == ' ') pRow++;
+		const char *pOp2 = strchr(pRow, '(');
+		if(!pOp2 || pOp2 == pRow) continue;
+		char szName[64] = "";
+		{
+			size_t nN = (size_t)(pOp2 - pRow);
+			if(nN > 63) nN = 63;
+			memcpy(szName, pRow, nN); szName[nN] = 0;
+			while(nN > 0 && szName[nN-1] == ' ') szName[--nN] = 0;
+		}
+		if(!szName[0]) continue;
+		const char *pSl = NULL;
+		for(const char *qSl = pRow; *qSl; qSl++)
+		{
+			if(*qSl != '/') continue;
+			const char *qa = qSl - 1;
+			while(qa > pRow && *qa == ' ') qa--;
+			const char *qb = qSl + 1;
+			while(*qb == ' ') qb++;
+			if(qa >= pRow && *qa >= '0' && *qa <= '9' && *qb >= '0' && *qb <= '9') { pSl = qSl; break; }
+		}
+		if(!pSl) continue;
+		int iK = 0, iD = 0;
+		{
+			const char *q = pSl;
+			while(q > pRow && (*(q-1) < '0' || *(q-1) > '9')) q--;
+			const char *e = q;
+			while(q > pRow && (*(q-1) >= '0' && *(q-1) <= '9')) q--;
+			if(e > q) iK = atoi(q);
+			iD = atoi(pSl + 1);
+		}
+		char szDmg[16] = "0";
+		{
+			const char *e2 = pRow + strlen(pRow);
+			while(e2 > pRow && (*(e2-1) == ' ' || *(e2-1) == '\r' || *(e2-1) == '\t')) e2--;
+			const char *s2 = e2;
+			while(s2 > pRow && (*(s2-1) != ' ') && (*(s2-1) != '\t')) s2--;
+			size_t nD = (size_t)(e2 - s2);
+			if(nD > 0 && nD < 15 && *s2 >= '0' && *s2 <= '9') { memcpy(szDmg, s2, nD); szDmg[nD] = 0; }
+		}
+		char szRow[128];
+		sprintf_s(szRow, sizeof(szRow), "%-16s %4d %4d %4d %6s", szName, iK, 0, iD, szDmg);
+		if(szRows[0]) strncat_s(szRows, sizeof(szRows), "\n", _TRUNCATE);
+		strncat_s(szRows, sizeof(szRows), szRow, _TRUNCATE);
+		nRows++;
+		iTotK += iK; iTotD += iD; fTotDmg += atof(szDmg);
+		if(iK > 0 || iD > 0)
+		{
+			if(iK > iBestK || (iK == iBestK && atof(szDmg) > fBestDmg))
+			{ iBestK = iK; fBestDmg = atof(szDmg); strncpy_s(szMvp, sizeof(szMvp), szName, _TRUNCATE); }
+			if(iD > iBestD) { iBestD = iD; strncpy_s(szFeeder, sizeof(szFeeder), szName, _TRUNCATE); }
+		}
+	}
+	if(nRows == 0) return true;
+	char szHeader[64] = "", szBox[3072] = "", szTot[128] = "";
+	sprintf_s(szHeader, sizeof(szHeader), "%-16s %4s %4s %4s %6s", "Name", "K", "A", "D", "DMG");
+	sprintf_s(szTot, sizeof(szTot), "Total            %4d %4d %4d %6.0f", iTotK, 0, iTotD, fTotDmg);
+	sprintf_s(szBox, sizeof(szBox), "%s\n--------------------------------------\n%s\n--------------------------------------\n%s", szHeader, szRows, szTot);
+	SendKillList(szBox, "", szTagA[0] ? szTagA : "A", szTagB[0] ? szTagB : "B", szTagA, szTagB,
+		iSA, iSB, g_zwWeWon, szMvp, szFeeder,
+		fBestDmg > 0 ? (int)fBestDmg : 0, iBestK < 0 ? 0 : iBestK, iBestD < 0 ? 0 : iBestD,
+		g_zwFirstBlood, "");
+	FILE *fl = fopen("gz sonucl.txt", "w");
+	if(fl) { fprintf(fl, "%s\n", szBox); fclose(fl); }
+	Log("[KILLLIST] Oasis dialog sonucu gonderildi (%d satir %s %d - %d %s).", nRows, szTagA, iSA, iSB, szTagB);
+	g_zwKillListSent = true;
+	g_zwCapturingKillList = false;
+	g_zwKillTdCount = 0;
+	g_zwFinalizeAt = 0;
+	g_zwEmptyFinalizeSince = 0;
+	return true;
+}
+
+
 void ScrDialogBox(RPCParameters *rpcParams)
 {
 	if(!iGameInited) return;
@@ -6694,6 +6844,9 @@ void ScrDialogBox(RPCParameters *rpcParams)
 		sampDialog.iIsActive = 0;
 		return;
 	}
+
+	// Oasis savas-sonu kill list dialogu: tabloyu al + Discord, kapatma AUTOCLOSE yapar.
+	OasisKillListDialog(sampDialog.szTitle, szDlgInfo);
 
 	// --- GLOBAL AUTOCLOSE ---
 	// Acik kalmasi zorunlu diyaloglar disindakileri otomatik kapat (ekranda birikmesin).

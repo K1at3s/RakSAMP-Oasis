@@ -710,9 +710,10 @@ const mvpDmg = Number(body.mvpDmg) || 0;
 
     // Veri yoksa alan GÖSTERILMEZ (MVP '?' / feeder '?' / firstBlood-topWeapons bos)
     const fields = [
-        { name: `⚔️ **${redTag || redName}**`, value: `\`\`\`\n${redBox}\n\`\`\`` },
-        { name: `⚔️ **${blueTag || blueName}**`, value: `\`\`\`\n${blueBox}\n\`\`\`` }
+        { name: `⚔️ **${redTag || redName}**`, value: `\`\`\`\n${redBox}\n\`\`\`` }
     ];
+    // Oasis: kill list tek kutu gelir (blueBox bos) — bos kutu alani basma.
+    if (blueBox) fields.push({ name: `⚔️ **${blueTag || blueName}**`, value: `\`\`\`\n${blueBox}\n\`\`\`` });
     if (mvp && mvp !== '?') fields.push({ name: t.mvp, value: `${mvp} (${mvpDmg} dmg, ${mvpKills} kills)`, inline: true });
     if (feeder && feeder !== '?') fields.push({ name: t.feeder, value: `${feeder} (${feederDeaths} deaths)`, inline: true });
     if (firstBlood) fields.push({ name: t.firstBlood, value: `${firstBlood}`, inline: true });
