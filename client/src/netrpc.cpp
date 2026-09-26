@@ -837,6 +837,7 @@ static int   g_ghpStaleRetries = 0;          // ayni adimin tekrar deneme sayisi
 static void ProcessGhpHarvestStep();         // ?zgrp harvest zincirini surdur (ProcessZoneScan kilidinden)
 #define GHP_AUTO_PERIOD_MS 900000    // oto ?zgrp periyodu: 15 dk'da bir eksik tag toplama
 static DWORD g_ghpLastRun = 0;            // son oto harvest baslangici
+static bool g_ghpForce = false; // ?zgrp on: tam tarama zorla (tek seferlik)
 static int   g_ghpLearnedCount = 0;       // bu zincirde kac tag ogrenildi (spam'siz bildirim icin)
 static bool  g_zgrpAuto = false;          // ?zgrp on/off: oto harvest — DEFAULT KAPALI (elle ?zgrp/?tagscan ile calisir)
 
@@ -3554,6 +3555,7 @@ void ProcessZoneScan()
 			}
 			// Sifirdan baslangic: hic grup yoksa kesif icin /groups cek (bos DB/dosya sonrasi bootstrap)
 			if(g_groupColorCount == 0) bNeedHarvest = true;
+			if(g_ghpForce) bNeedHarvest = true; // zorla: tag kontrolsuz tam tarama
 		}
 		if(bNeedHarvest && !g_ghpActive && !g_inZoneWar && !g_zgoActive)
 		{
@@ -6020,6 +6022,7 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 				if(!_stricmp(pArg, "on") || !_stricmp(pArg, "off"))
 				{
 					g_zgrpAuto = _stricmp(pArg, "on") == 0;
+					if(g_zgrpAuto) g_ghpForce = true;
 					SyncBotStatusToDb(); // gruba gore DB'ye kaydet
 					Log("[GHP] Oto tag harvest %s.", g_zgrpAuto ? "ACIK (tek seferlik)" : "KAPALI");
 					g_bridgeSuppressEcho++;
@@ -6059,6 +6062,7 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 				else
 				{
 					Log("[GHP] %s: /groups cagriliyor...", !strncmp(pGroupMsg, "?tagscan", 8) ? "?tagscan" : "?zgrp");
+					g_ghpForce = true; // elle tarama: tam liste
 					g_bridgeSuppressEcho++;
 					sendChat((char *)LM("!Grup listesi ogreniliyor...", "!Learning group list..."));
 					g_ghpLearnedCount = 0;
@@ -8694,6 +8698,8 @@ bool LearnGroupTagFromGStats(const char *szInfo)
 		if(strncmp(s, "Zone Name", 9) == 0) return false;   // /gzinfo zone bilgisi
 		if(strstr(s, "Welcome")) return false;              // karsilama dialogu
 		if(strncmp(s, "ID Name", 7) == 0 && strstr(s, "Members")) return false; // /groups basligi
+		if(strstr(s, "Slot") && strstr(s, "Members Online")) return false; // Oasis /groups basligi
+		if(strstr(s, "Group Name") && strstr(s, "Members Online")) return false;
 		const char *pOp = strchr(s, '(');                   // oyuncu formati "isim(pid)"
 		if(pOp && pOp[1] >= '0' && pOp[1] <= '9') return false;
 	}
@@ -8847,6 +8853,7 @@ unsigned long g_groupsReqTime = 0;
 void OnGroupsListCaptured(const char *szInfo)
 {
 	Log("[GHP] OnGroupsListCaptured: ghpActive=%d len=%d", g_ghpActive, szInfo ? (int)strlen(szInfo) : -1);
+	g_ghpForce = false; // tek seferlik: tarama basladi, tuket
 	if(g_ghpActive) return;
 	Log("[GROUPS-DATA] %.500s", szInfo ? szInfo : "");
 
@@ -8926,7 +8933,7 @@ void OnGroupsListCaptured(const char *szInfo)
 				break;
 			}
 		}
-		if(bKnown)
+		if(bKnown && !g_ghpForce)
 		{
 			Log("[GHP] '%s' (id=%d) ATLANDI - grup datasi zaten var, eklenmedi.", szName, iId);
 			nSkipped++;
