@@ -13,7 +13,7 @@ module.exports = {
         port: parseInt(process.env.MYSQL_PORT || '3306', 10), // dogrudan MySQL; ProxySQL eklenirse 6033
         user: process.env.MYSQL_USER || 'raksamp',
         password: process.env.MYSQL_PASSWORD || 'raksamp',
-        database: process.env.MYSQL_DB || 'raksamp',
+        database: process.env.MYSQL_DB || 'raksamp_oasis',
         waitForConnections: true,
         connectionLimit: 5
     },
