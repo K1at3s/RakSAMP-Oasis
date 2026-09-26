@@ -4051,6 +4051,9 @@ void ClientMessage(RPCParameters *rpcParams)
 		// tek basina sava? BASLATMAZ (baska grubun sava?i olabilir); yalnizca
 		// bizim sava?imiz AKTIFKEN zone numarasini verir.
 		bool bJoinNotice = (strstr(pZoneMsg, "Type /gz2 to join") != NULL);
+		// Oasis: "SYSTEM: Your group is under attack! Use /GZ or /CZ to join the war."
+		// Grup uyelerine ozel gider -> dogrudan bizim savasimizdir.
+		bool bOasisUnderAttack = (strstr(pZoneMsg, "Your group is under attack") != NULL);
 		bool bNamedOurWar = false;
 		const char *pVS = strstr(pZoneMsg, " vs ");
 		if(pVS && !g_myGroupName.empty())
@@ -4122,7 +4125,7 @@ void ClientMessage(RPCParameters *rpcParams)
 				Log("[ZONEWAR] Aktif sava? zone #%s duyurusu alindi.", g_zwWarZone);
 			}
 		}
-		if(bNamedOurWar)
+		if(bNamedOurWar || bOasisUnderAttack)
 		{
 			// Duyurunun zone'sunu cikar: "Zone: '# 146'." -> "146"
 			// Canli format "Zone: '# 157'" - týrnak sonrasi bo-sluk olabilir, atla.
