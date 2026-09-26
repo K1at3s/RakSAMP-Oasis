@@ -4760,6 +4760,56 @@ g_bridgeSuppressEcho++;
 			HandleGroupCommand(pGroupMsg, iSenderId);
 		}
 	}
+	// Oasis grup chat: '! [G - 30] Name(id): mesaj'. UIF (GROUP) blogunun karsiligi.
+	if(!strncmp(szNonColorEmbeddedMsg, "! [G - ", 7))
+	{
+		int iGrp = atoi(szNonColorEmbeddedMsg + 7);
+		const char *pBrk = strchr(szNonColorEmbeddedMsg + 7, ']');
+		const char *pOp = pBrk ? strchr(pBrk, '(') : NULL;
+		const char *pCl = pOp ? strchr(pOp, ')') : NULL;
+		const char *pColon = pCl ? strchr(pCl, ':') : NULL;
+		if(iGrp > 0 && pBrk && pOp && pCl && pColon)
+		{
+			int iSenderId = atoi(pOp + 1);
+			if(iSenderId >= 0 && iSenderId < MAX_PLAYERS)
+			{
+				const char *pGroupMsg = pColon + 1;
+				while(*pGroupMsg == ' ') pGroupMsg++;
+				if(pBrk + 1 < pOp)
+				{
+					const char *pNameStart = pBrk + 1;
+					while(*pNameStart == ' ') pNameStart++;
+					size_t nLen = (size_t)(pOp - pNameStart);
+					if(nLen > 0 && nLen <= 24)
+					{
+						char szGrpName[64] = {0};
+						memcpy(szGrpName, pNameStart, nLen);
+						szGrpName[nLen] = 0;
+						StripColorCodes(szGrpName);
+						if(szGrpName[0])
+						{
+							playerInfo[iSenderId].iIsConnected = 1;
+							strncpy_s(playerInfo[iSenderId].szPlayerName,
+								sizeof(playerInfo[iSenderId].szPlayerName), szGrpName, _TRUNCATE);
+							if(g_playerCache[iSenderId].dwTime == 0
+								|| strcmp(g_playerCache[iSenderId].szName, szGrpName) != 0)
+							{
+								strncpy_s(g_playerCache[iSenderId].szName,
+									sizeof(g_playerCache[0].szName), szGrpName, _TRUNCATE);
+								g_playerCache[iSenderId].dwTime = GetTickCount();
+							}
+						}
+					}
+				}
+				char szGrpId[16] = {0};
+				sprintf_s(szGrpId, sizeof(szGrpId), "%d", iGrp);
+				if(g_myGroupId.empty()) g_myGroupId = szGrpId;
+				if(iSenderId == g_myPlayerID) return;
+				if(szGrpId == g_myGroupId) g_knownGroupMembers[iSenderId] = 1;
+				HandleGroupCommand(pGroupMsg, iSenderId);
+			}
+		}
+	}
 }
 
 // Grup chat komutlarini lokal isler (?help, ?w, ?ping, ?pl, ?gst, ?gstats,
