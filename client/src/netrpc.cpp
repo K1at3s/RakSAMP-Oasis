@@ -7385,15 +7385,20 @@ void ScrCreate3DTextLabel(RPCParameters *rpcParams)
 static void CaptureWarTimer(const char *pText, int iLen)
 {
 	if(!pText || !g_inZoneWar) return;
+	int iEnd = iLen;
+	while(iEnd > 0 && (pText[iEnd-1] == ' ' || pText[iEnd-1] == '' || pText[iEnd-1] == '	')) iEnd--;
+	int iStart = 0;
+	while(iStart < iEnd && (pText[iStart] == ' ' || pText[iStart] == '	')) iStart++;
+	if(iEnd - iStart > 5) return; // saat (07:39 PM) gibi uzun metinler timer degil
 	const char *pColon = NULL;
-	for(int i = 0; i < iLen - 1; i++)
+	for(int i = iStart; i < iEnd - 1; i++)
 	{
-		if(pText[i] == ':' && i > 0 && pText[i+1] >= '0' && pText[i+1] <= '9')
+		if(pText[i] == ':' && i > iStart && pText[i+1] >= '0' && pText[i+1] <= '9')
 		{ pColon = pText + i; break; }
 	}
 	if(!pColon) return;
 	const char *p = pColon - 1;
-	while(p >= pText && *p >= '0' && *p <= '9') p--;
+	while(p >= pText + iStart && *p >= '0' && *p <= '9') p--;
 	const char *pNum = p + 1;
 	if(pNum >= pColon) return;
 	int iM = atoi(pNum), iS = atoi(pColon + 1);
@@ -8633,6 +8638,23 @@ bool LearnGroupTagFromGStats(const char *szInfo)
 	if(!szName[0]) return false;
 
 	char szTag[32] = {0};
+	// Oasis /gstats ilk satiri "9 Inches [9]" biciminde: isim + [TAG].
+	if(!strstr(szInfo, "Tag:"))
+	{
+		const char *pBrO = strrchr(szName, '[');
+		const char *pBrC = pBrO ? strchr(pBrO, ']') : NULL;
+		if(pBrO && pBrC && pBrC > pBrO + 1 && pBrC - pBrO < 12 && pBrO > szName)
+		{
+			size_t nT = (size_t)(pBrC - pBrO - 1);
+			if(nT > 31) nT = 31;
+			memcpy(szTag, pBrO + 1, nT); szTag[nT] = 0;
+			char *pTrim = (char *)pBrO;
+			while(pTrim > szName && *(pTrim-1) == ' ') pTrim--;
+			*pTrim = 0;
+			NormalizeGroupName(szName);
+			Log("[GSTATS-TAG] Oasis basligi: '%s' -> tag '%s'.", szName, szTag);
+		}
+	}
 	const char *pTag = strstr(szInfo, "Tag:");
 	if(pTag)
 	{
