@@ -4336,10 +4336,12 @@ void ClientMessage(RPCParameters *rpcParams)
 		else if((pTail = strstr(pZoneMsg, "takes over")) != NULL) { pAction = "takes"; }
 		else if((pTail = strstr(pZoneMsg, "wins against")) != NULL) { pAction = "wins"; }
 		else if((pTail = strstr(pZoneMsg, "loses to")) != NULL) { pAction = "loses"; }
+		else if((pTail = strstr(pZoneMsg, "defeated")) != NULL) { pAction = "defeated"; }
+		else if((pTail = strstr(pZoneMsg, "Results [")) != NULL) { pAction = "results"; }
 
 		// Ogrenme modundaysak ve "ZONE WAR: <Grup> ..." mesaji geldiyse, grup adini cek.
 		// /gz2'den sonra gelen ilk zone mesaji bizim grubumuzun mesajidir.
-		if(pAction && g_zwLearningGroup && (strncmp(pZoneMsg, "ZONE WAR:", 9) == 0))
+		if(pAction && g_zwLearningGroup && (strncmp(pZoneMsg, "ZONE WAR:", 9) == 0) && strcmp(pAction, "defeated") != 0 && strcmp(pAction, "results") != 0)
 		{
 			if(GetTickCount() - g_zwLearnTick <= 60000)
 			{
@@ -4374,9 +4376,10 @@ void ClientMessage(RPCParameters *rpcParams)
 		// Grup adi henuz ogrenilmediyse (bos) hicbir zone mesaji yakalanmaz;
 		// Kullanici: wins/loses her grup icin tetiklenirse botun savasi karisir.
 		// Sadece botun grubunun adi mesaja dahilse isle (takes over dahil).
+		bool bOasisEnd = (pAction && (!strcmp(pAction, "defeated") || !strcmp(pAction, "results")));
 		if(pAction && !bJoinNotice)
 		{
-			if(g_myGroupName.empty() || strstr(pZoneMsg, g_myGroupName.c_str()) == NULL)
+			if((!g_myGroupName.empty() && strstr(pZoneMsg, g_myGroupName.c_str()) == NULL) || (!bOasisEnd && g_myGroupName.empty()))
 				pAction = NULL;
 		}
 
@@ -4391,7 +4394,7 @@ void ClientMessage(RPCParameters *rpcParams)
 				g_lastZoneWarMsgTime = dwNow;
 
 // Savas bitti (wins/loses/takes over): sure sayacini sifirla.
-				if(!strcmp(pAction, "wins") || !strcmp(pAction, "loses") || !strcmp(pAction, "takes over"))
+				if(!strcmp(pAction, "wins") || !strcmp(pAction, "loses") || !strcmp(pAction, "takes over") || !strcmp(pAction, "defeated") || !strcmp(pAction, "results"))
 				{
 					// Sabit 10 dk kurali gecerli (kullanici onayi); sureyi olcmeye gerek yok.
 					g_zoneWarStartTick = 0;
@@ -4443,6 +4446,13 @@ if(g_zwCapturingKillList && !g_zwKillListSent)
 							// "loses" sonrasi bizim ad varsa kaybettik. YS format: "X loses to Y".
 							const char *pLoses = strstr(pZoneMsg, "loses");
 							if(pLoses && strstr(pLoses + 6, g_myGroupName.c_str()))
+								bWeLost = true;
+						}
+						if(!bWeLost && strstr(pZoneMsg, "defeated"))
+						{
+							// Oasis: "ZONE WAR: X defeated Y" - Y bizsek kaybettik.
+							const char *pDef = strstr(pZoneMsg, "defeated");
+							if(pDef && strstr(pDef + 8, g_myGroupName.c_str()))
 								bWeLost = true;
 						}
 						if(bWeLost)
