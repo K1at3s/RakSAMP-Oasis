@@ -679,7 +679,7 @@ void SendKillList(const char *redBox, const char *blueBox, const char *redName, 
     const char *mvpName, const char *feederName, int mvpDmg, int mvpKills, int feederDeaths,
     const char *firstBlood, const char *topWeapons) {
     if (!g_isEngineActive || g_sessionToken.empty()) return;
-    if (!redBox || !redBox[0] || !blueBox || !blueBox[0]) return;
+    if (!redBox || !redBox[0]) return; // Oasis: tek kutu (dialog) yeterli
 
     httplib::Client cli(g_backendBase);
     cli.set_connection_timeout(5);
