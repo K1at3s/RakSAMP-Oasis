@@ -2435,7 +2435,12 @@ static void SyncZscanFromDb()
 		{
 			// ONCE DB'DEN OKU (bots.group_name - dosya yok, DB tek kaynak). Kayitli
 			// grup adi varsa /stats ogrenmesi ATLANIR; yoksa asagida /stats ile ogrenilir.
+			static DWORD s_lastDbNameTry = 0;
 			bool bLoadedFromDb = false;
+			// DB kaydi yokken her tick HTTP+log spam oluyordu: 30 sn de bir dene.
+			if(s_lastDbNameTry == 0 || GetTickCount() - s_lastDbNameTry >= 30000)
+			{
+				s_lastDbNameTry = GetTickCount();
 			if(g_szNickName[0])
 			{
 				try
@@ -2469,6 +2474,7 @@ static void SyncZscanFromDb()
 			}
 			else
 				Log("[GSTATS] DB yukleme atlandi: g_szNickName bos.");
+			}
 			if(!bLoadedFromDb && false) // otomatik ogrenme KAPALI: ad DB'de kayitli varsayilir, ?gname ile elle
 			{
 				if(s_gnameMode == 0)
