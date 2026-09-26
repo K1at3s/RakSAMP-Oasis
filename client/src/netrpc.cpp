@@ -8895,6 +8895,43 @@ void OnGroupsListCaptured(const char *szInfo)
 			if(szName[i] == ' ' || szName[i] == '\r' || szName[i] == '\t') szName[i] = 0;
 			else break;
 		}
+		// Oasis: "9 Inches [9]" - isim yanindaki [TAG] ayikla, tag aninda kaydet.
+		char szRowTag[16] = {0};
+		{
+			char *pBrO = strrchr(szName, '[');
+			char *pBrC = pBrO ? strchr(pBrO, ']') : NULL;
+			if(pBrO && pBrC && pBrC > pBrO + 1 && pBrC - pBrO < 12 && pBrO > szName)
+			{
+				size_t nT = (size_t)(pBrC - pBrO - 1);
+				if(nT > 15) nT = 15;
+				memcpy(szRowTag, pBrO + 1, nT); szRowTag[nT] = 0;
+				char *pTrim = pBrO;
+				while(pTrim > szName && *(pTrim-1) == ' ') pTrim--;
+				*pTrim = 0;
+			}
+			if(szRowTag[0])
+			{
+				int rIdx = FindGroupColorByName(szName);
+				if(rIdx >= 0)
+				{
+					if(!g_groupColors[rIdx].szTag[0] || !_stricmp(g_groupColors[rIdx].szTag, g_groupColors[rIdx].szName))
+					{
+						strncpy_s(g_groupColors[rIdx].szTag, sizeof(g_groupColors[0].szTag), szRowTag, sizeof(g_groupColors[0].szTag) - 1);
+						SaveGroupColors();
+						Log("[GHP] Liste tagi: '%s' -> '%s'.", szName, szRowTag);
+					}
+				}
+				else if(g_groupColorCount < MAX_GROUP_COLORS)
+				{
+					strncpy_s(g_groupColors[g_groupColorCount].szName, sizeof(g_groupColors[0].szName), szName, sizeof(g_groupColors[0].szName) - 1);
+					strncpy_s(g_groupColors[g_groupColorCount].szTag, sizeof(g_groupColors[0].szTag), szRowTag, sizeof(g_groupColors[0].szTag) - 1);
+					g_groupColorCount++;
+					SaveGroupColors();
+					Log("[GHP] Liste tagi (yeni): '%s' -> '%s'.", szName, szRowTag);
+				}
+			}
+		}
+
 		// /groups satiri "N. Isim <online-sayisi>" biciminde: sondaki sayi uyelik
 		// adedi, ismin parcasi DEGIL. Kesmezsek DB'deki temiz isimle eslesmez ve
 		// hicbir grup ATLANDI sayilmazdi (her periyotta hepsi yeniden taranýyordu).
