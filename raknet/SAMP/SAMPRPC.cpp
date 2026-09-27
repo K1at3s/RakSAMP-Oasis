@@ -681,7 +681,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST ||
             sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST_HEADERS ||
             (sampDialog.bDialogStyle == DIALOG_STYLE_INPUT && g_groupsReqTime != 0)) {
-            Log("[GHP] /groups cevabi yakalandi (style %d, baslik: %s).", sampDialog.bDialogStyle, szTitle);
+            Log("[GHP] /groups cevabi yakalandi (id %d, style %d, baslik: %s).", wDialogID, sampDialog.bDialogStyle, szTitle);
             g_waitingForGroups = false;
             OnGroupsListCaptured(szInfo);
 
