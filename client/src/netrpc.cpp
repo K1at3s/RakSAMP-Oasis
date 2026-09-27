@@ -1471,6 +1471,7 @@ static void PushLastGroupLog(const char *reason)
 {
 	if(!g_isEngineActive || g_sessionToken.empty()) return;
 	if(!g_lastGlogTarget[0]) return;
+	g_pushPending = false; // tek embed: gonderince pencere kapanir (yoksa 30sn sonunda kopya embed gider)
 	try
 	{
 		httplib::Client cli(g_szBackendBase);
