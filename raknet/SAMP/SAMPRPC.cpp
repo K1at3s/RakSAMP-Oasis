@@ -686,14 +686,9 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             OnGroupsListCaptured(szInfo);
 
             // Cevap dialogunu kapatiyor (ekrana cizdirme). Oasis Select/Cancel
-            // listesinde kapatma = buton 0 (Cancel); buton 1 + 0xFFFF yutulup
-            // dialog acik kaliyor, sonraki komut "dialog open" diye reddediliyor.
-            RakNet::BitStream bsResponse;
-            bsResponse.Write((uint16_t)wDialogID);
-            bsResponse.Write((uint8_t)0);        // Button 0 (Cancel/kapat)
-            bsResponse.Write((uint16_t)0xFFFF);   // Item ID
-            bsResponse.Write((uint8_t)0);        // Input Text Length
-            pRakClient->RPC(&RPC_DialogResponse, &bsResponse, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
+            // listesinde kapatma = buton 0 (Cancel). Format kanonik helper ile
+            // (WORD input-uzunlugu; elle pakette BYTE gidiyordu).
+            sendDialogResponse(wDialogID, 0, 0xFFFF, (char*)"");
             return 1;
         }
         // Farkli bir dialog geldi (ID giri? vs.): bu /groups cevabi degil, beklemede kal
