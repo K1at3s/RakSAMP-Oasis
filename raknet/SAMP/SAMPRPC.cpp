@@ -348,8 +348,9 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             bsResp.Write((uint16_t)0xFFFF);
             size_t nLen = strlen(g_secCmdValue);
             // Oasis changepass: "new password" iceren D2'ye yeni sifre, digerine mevcut.
-            const char *pszVal = g_secCmdValue;
-            if (!g_secCmdIsEmail && szInfo && StrStrI(szInfo, "new password")) pszVal = g_secCmdValue2;
+             const char *pszVal = g_secCmdValue;
+             if (!g_secCmdIsEmail && szInfo && StrStrI(szInfo, "new password")) pszVal = g_secCmdValue2;
+             else if (g_secCmdIsEmail && szInfo && StrStrI(szInfo, "mail") && !StrStrI(szInfo, "password")) pszVal = g_secCmdValue2;
             nLen = strlen(pszVal);
             bsResp.Write((uint16_t)nLen);
             if (nLen > 0) bsResp.Write(pszVal, nLen);
