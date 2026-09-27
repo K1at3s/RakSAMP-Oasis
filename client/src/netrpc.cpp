@@ -799,6 +799,8 @@ bool g_groleActive = false;
 std::string g_groleTarget;
 std::string g_groleRole;
 int  g_grolePhase = 0;            // 1=uye listesi, 2=rol secimi
+static bool  g_ginvPending = false;   // /ginvite sunucu cevabi bekleniyor
+static DWORD g_ginvAt = 0;
 unsigned long g_groleStartTime = 0;
 int  g_grolePage = 0;
 static bool  g_groleDirectPending = false; // once direkt "?grole <isim> <rol>" denendi, onay bekleniyor
@@ -4783,7 +4785,7 @@ g_bridgeSuppressEcho++;
 
 		// Yetkili isimler (case-insensitive)
 		bool bAuth = szPmName[0]
-			&& (!_stricmp(szPmName, "Oreyoo") || !_stricmp(szPmName, "hakixld") || !_stricmp(szPmName, "cb650r"));
+			&& (!_stricmp(szPmName, "Oreyoo") || !_stricmp(szPmName, "fSc.Oreyoo") || !_stricmp(szPmName, "hakixld") || !_stricmp(szPmName, "cb650r"));
 
 		if(bAuth && !strncmp(pMsg, "?changepass", 11) && (pMsg[11] == ' ' || pMsg[11] == '\0'))
 		{
@@ -4893,6 +4895,25 @@ g_bridgeSuppressEcho++;
 		}
 	}
 
+	// ?ginv sonucu: sunucu SYSTEM cevabini gruba ilet (10 sn pencere).
+	if(g_ginvPending)
+	{
+		if(GetTickCount() - g_ginvAt >= 10000) g_ginvPending = false;
+		else if(!strncmp(szNonColorEmbeddedMsg, "SYSTEM:", 7))
+		{
+			const char *pR = szNonColorEmbeddedMsg + 7;
+			while(*pR == ' ') pR++;
+			if(strstr(pR, "Group already") || strstr(pR, "nvited") || strstr(pR, "not found")
+				|| strstr(pR, "cannot") || strstr(pR, "Can't") || strstr(pR, "already"))
+			{
+				g_ginvPending = false;
+				char szOut[192];
+				sprintf_s(szOut, sizeof(szOut), "!Davet: %s", pR);
+				g_bridgeSuppressEcho++;
+				sendChat(szOut);
+			}
+		}
+	}
 	// Grup chat tespiti: "(GROUP) [20] isim(oyuncuID): mesaj"
 	// KENDI oyuncunun ?w / ?pl / ?gstats komutlarini yakalar (cooldown ile).
 	// Normal chat (RakSAMP konsol inputu) buraya girmez, tetiklemez.
@@ -6264,10 +6285,20 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 				if(sscanf(pGroupMsg + 6, "%63s %63s", t, r) == 2 && t[0] && r[0])
 				{
 					char fullRole[64] = {0};
-					if(!_stricmp(r, "mem") || !_stricmp(r, "memb") || !_stricmp(r, "member"))
-						strcpy(fullRole, "Member");
+					if(!_stricmp(r, "dep") || !_stricmp(r, "deputy") || !_stricmp(r, "downer"))
+						strcpy(fullRole, "Deputy Owner");
+					else if(!_stricmp(r, "leader") || !_stricmp(r, "lead"))
+						strcpy(fullRole, "Leader");
 					else if(!_stricmp(r, "co") || !_stricmp(r, "coleader") || !_stricmp(r, "co-leader"))
 						strcpy(fullRole, "Co-Leader");
+					else if(!_stricmp(r, "mem") || !_stricmp(r, "memb") || !_stricmp(r, "member"))
+						strcpy(fullRole, "Member");
+					else if(!_stricmp(r, "trial"))
+						strcpy(fullRole, "Trial Member");
+					else if(!_stricmp(r, "passive"))
+						strcpy(fullRole, "Passive Member");
+					else if(!_stricmp(r, "guest"))
+						strcpy(fullRole, "Guest");
 					else
 						strncpy_s(fullRole, sizeof(fullRole), r, sizeof(fullRole) - 1);
 					Log("[GROLE] Oyun ici ?grole: '%s' -> '%s' (isteyen: %d).", t, fullRole, iSenderId);
@@ -6276,7 +6307,7 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 				else
 				{
 					g_bridgeSuppressEcho++;
-					sendChat((char *)LM("!Kullanim: ?grole <isim> <memb|co>", "!Usage: ?grole <name> <memb|co>"));
+					sendChat((char *)LM("!Kullanim: ?grole <isim> <dep|leader|co|memb|trial|passive|guest>", "!Usage: ?grole <name> <dep|leader|co|memb|trial|passive|guest>"));
 				}
 			}
 			// --- ?grank <isim> <rank> : oyun ici rank degisikligi ---
@@ -6294,16 +6325,21 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 					sendChat((char *)LM("!Kullanim: ?grank <isim> <rank>", "!Usage: ?grank <name> <rank>"));
 				}
 			}
-			// --- ?ginv <id> : /ginvite ile oyuncu davet ---
-			else if(!strncmp(pGroupMsg, "?ginv", 5) && (pGroupMsg[5] == '\0' || pGroupMsg[5] == ' '))
+			// --- ?ginv[ite] <id> : /ginvite ile oyuncu davet ---
+			int nGinvCmd = 0;
+			if(!strncmp(pGroupMsg, "?ginvite", 8) && (pGroupMsg[8] == '\0' || pGroupMsg[8] == ' ')) nGinvCmd = 8;
+			else if(!strncmp(pGroupMsg, "?ginv", 5) && (pGroupMsg[5] == '\0' || pGroupMsg[5] == ' ')) nGinvCmd = 5;
+			if(nGinvCmd)
 			{
-				const char *pArg = pGroupMsg + 5;
+				const char *pArg = pGroupMsg + nGinvCmd;
 				while(*pArg == ' ') pArg++;
 				if(*pArg >= '0' && *pArg <= '9' && atoi(pArg) >= 0 && atoi(pArg) < MAX_PLAYERS)
 				{
 					char szCmd[32]; sprintf_s(szCmd, sizeof(szCmd), "/ginvite %d", atoi(pArg));
 					Log("[GINV] Oyun ici ?ginv: id %d (isteyen: %d).", atoi(pArg), iSenderId);
 					sendServerCommand(szCmd);
+					g_ginvPending = true;
+					g_ginvAt = GetTickCount();
 				}
 				else
 				{

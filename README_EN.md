@@ -77,8 +77,9 @@ All commands are typed with the `?` prefix in the group chat. Messages prefixed 
 | `?tagscan` | Alias for `?zgrp` |
 | `?tag <name> <tag>` | Manually save a group tag (local + DB) |
 | `?gname` | Re-learn the group name |
-| `?grole <name> <memb\|co>` | In-game role change (Member/Co-Leader) |
+| `?grole <name> <dep\|leader\|co\|memb\|trial\|passive\|guest>` | In-game role change (Deputy Owner/Leader/Co-Leader/Member/Trial/Passive/Guest) |
 | `?grank <name> <rank>` | In-game rank change |
+| `?ginvite <id>` | `?ginv` alias — invite a player to the group (result relayed to group) |
 
 ### War
 | Command | Description |
@@ -90,8 +91,8 @@ All commands are typed with the `?` prefix in the group chat. Messages prefixed 
 ### Security (PM-only, whitelisted names)
 | Command | Description |
 |---------|-------------|
-| `?changepass` | UIF password change (input menu automation, confirm with `/r`) |
-| `?email` | UIF email change |
+| `?changepass <current> <new>` | Oasis password change (current-password dialog first, then new-password dialog) |
+| `?changemail <password> <email>` | Oasis email change (`?email` alias; password dialog first, then email dialog) |
 
 ### Settings
 | Command | Description |
@@ -113,7 +114,7 @@ Command names are localized per server language (English base, Turkish localizat
 | `/link <hwid>` | Link a HWID to this Discord server (admin) |
 | `/unlink <hwid>` | Remove the link (admin) |
 | `/setup` / `/kurulum` | Create channels (empty) / delete (`off`) (admin) |
-| `/setchannel` / `/kanalayarla` | Channel assignment: log, war, gstats, group-chat, zone-war, backup, group-log, bot-commands |
+| `/setchannel` / `/kanalayarla` | Channel assignment: war, gstats, group-chat, zone-war, backup, group-log, bot-commands |
 | `/help` / `/yardim` | Command list; `share:true` posts it to the bot-commands channel |
 | `/gstats [group_id]` | Group stats (fetched from the game, ephemeral) |
 | `/stats [id]` | Group/player stats (blank = own) |

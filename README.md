@@ -77,8 +77,9 @@ Tüm komutlar grup chat'ine `?` önekiyle yazılır. `!` önekli mesajlar Discor
 | `?tagscan` | `?zgrp` alias |
 | `?tag <isim> <tag>` | Grup tag'ini elle kaydet (yerel + DB) |
 | `?gname` | Grup adını yeniden öğren |
-| `?grole <isim> <memb\|co>` | Oyun içi rol değiştirme (Member/Co-Leader) |
+| `?grole <isim> <dep\|leader\|co\|memb\|trial\|passive\|guest>` | Oyun içi rol değiştirme (Deputy Owner/Leader/Co-Leader/Member/Trial/Passive/Guest) |
 | `?grank <isim> <rank>` | Oyun içi rank değiştirme |
+| `?ginvite <id>` | `?ginv` alias — gruba oyuncu davet et (sonuç gruba iletilir) |
 
 ### Savaş
 | Komut | Açıklama |
@@ -90,8 +91,8 @@ Tüm komutlar grup chat'ine `?` önekiyle yazılır. `!` önekli mesajlar Discor
 ### Güvenlik (yalnızca PM + yetkili isimler)
 | Komut | Açıklama |
 |-------|----------|
-| `?changepass` | UIF şifre değiştirme (input menüsü otomasyonu, `/r` ile onay) |
-| `?email` | UIF e-posta değiştirme |
+| `?changepass <mevcut> <yeni>` | Oasis şifre değiştirme (önce mevcut, sonra yeni şifre menüsü) |
+| `?changemail <sifre> <eposta>` | Oasis e-posta değiştirme (`?email` alias; önce şifre, sonra e-posta menüsü) |
 
 ### Ayarlar
 | Komut | Açıklama |
@@ -113,7 +114,7 @@ Komut adları sunucu diline göre lokalize edilir (EN taban, TR lokalizasyon).
 | `/link <hwid>` | HWID'i Discord sunucusuna bağla (yönetici) |
 | `/unlink <hwid>` | Bağlantıyı kaldır (yönetici) |
 | `/setup` / `/kurulum` | Kanalları oluştur (boş) / sil (`kapat`) (yönetici) |
-| `/setchannel` / `/kanalayarla` | Kanal ataması: log, war, gstats, group-chat, zone-war, backup, group-log, bot-commands |
+| `/setchannel` / `/kanalayarla` | Kanal ataması: war, gstats, group-chat, zone-war, backup, group-log, bot-commands |
 | `/help` / `/yardim` | Komut listesi; `paylas:true` ile listeyi bot-komut kanalına bırakır |
 | `/gstats [group_id]` | Grup istatistikleri (oyundan çeker, ephemeral döner) |
 | `/stats [id]` | Grup/oyuncu istatistikleri (boş = kendi) |
