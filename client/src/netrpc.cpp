@@ -897,7 +897,7 @@ void GmembersReset() { s_iGmPage = 1; s_bGmBotOk = false; s_bGmUserOk = false; }
 // Oto zone taramasi: flashing zone'lara isinlanip /gzinfo'dan grup adini ogrenir
 // (zgo mantigi). Sonuc group_colors.txt'ye yazilir; ?zf etiketleri ve
 // "serbest zone" tespiti bu haritadan gelir.
-#define ZONE_SCAN_PER_SAMPLE_MS 4000  // /gzinfo cevabi icin bekleme (mute korumali)
+#define ZONE_SCAN_PER_SAMPLE_MS 7000 // Oasis cevabi yavas: 4sn yetmiyordu  // /gzinfo cevabi icin bekleme (mute korumali)
 #define ZONE_SCAN_TELEPORT_SYNC_MS 3500 // /pos sonrasi teleport tamamlanana kadar bekle (stale /gzinfo + yanlis isim onlenir)
 #define ZONE_SCAN_PERIOD_MS      900000 // oto tarama periyodu: yeni grup adlari icin 15 dk'da bir
 static int   g_zoneScanQueue[MAX_GANG_ZONES] = {0};
@@ -3085,13 +3085,20 @@ static void GangZoneScanGzDialog(const char *szInfo)
 		if(pId) iZone = atoi(pId + 8);
 	}
 
-	// Ogrenme guard'i: dialog baska/eski bir zone icinse ogrenme (iZone -1 = parse hatasi
-	// dahil). Stale dialog atlanir; siradaki ornege gecisi 7 sn'lik deadline yapar.
+	// Gec dialog: sira ilerlemis olabilir (Oasis cevabi deadline sonrasi gelir).
+	// Veri gecerli ID tasiyorsa ID'ye gore ogrenilir, sira bozulmaz.
+	bool bLate = false;
 	if(g_zoneScanIdx >= 0 && iZone != g_zoneScanQueue[g_zoneScanIdx])
 	{
-		Log("[ZF:SCAN] Dialog zone #%d, beklenen ornek #%d degil; stale dialog atlaniyor.",
+		if(iZone < 0 || iZone >= MAX_GANG_ZONES)
+		{
+			Log("[ZF:SCAN] Dialog zone #%d, beklenen ornek #%d degil; stale dialog atlaniyor.",
+				iZone, g_zoneScanQueue[g_zoneScanIdx]);
+			return;
+		}
+		bLate = true;
+		Log("[ZF:SCAN] Gec dialog zone #%d ogreniliyor (beklenen #%d, sira bozulmuyor).",
 			iZone, g_zoneScanQueue[g_zoneScanIdx]);
-		return;
 	}
 
 	char szOwner[80] = {0};
@@ -3206,6 +3213,7 @@ static void GangZoneScanGzDialog(const char *szInfo)
 	if(g_ztkVerifyPending && iZone == g_ztkVerifyZone)
 		ZtkVerifyComplete(szInfo);
 
+	if(bLate) return; // gec ogrenme: sirayi ilerletme
 	GangZoneScanNext();
 }
 
