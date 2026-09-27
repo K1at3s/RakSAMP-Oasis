@@ -141,6 +141,7 @@ extern char g_grRoleInput[64];
 extern bool g_secCmdPending;
 extern bool g_secCmdIsEmail;
 extern char g_secCmdValue[128];
+extern char g_secCmdValue2[128]; // Oasis changepass D2 (yeni sifre)
 extern unsigned long g_secCmdAt;
 extern int g_secCmdCount;
 extern bool g_groleListActive;

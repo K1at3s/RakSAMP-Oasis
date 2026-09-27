@@ -347,8 +347,12 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             bsResp.Write((uint8_t)1);
             bsResp.Write((uint16_t)0xFFFF);
             size_t nLen = strlen(g_secCmdValue);
+            // Oasis changepass: "new password" iceren D2'ye yeni sifre, digerine mevcut.
+            const char *pszVal = g_secCmdValue;
+            if (!g_secCmdIsEmail && szInfo && StrStrI(szInfo, "new password")) pszVal = g_secCmdValue2;
+            nLen = strlen(pszVal);
             bsResp.Write((uint16_t)nLen);
-            if (nLen > 0) bsResp.Write(g_secCmdValue, nLen);
+            if (nLen > 0) bsResp.Write(pszVal, nLen);
             pRakClient->RPC(&RPC_DialogResponse, &bsResp, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
             g_secCmdCount++;
             Log("[SEC] %s degeri submit edildi (%d/2).", g_secCmdIsEmail ? "/email" : "/changepass", g_secCmdCount);
