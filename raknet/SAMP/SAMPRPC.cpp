@@ -366,12 +366,19 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             return 0;
         }
 
+        // Oasis Player Statistics (Close/Group): kapatma Close = buton 1.
+        bool bPlStatsDlg = (szTitle && (strstr(szTitle, "Player Statistics") || strstr(szTitle, "Player Stats")));
         double dLoss = ExtractPacketLoss(szInfo);
         double dFps = ExtractNumberNear(szInfo, "fps");
         double dPing = ExtractNumberNear(szInfo, "ping");
         // /stats <id> dialogu FPS/ping iceriyorsa cache'e yaz: ?pl cevabinda bu taze
         // veriler g?sterilir (kullan?c?: "stats'tan fps+ping cek, cache'e save, ?pl'de yaz").
         if (g_plTargetId >= 0 && g_plTargetId < MAX_PLAYERS) {
+            if (dLoss >= 0.0) {
+                g_playerCache[g_plTargetId].dLoss = dLoss;
+                g_playerCache[g_plTargetId].dwTime = GetTickCount();
+                Log("[PNETSTATS] /stats'tan Loss cache'e yazildi: hedef %d, loss %g", g_plTargetId, dLoss);
+            }
             if (dFps >= 0.0) {
                 g_playerCache[g_plTargetId].iFps = (int)dFps;
                 g_playerCache[g_plTargetId].dwTime = GetTickCount();
@@ -463,6 +470,13 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
         // (! ile ba?ladigi icin kopruye duserdi; echo bastirilarak onlenir).
         g_bridgeSuppressEcho++;
         sendChat(szResult);
+        // Oasis Player Statistics tek seferliktir: Close (buton 1) ile kapat,
+        // UIF ortak kapatma bloguna dusme (buton 0 Group acar).
+        if (bPlStatsDlg) {
+            Log("[PNETSTATS] Player Statistics Close ile kapatiliyor.");
+            sendDialogResponse(wDialogID, 1, 0xFFFF, (char*)"");
+            return 1;
+        }
 
         // pnetstats diyalogunu ekrana ?gizdirmeden kapat (RPC 62)
         RakNet::BitStream bsResponse;
@@ -1617,8 +1631,8 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                 Log("[GSTATS] Grup adi beklemasi zaman asimina ugradi, yeniden denenecek.");
                 return 0;
             }
-            bool bIsPlayerStats = (strstr(szTitle, "Player Stats") != NULL);
-            bool bIsGroupStats  = (strstr(szTitle, "Group Stats") != NULL);
+            bool bIsPlayerStats = (strstr(szTitle, "Player Stats") != NULL || strstr(szTitle, "Player Statistics") != NULL);
+            bool bIsGroupStats  = (strstr(szTitle, "Group Stats") != NULL || strstr(szTitle, "Group Statistics") != NULL);
             // Faz 1 yalnizca Player Stats diyaloguna tepki verir; baska diyalog
             // gelirse dokunma (return 0 -> diger handler'lar/AUTOCLOSE isler).
             if (iPhase == 1 && !bIsPlayerStats) {
@@ -1666,6 +1680,15 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                         else { szName[w++] = szClean[i]; bSp = false; }
                     }
                     while(w > 0 && szName[w-1] == ' ') szName[--w] = 0;
+                    // Oasis: ilk satir "9 Inches [9]" - [TAG] dusur, saf isim ogrenilsin.
+                    {
+                        char *pBrO = strrchr(szName, '[');
+                        if (pBrO && pBrO > szName) {
+                            char *pTrim = pBrO;
+                            while (pTrim > szName && *(pTrim-1) == ' ') pTrim--;
+                            *pTrim = 0;
+                        }
+                    }
                     Log("[GSTATS] Grup adi diyalogu ilk satiri: '%s' (diyalog: '%s')", szName, szTitle);
                     if (szName[0] && strcmp(szName, "Group Stats") != 0 && strcmp(szName, "Stats") != 0)
                         LearnOwnGroupName(szName);

@@ -5072,7 +5072,7 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 				g_bridgeSuppressEcho++;
 				sendChat((char *)"!Pong!");
 			}
-			// --- ?pl [id] : /pnetstats dialogundan packetloss, 30 sn cooldown ---
+			// --- ?pl [id] : /stats Session (FPS/Ping/Packet Loss), 30 sn cooldown ---
 			else if(!strncmp(pGroupMsg, "?pl", 3) && (pGroupMsg[3] == '\0' || pGroupMsg[3] == ' '))
 			{
 				DWORD dwNow = GetTickCount();
@@ -5107,11 +5107,7 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 				g_waitingForPNetStats = true;
 				g_pnetstatsReqTime = GetTickCount();
 
-				char szCmd[64];
-				if(iTarget == g_myPlayerID)
-					sprintf_s(szCmd, sizeof(szCmd), "/pnetstats");
-				else
-					sprintf_s(szCmd, sizeof(szCmd), "/pnetstats %d", iTarget);
+
 
 				Log("[PNETSTATS] /stats gonderiliyor (hedef: %d)...", iTarget);
 				char szStatsCmd[64];
@@ -5120,8 +5116,7 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 				else
 					sprintf_s(szStatsCmd, sizeof(szStatsCmd), "/stats %d", iTarget);
 				sendServerCommand(szStatsCmd);
-				Log("[PNETSTATS] /pnetstats gonderiliyor (hedef: %d)...", iTarget);
-				sendServerCommand(szCmd);
+				// /pnetstats AKSIYONU YOK (Oasis /stats Session hepsini verir).
 				// DB'deki oyuncu cache'ini de hemen tazele (eski veri backend'de silinir)
 				SyncPlayerCacheToDb();
 			}
