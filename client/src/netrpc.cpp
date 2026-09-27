@@ -8948,20 +8948,17 @@ void OnGroupsListCaptured(const char *szInfo)
 			if(nEnd > 0 && nEnd < nLen && szName[nEnd-1] == ' ')
 				szName[nEnd-1] = 0;
 		}
-		// Oasis: "son (ID: 67)" - gercek grup ID /gstats e gider, isimden dusulur.
-		int iUseId = iId;
+		// Oasis: "son (ID: 67)" soneki isimden dusulur; /gstats SLOT ile gider (ID degil).
 		{
 			char *pIdO = strstr(szName, "(ID:");
 			if(pIdO)
 			{
-				int iReal = atoi(pIdO + 4);
-				if(iReal > 0) iUseId = iReal;
 				char *pTrim = pIdO;
 				while(pTrim > szName && *(pTrim-1) == ' ') pTrim--;
 				*pTrim = 0;
 			}
 		}
-		if(iUseId < 0 || !szName[0]) continue;
+		if(iId < 0 || !szName[0]) continue;
 
 		// DB'de GERCEK kisa tag'i olan grup atlanir: /gstats sadece BILINMEYENLER
 		// icin gonderilir (komut mute riski + gereksiz tekrar).
@@ -8997,7 +8994,7 @@ void OnGroupsListCaptured(const char *szInfo)
 			continue;
 		}
 
-		g_ghpIds[g_ghpCount] = iUseId;
+		g_ghpIds[g_ghpCount] = iId; // Oasis: slot
 		strncpy_s(g_ghpNames[g_ghpCount], 80, szName, 79);
 		g_ghpCount++;
 	}
