@@ -1286,6 +1286,7 @@ static DWORD g_pmUntil = 0;
 bool  g_secCmdPending = false;
 bool  g_secCmdIsEmail = false;
 char  g_secCmdValue[128] = {0};
+char  g_secCmdValue2[128] = {0}; // Oasis changepass D2 (yeni sifre)
 DWORD g_secCmdAt = 0;
 int   g_secCmdCount = 0; // kac diyalog dolduruldu (max 2: yeni + onay/tekrar)
 
@@ -3542,6 +3543,14 @@ void ProcessZoneScan()
 		// GRUP ADI GATE: harvest yalnizca kendi grup adi ogrenildikten SONRA baslar
 		// (ogrenme 1 kereliktir, /stats -> Group butonu; harvest /gstats diyaloglari
 		// ogrenme faziyla ayni basligi tasir, cakisirlardi).
+		// Acilis: ?zgrp on kayitliysa (DB) her baslatmada bir kez tam tarama.
+		static bool s_zgrpStartupDone = false;
+		if(g_zgrpAuto && !s_zgrpStartupDone && s_bGroupDbRestored && iSpawned && !g_myGroupName.empty())
+		{
+			s_zgrpStartupDone = true;
+			g_ghpForce = true;
+			Log("[GHP] Acilis taramasi kuruldu (kayitli ?zgrp on): ilk sessizlikte baslayacak.");
+		}
 		if(g_zgrpAuto && s_bGroupDbRestored && iSpawned && !g_myGroupName.empty() && (g_ghpLastRun == 0 || GetTickCount() - g_ghpLastRun >= GHP_AUTO_PERIOD_MS)
 			&& g_spawnTick != 0 && (GetTickCount() - g_spawnTick) >= 30000) // spawn dan 30 sn koruma
 		{
@@ -4695,10 +4704,29 @@ g_bridgeSuppressEcho++;
 
 		if(bAuth && !strncmp(pMsg, "?changepass", 11) && (pMsg[11] == ' ' || pMsg[11] == '\0'))
 		{
-			// UIF /changepass INPUT menusu acar; degeri sakla, komutu gonder, menuyu bekle.
+			// Oasis: D1 "current password" + D2 "new password". Kullanim: ?changepass <mevcut> <yeni>
 			const char *pVal = pMsg + 11;
 			while(*pVal == ' ') pVal++;
-			strncpy_s(g_secCmdValue, sizeof(g_secCmdValue), pVal, sizeof(g_secCmdValue) - 1);
+			char szCur[64] = {0}, szNew[64] = {0};
+			{
+				const char *pSp = strchr(pVal, ' ');
+				if(pSp)
+				{
+					size_t nC = (size_t)(pSp - pVal);
+					if(nC > 63) nC = 63;
+					memcpy(szCur, pVal, nC); szCur[nC] = 0;
+					pSp++;
+					while(*pSp == ' ') pSp++;
+					strncpy_s(szNew, sizeof(szNew), pSp, _TRUNCATE);
+				}
+			}
+			if(!szCur[0] || !szNew[0])
+			{
+				sendServerCommand((char *)"/r Kullanim: ?changepass <mevcut> <yeni>");
+				return;
+			}
+			strncpy_s(g_secCmdValue, sizeof(g_secCmdValue), szCur, sizeof(g_secCmdValue) - 1);
+			strncpy_s(g_secCmdValue2, sizeof(g_secCmdValue2), szNew, sizeof(g_secCmdValue2) - 1);
 			g_secCmdIsEmail = false;
 			g_secCmdPending = true;
 			g_secCmdAt = GetTickCount() + 15000;
