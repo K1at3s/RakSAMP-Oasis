@@ -4059,6 +4059,42 @@ void ClientMessage(RPCParameters *rpcParams)
 	szNonColorEmbeddedMsg[iNonColorEmbeddedMsgLen] = 0;
 
 	Log("[CMSG] %s", szNonColorEmbeddedMsg);
+	// Oasis: "Ad(id)" gecen her satirdan oyuncu ogren (chat, kill feed, TELE/MTELE,
+	// GROUP giris/cikis/invite). ?alogs slot->isim cozumu buna bagli.
+	{
+		const char *p = szNonColorEmbeddedMsg;
+		while((p = strchr(p, '(')) != NULL)
+		{
+			const char *pD = p + 1;
+			while(*pD >= '0' && *pD <= '9') pD++;
+			if(pD > p + 1 && *pD == ')')
+			{
+				int iPid = atoi(p + 1);
+				if(iPid >= 0 && iPid < MAX_PLAYERS)
+				{
+					const char *pE = p;
+					while(pE > szNonColorEmbeddedMsg)
+					{
+						char c = *(pE - 1);
+						if((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
+							|| c == '_' || c == '.' || c == '[' || c == ']' || c == '-') pE--;
+						else break;
+					}
+					size_t nN = (size_t)(p - pE);
+					if(nN > 0 && nN <= 24)
+					{
+						char szNm[32] = {0};
+						memcpy(szNm, pE, nN); szNm[nN] = 0;
+						playerInfo[iPid].iIsConnected = 1;
+						strncpy_s(playerInfo[iPid].szPlayerName, sizeof(playerInfo[iPid].szPlayerName), szNm, _TRUNCATE);
+						strncpy_s(g_playerCache[iPid].szName, sizeof(g_playerCache[0].szName), szNm, _TRUNCATE);
+						g_playerCache[iPid].dwTime = GetTickCount();
+					}
+				}
+			}
+			p++;
+		}
+	}
 
 	// --- Admin + grup rol degisikligi loglari (DB'ye kayit) ---
 	// "(GROUP)" prefix'siz gelen sistem mesajlari: "ADMIN: X banned Y(id) ..."
