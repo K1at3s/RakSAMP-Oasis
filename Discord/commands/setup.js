@@ -58,6 +58,7 @@ async function create(interaction) {
     try {
         const cat = await guild.channels.create({ name: CATEGORY, type: ChannelType.GuildCategory });
         parentId = cat.id;
+        updates.categoryId = cat.id;
     } catch (e) { /* kategorisiz devam */ }
 
     for (const c of CHANNELS) {
@@ -118,19 +119,33 @@ async function close(interaction) {
         updates[f] = null;
     }
 
+    // Eski lisans-log kalintiysa sil (artik kullanilmiyor).
+    if (gRec.logChannelId) {
+        try {
+            const ch = await guild.channels.fetch(gRec.logChannelId);
+            if (ch) await ch.delete('RakSAMP /kurulum kapat');
+            cleared.push('lisans-log');
+        } catch (e) {
+            failed.push('lisans-log');
+        }
+        updates.logChannelId = null;
+    }
+
+    // Kategori DB'deki ID ile silinir.
+    if (gRec.categoryId) {
+        try {
+            const cat = await guild.channels.fetch(gRec.categoryId);
+            if (cat) await cat.delete('RakSAMP /kurulum kapat');
+            cleared.push('kategori');
+        } catch (e) {
+            failed.push('kategori');
+        }
+        updates.categoryId = null;
+    }
+
     if (Object.keys(updates).length) {
         await Guild.findOneAndUpdate({ guildId: guild.id }, { $set: updates });
     }
-
-    // Kategori bossa dustuyse sil.
-    try {
-        const all = await guild.channels.fetch();
-        const cat = [...all.values()].find(c => c && c.type === ChannelType.GuildCategory && c.name === CATEGORY);
-        if (cat) {
-            const kids = [...all.values()].filter(c => c && c.parentId === cat.id);
-            if (!kids.length) await cat.delete('RakSAMP /kurulum kapat');
-        }
-    } catch (e) {}
 
     let msg;
     if (isTr) {

@@ -185,6 +185,7 @@ async function init() {
     // Grup log (?post) + bot komut kanallari (yeni) — mevcut tabloya kolon ekle
     await p.execute(`ALTER TABLE guilds ADD COLUMN group_log_channel_id VARCHAR(255) NULL`).catch(() => {});
     await p.execute(`ALTER TABLE guilds ADD COLUMN bot_commands_channel_id VARCHAR(255) NULL`).catch(() => {});
+    await p.execute(`ALTER TABLE guilds ADD COLUMN category_id VARCHAR(255) NULL`).catch(() => {});
     // Welcome Discord kanali kaldirildi (welcome oyun ici kalir) — eski kolon DB'den duser.
     await p.execute(`ALTER TABLE guilds DROP COLUMN welcome_channel_id`).catch(() => {});
     // Index se├gici ekleme yok

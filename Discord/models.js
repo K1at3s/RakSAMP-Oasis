@@ -16,6 +16,7 @@ const Guild = db.model('guilds', {
         backupChannelId: { col: 'backup_channel_id', type: 'text', def: null },
         groupLogChannelId: { col: 'group_log_channel_id', type: 'text', def: null },
         botCommandsChannelId: { col: 'bot_commands_channel_id', type: 'text', def: null },
+        categoryId: { col: 'category_id', type: 'text', def: null },
         groupChatEnabled: { col: 'group_chat_enabled', type: 'int', def: 0 },
         lang: { col: 'lang', type: 'text', def: 'en' },
         groupName: { col: 'group_name', type: 'text', def: '' },
