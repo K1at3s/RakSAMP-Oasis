@@ -685,13 +685,12 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             g_waitingForGroups = false;
             OnGroupsListCaptured(szInfo);
 
-            // DENEY: kapatma (Cancel/OK) ise yaramiyor; satir sec (Select row 0).
-            // Secim grup stats acar -> [DLG] gozlemlenecek. Vanilla BYTE format.
-            Log("[GHP] /groups kapatma DENEYI: Select row 0 gonderiliyor (id %d).", wDialogID);
+            // DENEY2: Cancel + gecerli satir (secimsiz Cancel yutuluyor olabilir).
+            Log("[GHP] /groups kapatma DENEY2: Cancel row 0 gonderiliyor (id %d).", wDialogID);
             RakNet::BitStream bsResponse;
             bsResponse.Write((uint16_t)wDialogID);
-            bsResponse.Write((uint8_t)1);        // Button 1 (Select)
-            bsResponse.Write((uint16_t)0);       // Item 0 (ilk satir)
+            bsResponse.Write((uint8_t)0);        // Button 0 (Cancel)
+            bsResponse.Write((uint16_t)0);       // Item 0 (secili satir)
             bsResponse.Write((uint8_t)0);        // Input Text Length (BYTE)
             pRakClient->RPC(&RPC_DialogResponse, &bsResponse, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
             return 1;
