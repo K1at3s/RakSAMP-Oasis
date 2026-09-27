@@ -7788,9 +7788,7 @@ void ScrEditTextDraw(RPCParameters *rpcParams)
 	cText[cTextLen] = '\0';
 
 	CaptureWarTimer(cText, (int)cTextLen);
-
-	if(settings.uiTextDrawsLogging != 0)
-		Log("[TEXTDRAW:EDIT] ID: %d, Text: %s.", wTextID, cText);
+	// EDIT logu kapali: sayac her saniye konsolu dolduruyordu (TextDraws.log dosyasi aynen yazar).
 }
 
 void ScrTogglePlayerSpectating(RPCParameters *rpcParams)
