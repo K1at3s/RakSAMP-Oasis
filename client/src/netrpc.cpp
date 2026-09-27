@@ -502,6 +502,38 @@ void OnGmVipsResult(const char *szInfo)
 			memcpy(szLine, pL, nLen); szLine[nLen] = 0;
 			GmCleanLine(szLine, szClean, sizeof(szClean));
 			if(!szClean[0]) { if(!pE) break; pL = pE + 1; continue; }
+			// Oasis: "1. 1337Alex [359] - Standard VIP (+1 points)"
+			{
+				const char *pDot = strchr(szClean, '.');
+				const char *pDash = strstr(szClean, " - ");
+				bool bN = pDot && pDot - szClean >= 1 && pDot - szClean <= 3;
+				if(bN) { for(const char *qo = szClean; qo < pDot; qo++) if(*qo < '0' || *qo > '9') { bN = false; break; } }
+				if(bN && pDash && pDash > pDot)
+				{
+					char szNm[64] = {0}, szVp[64] = {0};
+					const char *pSo = pDot + 1;
+					while(*pSo == ' ' || *pSo == '\t') pSo++;
+					const char *pEo = pSo;
+					while(*pEo && *pEo != ' ' && *pEo != '\t' && *pEo != '[') pEo++;
+					size_t nNo = (size_t)(pEo - pSo);
+					if(nNo > 0 && nNo < 63) { memcpy(szNm, pSo, nNo); szNm[nNo] = 0; }
+					const char *pVo = pDash + 3;
+					while(*pVo == ' ') pVo++;
+					strncpy_s(szVp, sizeof(szVp), pVo, _TRUNCATE);
+					for(int tio = (int)strlen(szVp) - 1; tio >= 0; tio--) { if(szVp[tio] == ' ' || szVp[tio] == '\r') szVp[tio] = 0; else break; }
+					if(szNm[0] && szVp[0])
+					{
+						for(int io = 0; io < g_gmCount; io++)
+							if(_stricmp(g_gmRows[io].szName, szNm) == 0)
+							{
+								strncpy_s(g_gmRows[io].szVip, sizeof(g_gmRows[io].szVip), szVp, sizeof(g_gmRows[io].szVip) - 1);
+								Log("[GM] VIP (Oasis): '%s' -> %s", szNm, szVp);
+								break;
+							}
+					}
+					if(!pE) break; pL = pE + 1; continue;
+				}
+			}
 
 			char szLow[256] = {0};
 			for(int i = 0; szClean[i] && i < 255; i++) szLow[i] = (char)((szClean[i]>='A'&&szClean[i]<='Z')?szClean[i]+32:szClean[i]);
