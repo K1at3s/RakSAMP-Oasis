@@ -6886,6 +6886,7 @@ void ScrDialogBox(RPCParameters *rpcParams)
 
 	char szDlgInfo[2048] = {0};
 	stringCompressor->DecodeString(szDlgInfo, sizeof(szDlgInfo), &bsData);
+	Log("[DLG] id=%d style=%d title='%s' btn1='%s' btn2='%s'", sampDialog.wDialogID, sampDialog.bDialogStyle, sampDialog.szTitle, sampDialog.szButton1, sampDialog.szButton2);
 
 	// --- SPAWN MENUSU: "Where would you like to go?" otomatik Freeroam secimi ---
 	// Spawn menusu (id=30, style 5 TABLIST_HEADERS) acildiginda "Freeroam" satirini
@@ -8947,7 +8948,20 @@ void OnGroupsListCaptured(const char *szInfo)
 			if(nEnd > 0 && nEnd < nLen && szName[nEnd-1] == ' ')
 				szName[nEnd-1] = 0;
 		}
-		if(iId < 0 || !szName[0]) continue; // Oasis slot 0 gecerli
+		// Oasis: "son (ID: 67)" - gercek grup ID /gstats e gider, isimden dusulur.
+		int iUseId = iId;
+		{
+			char *pIdO = strstr(szName, "(ID:");
+			if(pIdO)
+			{
+				int iReal = atoi(pIdO + 4);
+				if(iReal > 0) iUseId = iReal;
+				char *pTrim = pIdO;
+				while(pTrim > szName && *(pTrim-1) == ' ') pTrim--;
+				*pTrim = 0;
+			}
+		}
+		if(iUseId < 0 || !szName[0]) continue;
 
 		// DB'de GERCEK kisa tag'i olan grup atlanir: /gstats sadece BILINMEYENLER
 		// icin gonderilir (komut mute riski + gereksiz tekrar).
@@ -8983,7 +8997,7 @@ void OnGroupsListCaptured(const char *szInfo)
 			continue;
 		}
 
-		g_ghpIds[g_ghpCount] = iId;
+		g_ghpIds[g_ghpCount] = iUseId;
 		strncpy_s(g_ghpNames[g_ghpCount], 80, szName, 79);
 		g_ghpCount++;
 	}
@@ -8991,8 +9005,7 @@ void OnGroupsListCaptured(const char *szInfo)
 	Log("[GHP] /groups: %d grup ATLANDI (datasi zaten var), %d yeni grup tag icin taranacak.",
 		nSkipped, g_ghpCount);
 	if(g_ghpCount == 0) { g_ghpActive = false; return; }
-	g_ghpNextStepAt = GetTickCount() + GHP_STEP_DELAY_MS; // ilk /gstats oncesi de mute korumasi
-	ProcessGhpHarvestStep();
+	g_ghpNextStepAt = GetTickCount() + GHP_STEP_DELAY_MS; // kapatma cevabi islesin diye ilk adim deadline ile (race olmasin)
 }
 
 // Sonraki harvester adimi: bir sonraki ID icin /gstats gonder (veya bitir).
