@@ -1523,9 +1523,15 @@ static void CheckGroupLogMessage(const char *msg)
 	{
 		// invite: "GROUP: X invited/invite Y ..." - kick ile ayni Name(acc) formu
 		// ponytail: kick parse'inin kopyasi, mesaj formati netlesince birlesir
-		const char *pI = strstr(msg, " invited ");
-		if(!pI) pI = strstr(msg, " invite ");
-		if(!pI) pI = strstr(msg, " invites ");
+		// Sahte eslesme: oyuncu "invite me" yazinca sistem daveti saniliyordu.
+		// Sistem mesaji GROUP: on-eklidir; oyuncu sohbeti elenir.
+		const char *pI = NULL;
+		if(strstr(msg, "GROUP:"))
+		{
+			pI = strstr(msg, " invited ");
+			if(!pI) pI = strstr(msg, " invite ");
+			if(!pI) pI = strstr(msg, " invites ");
+		}
 		if(pI)
 		{
 			{ const char *pA = msg; while(*pA == ' ' || *pA == '\t') pA++; if(!strncmp(pA, "ADMIN:", 6)) pI = NULL; }
@@ -1571,7 +1577,7 @@ static void CheckGroupLogMessage(const char *msg)
 			return;
 		}
 		// kick: "GROUP: (Ad)(acc) kicked Hedef(acc) ..." — rol/rank degil, kick yakala
-		const char *pK = strstr(msg, " kicked ");
+		const char *pK = strstr(msg, "GROUP:") ? strstr(msg, " kicked ") : NULL;
 		if(!pK) return;
 		{ const char *pA = msg; while(*pA == ' ' || *pA == '\t') pA++; if(!strncmp(pA, "ADMIN:", 6)) return; } // ADMIN kick admin logundur
 		char actor[64] = {0}, target[64] = {0};
