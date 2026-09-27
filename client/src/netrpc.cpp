@@ -4739,9 +4739,34 @@ g_bridgeSuppressEcho++;
 		}
 		if(bAuth && !strncmp(pMsg, "?email", 6) && (pMsg[6] == ' ' || pMsg[6] == '\0'))
 		{
+			// Oasis: D1 password + D2 email. Kullanim: ?email <sifre> <eposta>
 			const char *pVal = pMsg + 6;
 			while(*pVal == ' ') pVal++;
-			strncpy_s(g_secCmdValue, sizeof(g_secCmdValue), pVal, sizeof(g_secCmdValue) - 1);
+			bool bMailOk = false;
+			{
+				const char *pSp2 = strchr(pVal, ' ');
+				if(pSp2)
+				{
+					size_t nP = (size_t)(pSp2 - pVal);
+					char szPw[64] = {0}, szMail[128] = {0};
+					if(nP > 63) nP = 63;
+					memcpy(szPw, pVal, nP); szPw[nP] = 0;
+					pSp2++;
+					while(*pSp2 == ' ') pSp2++;
+					strncpy_s(szMail, sizeof(szMail), pSp2, _TRUNCATE);
+					if(szPw[0] && szMail[0])
+					{
+						strncpy_s(g_secCmdValue, sizeof(g_secCmdValue), szPw, sizeof(g_secCmdValue) - 1);
+						strncpy_s(g_secCmdValue2, sizeof(g_secCmdValue2), szMail, sizeof(g_secCmdValue2) - 1);
+						bMailOk = true;
+					}
+				}
+			}
+			if(!bMailOk)
+			{
+				sendServerCommand((char *)"/r Kullanim: ?email <sifre> <eposta>");
+				return;
+			}
 			g_secCmdIsEmail = true;
 			g_secCmdPending = true;
 			g_secCmdAt = GetTickCount() + 15000;

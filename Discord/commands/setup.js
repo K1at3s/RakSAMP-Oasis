@@ -53,10 +53,15 @@ async function create(interaction) {
     const created = [];
     const skipped = [];
 
-    // Once kategori: kanallar onun altinda acilir.
+    // Once kategori: kanallar onun altinda acilir. Rol varsa sadece o rol +
+    // yoneticiler gorur (everyone'a kapali); rol yoksa da everyone'a kapali.
     let parentId = null;
+    const gRec0 = await Guild.findOne({ guildId: guild.id });
+    const roleId0 = gRec0 ? gRec0.allowedRoleId : null;
+    const baseOverwrites = [{ id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] }];
+    if (roleId0) baseOverwrites.push({ id: roleId0, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] });
     try {
-        const cat = await guild.channels.create({ name: CATEGORY, type: ChannelType.GuildCategory });
+        const cat = await guild.channels.create({ name: CATEGORY, type: ChannelType.GuildCategory, permissionOverwrites: baseOverwrites });
         parentId = cat.id;
         updates.categoryId = cat.id;
     } catch (e) { /* kategorisiz devam */ }
@@ -64,6 +69,7 @@ async function create(interaction) {
     for (const c of CHANNELS) {
         try {
             const ch = await guild.channels.create({ name: c.name, type: ChannelType.GuildText, ...(parentId ? { parent: parentId } : {}) });
+            try { if (parentId) await ch.lockPermissions(); } catch (e) {}
             updates[c.key] = ch.id;
             created.push(c.name);
         } catch (e) {
