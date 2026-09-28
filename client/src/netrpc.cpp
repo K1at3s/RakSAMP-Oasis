@@ -3097,24 +3097,24 @@ static void GangZoneScanGzDialog(const char *szInfo)
 		}
 	}
 
-	// Gelen ID dogrudur ve 0 da gecerli (Bayside gercekten #0) - o zone'in
-	// sahibi oraya yazilir, ornek hangisi ise onun disinda kalir. Sadece "Zone ID:"
-	// satiri hic yoksa (-1) teletransport ettigimiz ornege dustugumuz icin onu kullan.
-	// ponytail: kimliksiz cevapta kuyruk sirasina guveniyoruz; sunucu her ornekte
-	// ID dondurunce bu dal hic kullanilmaz.
+	// Kimlik = TELESTRANSPORT ETTIGIMIZ zone'un dizini (kuyruk sirasi), gelen
+	// ID degil: sunucu /gzinfo'da bir geriden sayiyor (bizim #59 -> sunucu #58,
+	// 57 ornekte de fark tam -1). Gelen ID bir onceki rect'e ait oldugu icin
+	// onu yaziyoruzsa sahipler bir slot kaymis oluyor. Flash ID'leri, ?zf ve
+	// ?zgo hep bizim dizinimizi kullandigi icin sahibi ornek dizinine yaziyoruz.
+	// ponytail: duzgun ornek varsa sunucu ID'si ne derse dese yazilir; kayma
+	// varsayimi sadece logda gorunur, sonuc degistirmez.
 	int iDlgZone = iZone;
-	if(iDlgZone < 0 || iDlgZone >= MAX_GANG_ZONES)
+	if(g_zoneScanIdx >= 0 && g_zoneScanIdx < g_zoneScanQ)
 	{
-		if(g_zoneScanIdx >= 0 && g_zoneScanIdx < g_zoneScanQ)
-		{
-			iZone = g_zoneScanQueue[g_zoneScanIdx];
-			Log("[ZF:SCAN] Dialog kimliksiz, ornek #%d kullanildi.", iZone);
-		}
-		else
-		{
-			Log("[ZF:SCAN] Dialog kimliksiz, ornek yok; atlandi.");
-			return;
-		}
+		if(iDlgZone != g_zoneScanQueue[g_zoneScanIdx])
+			Log("[ZF:SCAN] Sunucu ID #%d dondu, ornegin rect'i #%d (kayma).", iDlgZone, g_zoneScanQueue[g_zoneScanIdx]);
+		iZone = g_zoneScanQueue[g_zoneScanIdx];
+	}
+	else if(iDlgZone < 0 || iDlgZone >= MAX_GANG_ZONES)
+	{
+		Log("[ZF:SCAN] Dialog kimliksiz ve ornek yok; atlandi.");
+		return;
 	}
 
 	char szOwner[80] = {0};
