@@ -2058,6 +2058,23 @@ static const char *ResolveAlogQuery(const char *q)
 	while(p[n] && p[n] != ' ' && p[n] != '\t' && n < sizeof(s_buf) - 1) { s_buf[n] = p[n]; n++; }
 	s_buf[n] = 0;
 	if(!s_buf[0]) return s_buf;
+	// Iki numara alani var ve ust uste biniyor: oyun ici id (tab menusu, 0-999)
+	// ve /stats hesap id (kalici). Belirsizligi SOZDIZIMI ile cozuyoruz:
+	//   ?alogs 12   -> OYUN ICI id (ekranda gordugu sey)
+	//   ?alogs a:12 -> HESAP id (/stats)
+	//   ?alogs o:12 -> oyun ici id (acik yazim, istege bagli)
+	bool bAcc = false, bGame = false;
+	if(s_buf[1] == ':')
+	{
+		if(s_buf[0] == 'a' || s_buf[0] == 'A') bAcc = true;
+		else if(s_buf[0] == 'o' || s_buf[0] == 'O') bGame = true;
+		if(bAcc || bGame)
+		{
+			memmove(s_buf, s_buf + 2, strlen(s_buf + 2) + 1);
+			while(*s_buf == ' ') memmove(s_buf, s_buf + 1, strlen(s_buf + 1));
+			Log("[ALOG] Sorgu oneki: %s", bAcc ? "hesap ID (a:)" : "oyun ici id (o:)");
+		}
+	}
 	bool bNum = true;
 	for(size_t k = 0; s_buf[k]; k++) if(s_buf[k] < '0' || s_buf[k] > '9') { bNum = false; break; }
 	if(!bNum)
@@ -2072,6 +2089,21 @@ static const char *ResolveAlogQuery(const char *q)
 		return s_buf;
 	}
 	int nId = atoi(s_buf);
+	// Hesap ID oneki: oyun ici id adimi ATLANIR, dogrudan hesap tablosuna bak.
+	if(bAcc)
+	{
+		char szAccName[64] = {0}; int iAccAge = 999999;
+		if(QueryBackendPlayerRowByAccount(nId, szAccName, sizeof(szAccName), &iAccAge)
+			&& szAccName[0] && iAccAge >= 0 && iAccAge < 120)
+		{
+			Log("[ALOG] Hesap ID %d -> '%s' (DB %ds).", nId, szAccName, iAccAge);
+			g_accMap[std::string(szAccName)] = nId;
+			strncpy_s(s_buf, sizeof(s_buf), szAccName, sizeof(s_buf) - 1);
+			return s_buf;
+		}
+		Log("[ALOG] Hesap ID %d bulunamadi (cevrimdisi olabilir).", nId);
+		return NULL;
+	}
 	if(nId < 0 || nId >= MAX_PLAYERS) return s_buf;
 	if(playerInfo[nId].szPlayerName[0])
 	{
@@ -2080,7 +2112,7 @@ static const char *ResolveAlogQuery(const char *q)
 		// Hesap ID farkliysa karisiklik olmasin diye ikisini de yaziyoruz.
 		int iKnown = FindAccountIdByName(s_buf);
 		if(iKnown > 0 && iKnown != nId)
-			Log("[ALOG] UYARI: oyun ici id %d = '%s' (hesap ID %d). Sayi oyun ici id olarak cozuldu.", nId, s_buf, iKnown);
+			Log("[ALOG] UYARI: oyun ici id %d = '%s' (hesap ID %d). Sayi oyun ici id olarak cozuldu; hesap icin ?alogs a:%d yaz.", nId, s_buf, iKnown, nId);
 		Log("[ALOG] Slot %d -> '%s' ismiyle sorgulaniyor.", nId, s_buf);
 		EnsureAccountId(s_buf);
 		return s_buf;
@@ -2114,7 +2146,7 @@ static const char *ResolveAlogQuery(const char *q)
 		// Cakisma uyarisi: ayni sayi hem hesap ID hem baska birinin slotu ise
 		// sessizce yanlis kisi donmemek icin ikisini de yaziyoruz.
 		if(playerInfo[nId].szPlayerName[0] && _stricmp(playerInfo[nId].szPlayerName, szAccName) != 0)
-			Log("[ALOG] UYARI: hesap ID %d = '%s' | slot %d = '%s'. Sorgu hesap ID olarak cozuldu.", nId, szAccName, nId, playerInfo[nId].szPlayerName);
+			Log("[ALOG] UYARI: hesap ID %d = '%s' | oyun ici id %d = '%s'. Sorgu hesap ID olarak cozuldu; oyun ici id icin ?alogs o:%d yaz.", nId, szAccName, nId, playerInfo[nId].szPlayerName, nId);
 		g_accMap[std::string(szAccName)] = nId;
 		strncpy_s(s_buf, sizeof(s_buf), szAccName, sizeof(s_buf) - 1);
 		return s_buf;
