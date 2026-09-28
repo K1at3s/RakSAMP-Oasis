@@ -2106,6 +2106,10 @@ static const char *ResolveAlogQuery(const char *q)
 		for(int s = 0; s < MAX_PLAYERS; s++)
 			if(playerInfo[s].szPlayerName[0] && _stricmp(playerInfo[s].szPlayerName, szAccName) == 0) { bLive = true; break; }
 		Log("[ALOG] Hesap ID %d -> '%s' (%s, DB %ds).", nId, szAccName, bLive ? "CANLI" : "kayitli", iAccAge);
+		// Cakisma uyarisi: ayni sayi hem hesap ID hem baska birinin slotu ise
+		// sessizce yanlis kisi donmemek icin ikisini de yaziyoruz.
+		if(playerInfo[nId].szPlayerName[0] && _stricmp(playerInfo[nId].szPlayerName, szAccName) != 0)
+			Log("[ALOG] UYARI: hesap ID %d = '%s' | slot %d = '%s'. Sorgu hesap ID olarak cozuldu.", nId, szAccName, nId, playerInfo[nId].szPlayerName);
 		g_accMap[std::string(szAccName)] = nId;
 		strncpy_s(s_buf, sizeof(s_buf), szAccName, sizeof(s_buf) - 1);
 		return s_buf;
