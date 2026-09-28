@@ -7164,8 +7164,11 @@ void ScrDialogBox(RPCParameters *rpcParams)
 		// account ID gibi cop yazilir ve ?zf tag eslesmesi bozulur.
 		bool bGmDialog = (g_gmPhase == 1 || g_gmAstatsWaiting || g_gmGvipsWaiting);
 		bool bRoleKickDlg = (g_groleActive || g_grankActive || g_gkickActive || g_groleListActive || g_grankListActive || g_gkickListActive);
-		if(!bGmDialog && !bGmListDlg && !bRoleKickDlg) { LearnGroupTagFromGStats(szDlgInfo); SaveGroupColors(); }
-		if(g_ghpActive && !bGmListDlg && !bRoleKickDlg) OnGStatsResultForHarvest(szDlgInfo);
+		// /gzinfo dialogu gstats CEVABI degil. Tarama sirasinda gelip harvest'i
+		// yiyordu: "Zone: Bayside" diye sahte grup + tagsiz kayit yaziliyordu.
+		bool bZoneInfoDlg = (strstr(sampDialog.szTitle, "Zone Info") != NULL);
+		if(!bGmDialog && !bGmListDlg && !bRoleKickDlg && !bZoneInfoDlg) { LearnGroupTagFromGStats(szDlgInfo); SaveGroupColors(); }
+		if(g_ghpActive && !bGmListDlg && !bRoleKickDlg && !bZoneInfoDlg) OnGStatsResultForHarvest(szDlgInfo);
 	}
 
 	// /pnetstats ve /gstats dialog yakalamasi: yakalandiysa ekrana cizdirme
@@ -8901,6 +8904,7 @@ bool LearnGroupTagFromGStats(const char *szInfo)
 		while(*s == ' ' || *s == '\t' || *s == '\r') s++;
 		if(s[0] == '/') return false;                       // komut/yardim listesi
 		if(strncmp(s, "Zone Name", 9) == 0) return false;   // /gzinfo zone bilgisi
+		if(strncmp(s, "Zone:", 5) == 0) return false;       // Oasis /gzinfo ("Zone: Bayside")
 		if(strstr(s, "Welcome")) return false;              // karsilama dialogu
 		if(strncmp(s, "ID Name", 7) == 0 && strstr(s, "Members")) return false; // /groups basligi
 		if(strstr(s, "Slot") && strstr(s, "Members Online")) return false; // Oasis /groups basligi
