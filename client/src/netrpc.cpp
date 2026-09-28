@@ -2014,6 +2014,41 @@ char target[64] = {0}; long long targetId = 0;
 // buyuk sayilar account ID sayilip aynen gecer.
 static bool QueryBackendPlayerRow(int iPid, char *szName, size_t nNameLen, double *pLoss, int *pFps, int *pPing, int *pAgeSec); // tanim asagida (?pl bolumu)
 static bool QueryBackendPlayerRowByAccount(int iAcc, char *szName, size_t nNameLen, int *pAgeSec); // hesap ID -> isim
+
+// ---- HESAP ID HARITASI (isim -> hesap ID) ---------------------------------
+// Slot ID her reconnect'te degisir ve baska oyunculara devredilir; hesap ID
+// (/stats) kalicidir. Admin logu hedefini once ISIMLE, sonra hesap ID ile
+// baglamak icin bu harita kullanilir. Bilinmeyen isim icin sunucuya bir kez
+// /stats <isim> sorulur; cevap dialogu gelince harita doldurulur.
+static std::map<std::string,int> g_accMap;      // kucuk isim -> hesap id
+static std::string g_accPendingName;           // /stats sorusunda bekleyen isim
+static DWORD g_accPendingAt = 0;                // soru zamani (timeout icin)
+#define ACC_PROBE_TIMEOUT_MS 20000
+
+static int FindAccountIdByName(const char *szName)
+{
+	if(!szName || !szName[0]) return 0;
+	char nLow[64] = {0};
+	for(int k = 0; szName[k] && k < 63; k++) { char cc = szName[k]; nLow[k] = (cc >= 'A' && cc <= 'Z') ? (char)(cc + 32) : cc; }
+	std::map<std::string,int>::iterator it = g_accMap.find(nLow);
+	return it != g_accMap.end() ? it->second : 0;
+}
+
+// Ismin hesap ID'si bilinmiyorsa sunucuya /stats <isim> sor (tek seferlik).
+// Cevap dialogu HandleAccStatsDialog'da islenir.
+static void EnsureAccountId(const char *szName)
+{
+	if(!szName || !szName[0] || !g_isEngineActive) return;
+	if(FindAccountIdByName(szName) > 0) return;
+	DWORD dw = GetTickCount();
+	if(!g_accPendingName.empty() && dw - g_accPendingAt < ACC_PROBE_TIMEOUT_MS) return; // zaten bir tanesi soruluyor
+	char szCmd[96];
+	sprintf_s(szCmd, sizeof(szCmd), "/stats %s", szName);
+	Log("[ACC] Hesap ID bilinmiyor, sunucuya soruluyor: %s", szCmd);
+	g_accPendingName = szName;
+	g_accPendingAt = dw;
+	sendServerCommand(szCmd);
+}
 static const char *ResolveAlogQuery(const char *q)
 {
 	static char s_buf[64];
@@ -2030,7 +2065,8 @@ static const char *ResolveAlogQuery(const char *q)
 		for(int s = 0; s < MAX_PLAYERS; s++)
 			if(playerInfo[s].szPlayerName[0] && _stricmp(playerInfo[s].szPlayerName, s_buf) == 0)
 			{
-				Log("[ALOG] '%s' CANLI (slot %d).", s_buf, s);
+					Log("[ALOG] '%s' CANLI (slot %d).", s_buf, s);
+				EnsureAccountId(s_buf);
 				break;
 			}
 		return s_buf;
@@ -2041,6 +2077,7 @@ static const char *ResolveAlogQuery(const char *q)
 	{
 		strncpy_s(s_buf, sizeof(s_buf), playerInfo[nId].szPlayerName, sizeof(s_buf) - 1);
 		Log("[ALOG] Slot %d -> '%s' ismiyle sorgulaniyor.", nId, s_buf);
+		EnsureAccountId(s_buf);
 		return s_buf;
 	}
 	if(g_playerCache[nId].szName[0] && g_playerCache[nId].dwTime > 1)
@@ -2069,6 +2106,7 @@ static const char *ResolveAlogQuery(const char *q)
 		for(int s = 0; s < MAX_PLAYERS; s++)
 			if(playerInfo[s].szPlayerName[0] && _stricmp(playerInfo[s].szPlayerName, szAccName) == 0) { bLive = true; break; }
 		Log("[ALOG] Hesap ID %d -> '%s' (%s, DB %ds).", nId, szAccName, bLive ? "CANLI" : "kayitli", iAccAge);
+		g_accMap[std::string(szAccName)] = nId;
 		strncpy_s(s_buf, sizeof(s_buf), szAccName, sizeof(s_buf) - 1);
 		return s_buf;
 	}
@@ -7219,6 +7257,11 @@ void ScrDialogBox(RPCParameters *rpcParams)
 		sampDialog.iIsActive = 0;
 		return;
 	}
+
+	// Bekleyen /stats cevabi (ACC probe): govdeyi bir kez dokum - format daha
+	// sonra kesin parse ile doldurulacak. Sadece bizim sordugumuz isim icin.
+	if(!g_accPendingName.empty() && GetTickCount() - g_accPendingAt < ACC_PROBE_TIMEOUT_MS)
+		Log("[ACCDBG] isim='%s' baslik='%s' govde=%.300s", g_accPendingName.c_str(), sampDialog.szTitle, szDlgInfo);
 
 	// --- GLOBAL AUTOCLOSE ---
 	// Acik kalmasi zorunlu diyaloglar disindakileri otomatik kapat (ekranda birikmesin).
