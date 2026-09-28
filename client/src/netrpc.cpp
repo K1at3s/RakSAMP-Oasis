@@ -3174,6 +3174,7 @@ static void GangZoneScanGzDialog(const char *szInfo)
 			size_t nC = strcspn(pS, "\r\n");
 			if(nC > 63) nC = 63;
 			memcpy(szCd, pS, nC); szCd[nC] = 0;
+			StripColorCodes(szCd);
 			Log("[ZF:SCAN] Zone #%d cooldown: %s", iZone, szCd);
 		}
 	}
@@ -3392,7 +3393,16 @@ void StartZoneScan(bool bAuto)
 // GangZoneScanNext guncel ozeti tekrar gonderir.
 static void StartFlashScan()
 {
-	if(g_zoneScanIdx >= 0 || !iSpawned || g_zscanPausedForSnip) { Log("[ZF:FLASHSCAN] Atlanildi (scan aktif=%d spawned=%d).", g_zoneScanIdx >= 0, iSpawned); return; }
+	if(g_zoneScanIdx >= 0 || !iSpawned || g_zscanPausedForSnip)
+	{
+		static DWORD s_lastSkipLog = 0;
+		if(s_lastSkipLog == 0 || GetTickCount() - s_lastSkipLog >= 60000)
+		{
+			s_lastSkipLog = GetTickCount();
+			Log("[ZF:FLASHSCAN] Atlanildi (scan aktif=%d spawned=%d).", g_zoneScanIdx >= 0, iSpawned);
+		}
+		return;
+	}
 
 	g_zoneScanQ = 0;
 	for(int zid = 0; zid < g_zoneCount && g_zoneScanQ < MAX_GANG_ZONES; zid++)
@@ -3653,7 +3663,9 @@ void ProcessZoneScan()
 	if(g_zoneScanWaitingTeleport)
 	{
 		g_zoneScanWaitingTeleport = false;
-		Log("[ZF:SCAN] Ornek zone #%d icin /gzinfo gonderiliyor.", g_zoneScanQueue[g_zoneScanIdx]);
+		float fDbgPos[3] = {0, 0, 0};
+		getPlayerPos(g_myPlayerID, fDbgPos);
+		Log("[ZF:SCAN] Ornek zone #%d icin /gzinfo gonderiliyor (bot %.0f, %.0f).", g_zoneScanQueue[g_zoneScanIdx], fDbgPos[0], fDbgPos[1]);
 		g_zoneScanDeadline = dwNow + ZONE_SCAN_PER_SAMPLE_MS;
 		sendServerCommand((char *)"/gzinfo");
 		return;
