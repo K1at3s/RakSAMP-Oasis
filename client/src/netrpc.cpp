@@ -2013,6 +2013,7 @@ char target[64] = {0}; long long targetId = 0;
 // Slot cevrimdisi/bilinmiyorsa NULL doner (yanlis kisi gosterilmez);
 // buyuk sayilar account ID sayilip aynen gecer.
 static bool QueryBackendPlayerRow(int iPid, char *szName, size_t nNameLen, double *pLoss, int *pFps, int *pPing, int *pAgeSec); // tanim asagida (?pl bolumu)
+static bool QueryBackendPlayerRowByAccount(int iAcc, char *szName, size_t nNameLen, int *pAgeSec); // hesap ID -> isim
 static const char *ResolveAlogQuery(const char *q)
 {
 	static char s_buf[64];
@@ -2024,7 +2025,16 @@ static const char *ResolveAlogQuery(const char *q)
 	if(!s_buf[0]) return s_buf;
 	bool bNum = true;
 	for(size_t k = 0; s_buf[k]; k++) if(s_buf[k] < '0' || s_buf[k] > '9') { bNum = false; break; }
-	if(!bNum) return s_buf;
+	if(!bNum)
+	{
+		for(int s = 0; s < MAX_PLAYERS; s++)
+			if(playerInfo[s].szPlayerName[0] && _stricmp(playerInfo[s].szPlayerName, s_buf) == 0)
+			{
+				Log("[ALOG] '%s' CANLI (slot %d).", s_buf, s);
+				break;
+			}
+		return s_buf;
+	}
 	int nId = atoi(s_buf);
 	if(nId < 0 || nId >= MAX_PLAYERS) return s_buf;
 	if(playerInfo[nId].szPlayerName[0])
@@ -2046,6 +2056,20 @@ static const char *ResolveAlogQuery(const char *q)
 	{
 		strncpy_s(s_buf, sizeof(s_buf), szDbName, sizeof(s_buf) - 1);
 		Log("[ALOG] Slot %d -> '%s' ismiyle sorgulaniyor (DB, %ds).", nId, s_buf, iDbAge);
+		return s_buf;
+	}
+	// Sayi slot olarak cozulemedi: simdi HESAP ID olabilir (/stats bunu gosterir,
+	// players.id ise baglanti slot ID'si). DB'deki account_id -> isim, sonra
+	// CANLI listeden teyit - "slot offline" hatasi boylece duzelir.
+	char szAccName[64] = {0}; int iAccAge = 999999;
+	if(QueryBackendPlayerRowByAccount(nId, szAccName, sizeof(szAccName), &iAccAge)
+		&& szAccName[0] && iAccAge >= 0 && iAccAge < 120)
+	{
+		bool bLive = false;
+		for(int s = 0; s < MAX_PLAYERS; s++)
+			if(playerInfo[s].szPlayerName[0] && _stricmp(playerInfo[s].szPlayerName, szAccName) == 0) { bLive = true; break; }
+		Log("[ALOG] Hesap ID %d -> '%s' (%s, DB %ds).", nId, szAccName, bLive ? "CANLI" : "kayitli", iAccAge);
+		strncpy_s(s_buf, sizeof(s_buf), szAccName, sizeof(s_buf) - 1);
 		return s_buf;
 	}
 	return NULL; // slot cevrimdisi/bilinmiyor: yanlis kisi gosterilmesin
@@ -8383,6 +8407,32 @@ static bool QueryBackendPlayerRow(int iPid, char *szName, size_t nNameLen, doubl
 		if(pLoss) { *pLoss = -1.0; if(r.contains("packetloss") && r["packetloss"].is_number()) *pLoss = r["packetloss"].get<double>(); }
 		if(pFps) { *pFps = -1; if(r.contains("fps") && r["fps"].is_number()) *pFps = (int)r["fps"].get<double>(); }
 		if(pPing) { *pPing = -1; if(r.contains("ping") && r["ping"].is_number()) *pPing = (int)r["ping"].get<double>(); }
+		if(pAgeSec) { *pAgeSec = 999999; if(r.contains("ageSec") && r["ageSec"].is_number()) *pAgeSec = (int)r["ageSec"].get<double>(); }
+		return true;
+	}
+	catch(...) { return false; }
+}
+// Hesap ID (/stats'in gosterdigi numara) -> oyuncu adi. players.id BAGLANTI slot
+// ID'sidir (her reconnect'te degisir), hesap ID ayri kolonda durur.
+static bool QueryBackendPlayerRowByAccount(int iAcc, char *szName, size_t nNameLen, int *pAgeSec)
+{
+	if(iAcc <= 0) return false;
+	if(szName && nNameLen > 0) szName[0] = 0;
+	if(!g_isEngineActive || g_sessionToken.empty()) return false;
+	try
+	{
+		httplib::Client cli(g_szBackendBase);
+		cli.set_connection_timeout(4);
+		char szUrl[64];
+		sprintf_s(szUrl, sizeof(szUrl), "/api/player/cache?accountId=%d", iAcc);
+		auto res = cli.Get(szUrl);
+		if(!res || res->status != 200) return false;
+		json j = json::parse(res->body);
+		if(!j.value("success", false) || !j.contains("rows") || !j["rows"].is_array() || j["rows"].empty()) return false;
+		json r = j["rows"][0];
+		std::string sN = r.value("name", "");
+		if(sN.empty()) return false;
+		if(szName && nNameLen > 0) strncpy_s(szName, nNameLen, sN.c_str(), _TRUNCATE);
 		if(pAgeSec) { *pAgeSec = 999999; if(r.contains("ageSec") && r["ageSec"].is_number()) *pAgeSec = (int)r["ageSec"].get<double>(); }
 		return true;
 	}
