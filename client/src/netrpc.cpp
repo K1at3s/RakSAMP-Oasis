@@ -2105,13 +2105,23 @@ static void SyncPlayerCacheToDb()
 	for(int i = 0; i < MAX_PLAYERS; i++)
 	{
 		if(g_playerCache[i].dwTime == 0) continue;
-		arr.push_back({
+		json j = {
 			{"id", i},
 			{"name", g_playerCache[i].szName[0] ? g_playerCache[i].szName : "?"},
 			{"packetloss", g_playerCache[i].dLoss},
 			{"fps", g_playerCache[i].iFps},
 			{"ping", g_playerCache[i].iPing}
-		});
+		};
+		// /stats'in gosterdigi hesap ID'yi de yolla: 'id' her reconnect'te
+		// degisen BAGLANTI slot ID'si, hesap ID ise kalicidir.
+		if(g_playerCache[i].szName[0])
+		{
+			char nLow[64] = {0};
+			for(int k = 0; g_playerCache[i].szName[k] && k < 63; k++) { char cc = g_playerCache[i].szName[k]; nLow[k] = (cc >= 'A' && cc <= 'Z') ? (char)(cc + 32) : cc; }
+			std::map<std::string,std::string>::iterator it = g_gmKnownAcc.find(nLow);
+			if(it != g_gmKnownAcc.end() && it->second.size() && it->second.size() < 8) j["accountId"] = atoi(it->second.c_str());
+		}
+		arr.push_back(j);
 	}
 	if(arr.empty()) return;
 	try
