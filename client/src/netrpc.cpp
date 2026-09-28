@@ -3097,22 +3097,22 @@ static void GangZoneScanGzDialog(const char *szInfo)
 		}
 	}
 
-	// Gelen ID gecerliyse o kimliktir (sahibi bu zone'a yazilir) ve sira ilerler.
-	// ID 0/-1 geldiyse sunucu kimlik vermemis demektir; o durumda teletransport
-	// ettigimiz ornek (kuyruk sirasi) kullanilir ki zone #0 surekli ezilmesin.
-	// ponytail: kimlik yoksa kuyruk sirasina guveniyoruz; sunucu her ornekte
+	// Gelen ID dogrudur ve 0 da gecerli (Bayside gercekten #0) - o zone'in
+	// sahibi oraya yazilir, ornek hangisi ise onun disinda kalir. Sadece "Zone ID:"
+	// satiri hic yoksa (-1) teletransport ettigimiz ornege dustugumuz icin onu kullan.
+	// ponytail: kimliksiz cevapta kuyruk sirasina guveniyoruz; sunucu her ornekte
 	// ID dondurunce bu dal hic kullanilmaz.
 	int iDlgZone = iZone;
-	if(iDlgZone <= 0 || iDlgZone >= MAX_GANG_ZONES)
+	if(iDlgZone < 0 || iDlgZone >= MAX_GANG_ZONES)
 	{
 		if(g_zoneScanIdx >= 0 && g_zoneScanIdx < g_zoneScanQ)
 		{
 			iZone = g_zoneScanQueue[g_zoneScanIdx];
-			Log("[ZF:SCAN] Dialog kimliksiz (#%d), ornek #%d kullanildi.", iDlgZone, iZone);
+			Log("[ZF:SCAN] Dialog kimliksiz, ornek #%d kullanildi.", iZone);
 		}
 		else
 		{
-			Log("[ZF:SCAN] Dialog zone #%d gecersiz, ornek yok; atlandi.", iDlgZone);
+			Log("[ZF:SCAN] Dialog kimliksiz, ornek yok; atlandi.");
 			return;
 		}
 	}
@@ -7202,9 +7202,18 @@ void ScrDialogBox(RPCParameters *rpcParams)
 		{
 			Log("[GZINFO-DATA] '%s': %.330s", sampDialog.szTitle, szDlgInfo);
 			Log("[GZINFO-BTNS] btn1='%s' btn2='%s'", sampDialog.szButton1, sampDialog.szButton2);
+			// ONCE kapat, SONRA ogren. Ogrenme siradaki /pos'u tetikliyor ve
+			// sunucu acik diyalogla aksiyonu reddediyordu ("You cannot perform
+			// this action with a dialog open") -> bot hic teleport olmuyor, her
+			// /gzinfo ayni zone'i (Bayside #0) bildiriyor, butun zone'lar ayni
+			// sahibe yaziliyordu.
+			sendDialogResponse(sampDialog.wDialogID, 0, 0xFFFF, (char *)"");
+			sampDialog.iIsActive = 0;
+			Log("[AUTOCLOSE] Dialog id=%d '%s' (style %d) kapatildi.", sampDialog.wDialogID, sampDialog.szTitle, sampDialog.bDialogStyle);
 			// Her gzinfo dialogundan ogren (tarama aktif olmasa da): ?zf'nin kendi
 			// /gzinfo'su su anki gercek sahibi getirir, eski/eski cache'i ezer.
 			GangZoneScanGzDialog(szDlgInfo);
+			return;
 		}
 		Log("[AUTOCLOSE] Dialog id=%d '%s' (style %d) kapatildi.", sampDialog.wDialogID, sampDialog.szTitle, sampDialog.bDialogStyle);
 		sendDialogResponse(sampDialog.wDialogID, 0, 0xFFFF, (char *)"");
