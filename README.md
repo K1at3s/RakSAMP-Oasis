@@ -57,7 +57,7 @@ Tüm komutlar grup chat'ine `?` önekiyle yazılır. `!` önekli mesajlar Discor
 | `?gst` | Bulunulan zone + aktif oyuncu sayısı |
 | `?gstats [id]` | Grup istatistikleri (Discord'a gönderir) |
 | `?astats <id>` | Account istatistikleri |
-| `?alog <id>` | Admin log özeti |
+| `?alog <isim\|id\|a:id\|o:id>` | Admin log özeti. Düz sayı = **oyun içi id** (tab menüsü), `a:` = **hesap id** (`/stats`), `o:` = oyun içi id (açık yazım) |
 | `?az` | Serbest zone bilgisi |
 
 ### Zone / Tarama
