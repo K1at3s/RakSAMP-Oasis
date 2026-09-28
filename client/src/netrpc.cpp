@@ -3080,31 +3080,41 @@ static void GangZoneScanGzDialog(const char *szInfo)
 		while(*pZone == ' ') pZone++;
 		iZone = atoi(pZone);
 	}
-	// Oasis: "Zone: <ad>" ayri satir, ID "Zone ID: <N>" satirinda.
+	// Oasis: "Zone: <ad>" ayri satir, ID "Zone ID: {FFE599}22" satirinda.
+	// Sayidan once renk kodu geliyor -> atoi hep 0 veriyordu. Once temizle.
 	if(iZone < 0)
 	{
 		const char *pId = strstr(szInfo, "Zone ID:");
-		if(pId) iZone = atoi(pId + 8);
+		if(pId)
+		{
+			char szNum[32] = {0};
+			size_t nN = strcspn(pId + 8, "\r\n");
+			if(nN > 31) nN = 31;
+			memcpy(szNum, pId + 8, nN);
+			szNum[nN] = 0;
+			StripColorCodes(szNum);
+			iZone = atoi(szNum);
+		}
 	}
 
-	// Oasis /gzinfo cevabi kimlik tasimiyor: "Zone ID: 0" donuyor, sahibi konuma
-	// gore degisiyor. Teletransport ettigimiz zone'un ID'si zaten kuyruk siramizda
-	// (g_zoneScanQueue), o yuzden kimlik olarak O kullanilir; gelen ID sadece logda
-	// kalir. Boylece cevap geldigi icin sira beklemeden ilerler ve "dialog gelmedi"
-	// timeout'u olusmaz (once her cevap "gec dialog" sayilip 7sn bekleniyordu).
-	// ponytail: teletransport ile eslesme. Ust uste binen zone'larda sahip karisabilir;
-	// sunucu gercek ID vermeye baslarsa (iDlgZone != 0) o deger one gecer.
+	// Gelen ID gecerliyse o kimliktir (sahibi bu zone'a yazilir) ve sira ilerler.
+	// ID 0/-1 geldiyse sunucu kimlik vermemis demektir; o durumda teletransport
+	// ettigimiz ornek (kuyruk sirasi) kullanilir ki zone #0 surekli ezilmesin.
+	// ponytail: kimlik yoksa kuyruk sirasina guveniyoruz; sunucu her ornekte
+	// ID dondurunce bu dal hic kullanilmaz.
 	int iDlgZone = iZone;
-	if(g_zoneScanIdx >= 0 && g_zoneScanIdx < g_zoneScanQ)
+	if(iDlgZone <= 0 || iDlgZone >= MAX_GANG_ZONES)
 	{
-		iZone = g_zoneScanQueue[g_zoneScanIdx];
-		if(iDlgZone != iZone)
-			Log("[ZF:SCAN] Dialog zone #%d dondu, ornek #%d kimligiyle ogreniliyor.", iDlgZone, iZone);
-	}
-	else if(iDlgZone < 0 || iDlgZone >= MAX_GANG_ZONES)
-	{
-		Log("[ZF:SCAN] Dialog zone #%d gecersiz, ornek yok; atlandi.", iDlgZone);
-		return;
+		if(g_zoneScanIdx >= 0 && g_zoneScanIdx < g_zoneScanQ)
+		{
+			iZone = g_zoneScanQueue[g_zoneScanIdx];
+			Log("[ZF:SCAN] Dialog kimliksiz (#%d), ornek #%d kullanildi.", iDlgZone, iZone);
+		}
+		else
+		{
+			Log("[ZF:SCAN] Dialog zone #%d gecersiz, ornek yok; atlandi.", iDlgZone);
+			return;
+		}
 	}
 
 	char szOwner[80] = {0};
