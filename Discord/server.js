@@ -1489,14 +1489,17 @@ app.post('/api/player/cache', async (req, res) => {
     if (!Array.isArray(players)) return res.status(400).json({ success: false, message: "players bekleniyor" });
     const rows = players
         .filter(p => Number.isInteger(p.id) && p.id >= 0 && p.id < 1000)
-        .map(p => [p.id, String(p.name || '').slice(0, 64), Number(p.packetloss) || 0, Number(p.fps) || 0, Number(p.ping) || 0, new Date()]);
+        // account_id: /stats'in gosterdigi hesap ID. 'id' BAGLANTI slot ID'sidir
+        // (her reconnect'te degisir) - ikisi karistirilip yanlis oyuncu donuyordu.
+        .map(p => [p.id, String(p.name || '').slice(0, 64), Number(p.packetloss) || 0, Number(p.fps) || 0, Number(p.ping) || 0,
+            Number.isInteger(p.accountId) && p.accountId > 0 && p.accountId < 1000000 ? p.accountId : null, new Date()]);
     if (!rows.length) return res.json({ success: true, count: 0 });
     try {
         // Cache dosyası tek doğru kaynak olduğundan tablo her push'ta sıfırlanıp
         // yeniden yazılır (eski/çıkmış oyuncu verisi burada kalmaz).
         await db.execute('DELETE FROM players');
         await db.query(
-            `INSERT INTO players (id, name, packetloss, fps, ping, updated_at) VALUES ?`,
+            `INSERT INTO players (id, name, packetloss, fps, ping, account_id, updated_at) VALUES ?`,
             [rows]
         );
         console.log(`🎮 PLAYER-CACHE: ${rows.length} oyuncu DB'ye yazildi`);
@@ -1511,11 +1514,14 @@ app.post('/api/player/cache', async (req, res) => {
 // tek kaynak DB'deki players tablosu).
 app.get('/api/player/cache', async (req, res) => {
     const id = req.query.id !== undefined ? Number(req.query.id) : NaN;
+    const acc = req.query.accountId !== undefined ? Number(req.query.accountId) : NaN;
     const name = String(req.query.name || '').trim().slice(0, 64);
     try {
         let rows;
-        if (Number.isInteger(id) && id >= 0 && id < 1000) {
-            rows = await db.execute('SELECT id, name, packetloss, fps, ping, updated_at, TIMESTAMPDIFF(SECOND, updated_at, NOW()) AS ageSec FROM players WHERE id = ? LIMIT 2', [id]);
+        if (Number.isInteger(acc) && acc > 0) {
+            rows = await db.execute('SELECT id, name, account_id, packetloss, fps, ping, updated_at, TIMESTAMPDIFF(SECOND, updated_at, NOW()) AS ageSec FROM players WHERE account_id = ? LIMIT 2', [acc]);
+        } else if (Number.isInteger(id) && id >= 0 && id < 1000) {
+            rows = await db.execute('SELECT id, name, account_id, packetloss, fps, ping, updated_at, TIMESTAMPDIFF(SECOND, updated_at, NOW()) AS ageSec FROM players WHERE id = ? LIMIT 2', [id]);
         } else if (name) {
             rows = await db.execute('SELECT id, name, packetloss, fps, ping, updated_at, TIMESTAMPDIFF(SECOND, updated_at, NOW()) AS ageSec FROM players WHERE LOWER(name) = LOWER(?) LIMIT 5', [name]);
         } else {
