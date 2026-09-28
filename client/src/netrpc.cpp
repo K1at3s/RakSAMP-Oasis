@@ -2076,6 +2076,11 @@ static const char *ResolveAlogQuery(const char *q)
 	if(playerInfo[nId].szPlayerName[0])
 	{
 		strncpy_s(s_buf, sizeof(s_buf), playerInfo[nId].szPlayerName, sizeof(s_buf) - 1);
+		// Oyun ici id (tab menusu) birincil: admin ekranda gordugu sayi bu.
+		// Hesap ID farkliysa karisiklik olmasin diye ikisini de yaziyoruz.
+		int iKnown = FindAccountIdByName(s_buf);
+		if(iKnown > 0 && iKnown != nId)
+			Log("[ALOG] UYARI: oyun ici id %d = '%s' (hesap ID %d). Sayi oyun ici id olarak cozuldu.", nId, s_buf, iKnown);
 		Log("[ALOG] Slot %d -> '%s' ismiyle sorgulaniyor.", nId, s_buf);
 		EnsureAccountId(s_buf);
 		return s_buf;
