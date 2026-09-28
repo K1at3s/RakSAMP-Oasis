@@ -1,3 +1,49 @@
+# v1.8.0 - 2026-09-28 (Oasis)
+
+## Türkçe
+### ?alog kimlik çözümü (id karışıklığı)
+- **İki numara alanı var ve üst üste biniyordu**: oyun içi id (tab menüsü, her reconnect'te değişir) ve `/stats` hesap id (kalıcı). `?alogs <id>` sayıyı sadece *slot* sanıyordu; slot 12'de başka biri varsa yanlış kişinin kayıtları geliyordu ("slot çevrimdışı" yalanı).
+- **Çözümleme sırası**: isim → oyun içi id (canlı liste) → `players.id` (DB) → hesap id (`players.account_id`). Sayı **her zaman** önce oyun içi id sayılır, çünkü admin ekranda gördüğü odur.
+- **`?alog a:<id>`** = hesap id, **`?alog o:<id>`** = oyun içi id (açık yazım). Belirsizlik sözdiziminde çözülüyor: iki sayı da geçerliyse hiçbir zaman sessizce yanlış kişi dönmez.
+- **Çakışma uyarısı**: sayı hem oyun içi id hem başka birinin hesap id ise ikisi de loglanır (`UYARI: oyun içi id 12 = 'Y' (hesap ID 45) ...`).
+- **Hesap id öğrenme**: ismin hesap id'si bilinmiyorsa sunucuya tek seferlik `/stats <isim>` sorulur (`EnsureAccountId`), cevap `[ACCDBG]` ile loglanır.
+- **`players.account_id` kolonu** eklendi (şema ALTER ile uygulandı). `players.id` oyun içi id'dir, değişken; hesap id ayrı kolonda kalıcı tutulur. Backend `?accountId=` ile arama destekliyor.
+
+### Zone taraması düzeltmeleri (Oasis)
+- **Teleport hiç gerçekleşmiyordu**: `?gzinfo` dialogu kapanmadan sıradaki `/pos` gönderiliyordu, sunucu "You cannot perform this action with a dialog open" ile reddediyordu. Bot hep aynı yerde kalıyor, her `/gzinfo` aynı zone'i bildiriyordu. Artık diyalog **önce** kapatılıyor, sonra öğreniliyor.
+- **Off-by-one (kayma)**: sunucu `/gzinfo` cevabında `Zone ID`'yi bir geriden veriyor (bizim #59 → sunucu #58; 57 örneğin 57'sinde fark tam -1). Sahip gelen ID'ye yazılınca tüm sahipler bir slot kaymıştı. Artık sahip **telereport edilen zone'un dizinine** yazılıyor; gelen ID sadece loga düşüyor.
+- **`Zone ID` parse'ı**: `Zone ID: {FFE599}22` → `atoi` 0 veriyordu, renk kodları temizleniyor.
+- **`/gzinfo` gstats cevabı sanılıyordu**: tarama sırasında gelen Zone Info dialogu harvest'e gstats cevabı olarak yiyor, DB'ye `"Zone: Bayside"` gibi sahte gruplar (+ `"Slot Group Name Members Online"`) yazıyordu. Artık Zone Info dialogu gstats/harvest adımına girmez. 3 sahte grup DB'den silindi.
+- **Log spam'i**: `?zf` her frame'de "Atlanildi" basıyordu (saniyede ~20 satır) → dakikada bir kez.
+- **Cooldown metni**: `{FFA033}Ready to attack` → renk kodları temizleniyor.
+
+### Roller / komutlar
+- `fSc.Oreyoo` güvenlik (whitelist) listesine eklendi (`?changepass` / `?email`).
+- `?grole` yeni roller: `dep/deputy/downer`, `leader/lead`, `co/coleader/co-leader`, `mem/memb/member`, `trial`, `passive`, `guest` → tam adlarına çevrilir.
+- `?ginvite` alias'ı eklendi; artık sunucunun cevabı (`Player is in a Group already.` vb.) grupta paylaşılıyor — komut zaten çalışıyordu, cevap iletilmiyordu.
+
+## English
+### ?alog identity resolution (id mix-up)
+- **Two overlapping number spaces**: the in-game id (tab menu, changes on every reconnect) and the `/stats` account id (permanent). `?alogs <id>` treated the number as a *slot* only, so if someone else occupied slot 12 you got the wrong person's records (a bogus "slot offline" message).
+- **Resolution order**: name → in-game id (live list) → `players.id` (DB) → account id (`players.account_id`). A plain number is **always** tried as the in-game id first, since that is what the admin sees on screen.
+- **`?alog a:<id>`** = account id, **`?alog o:<id>`** = in-game id (explicit). The ambiguity is resolved in the syntax: when both numbers are valid nothing is ever silently attributed to the wrong person.
+- **Conflict warning**: if the number is both an in-game id and someone else's account id, both are logged (`WARNING: in-game id 12 = 'Y' (account ID 45) ...`).
+- **Account id learning**: if a name's account id is unknown, the server is asked once via `/stats <name>` (`EnsureAccountId`); the reply body is dumped as `[ACCDBG]`.
+- **`players.account_id` column** added (applied with ALTER). `players.id` is the in-game id and changes; the account id is kept permanently in its own column. The backend supports `?accountId=` lookups.
+
+### Zone scan fixes (Oasis)
+- **Teleports never happened**: the next `/pos` was sent while the `?gzinfo` dialog was still open, so the server rejected it ("You cannot perform this action with a dialog open"). The bot never moved and every `/gzinfo` reported the same zone. The dialog is now closed **before** learning.
+- **Off-by-one**: the server reports `Zone ID` one behind (our #59 → server #58; 57/57 samples differed by exactly -1). Writing the owner under the returned id shifted every owner by one slot. Owners are now written to the **sampled zone's index**; the returned id is only logged.
+- **`Zone ID` parsing**: `Zone ID: {FFE599}22` made `atoi` return 0; color codes are stripped now.
+- **`/gzinfo` counted as a gstats reply**: a Zone Info dialog arriving during a scan was consumed by the tag harvest, writing junk groups like `"Zone: Bayside"` and `"Slot Group Name Members Online"` to the DB. Zone Info dialogs are now excluded; 3 junk groups deleted.
+- **Log spam**: `?zf` logged "Atlanildi" every frame (~20 lines/second) → now once a minute.
+- **Cooldown text**: `{FFA033}Ready to attack` → color codes stripped.
+
+### Roles / commands
+- `fSc.Oreyoo` added to the security whitelist (`?changepass` / `?email`).
+- `?grole` new roles: `dep/deputy/downer`, `leader/lead`, `co/coleader/co-leader`, `mem/memb/member`, `trial`, `passive`, `guest` are mapped to their full names.
+- `?ginvite` alias added; the server's reply (e.g. `Player is in a Group already.`) is now relayed to the group — the command always worked, the reply was simply never shared.
+
 # v1.0 - 2026-09-15 (stable)
 
 ## Türkçe

@@ -57,7 +57,7 @@ All commands are typed with the `?` prefix in the group chat. Messages prefixed 
 | `?gst` | Current zone + active player count |
 | `?gstats [id]` | Group stats (sent to Discord) |
 | `?astats <id>` | Account stats |
-| `?alog <id>` | Admin log summary |
+| `?alog <name\|id\|a:id\|o:id>` | Admin log summary. Plain number = **in-game id** (tab menu), `a:` = **account id** (`/stats`), `o:` = in-game id (explicit) |
 | `?az` | Free zone info |
 
 ### Zone / Scan
