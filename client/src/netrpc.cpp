@@ -3087,20 +3087,24 @@ static void GangZoneScanGzDialog(const char *szInfo)
 		if(pId) iZone = atoi(pId + 8);
 	}
 
-	// Gec dialog: sira ilerlemis olabilir (Oasis cevabi deadline sonrasi gelir).
-	// Veri gecerli ID tasiyorsa ID'ye gore ogrenilir, sira bozulmaz.
-	bool bLate = false;
-	if(g_zoneScanIdx >= 0 && iZone != g_zoneScanQueue[g_zoneScanIdx])
+	// Oasis /gzinfo cevabi kimlik tasimiyor: "Zone ID: 0" donuyor, sahibi konuma
+	// gore degisiyor. Teletransport ettigimiz zone'un ID'si zaten kuyruk siramizda
+	// (g_zoneScanQueue), o yuzden kimlik olarak O kullanilir; gelen ID sadece logda
+	// kalir. Boylece cevap geldigi icin sira beklemeden ilerler ve "dialog gelmedi"
+	// timeout'u olusmaz (once her cevap "gec dialog" sayilip 7sn bekleniyordu).
+	// ponytail: teletransport ile eslesme. Ust uste binen zone'larda sahip karisabilir;
+	// sunucu gercek ID vermeye baslarsa (iDlgZone != 0) o deger one gecer.
+	int iDlgZone = iZone;
+	if(g_zoneScanIdx >= 0 && g_zoneScanIdx < g_zoneScanQ)
 	{
-		if(iZone < 0 || iZone >= MAX_GANG_ZONES)
-		{
-			Log("[ZF:SCAN] Dialog zone #%d, beklenen ornek #%d degil; stale dialog atlaniyor.",
-				iZone, g_zoneScanQueue[g_zoneScanIdx]);
-			return;
-		}
-		bLate = true;
-		Log("[ZF:SCAN] Gec dialog zone #%d ogreniliyor (beklenen #%d, sira bozulmuyor).",
-			iZone, g_zoneScanQueue[g_zoneScanIdx]);
+		iZone = g_zoneScanQueue[g_zoneScanIdx];
+		if(iDlgZone != iZone)
+			Log("[ZF:SCAN] Dialog zone #%d dondu, ornek #%d kimligiyle ogreniliyor.", iDlgZone, iZone);
+	}
+	else if(iDlgZone < 0 || iDlgZone >= MAX_GANG_ZONES)
+	{
+		Log("[ZF:SCAN] Dialog zone #%d gecersiz, ornek yok; atlandi.", iDlgZone);
+		return;
 	}
 
 	char szOwner[80] = {0};
@@ -3216,7 +3220,6 @@ static void GangZoneScanGzDialog(const char *szInfo)
 	if(g_ztkVerifyPending && iZone == g_ztkVerifyZone)
 		ZtkVerifyComplete(szInfo);
 
-	if(bLate) return; // gec ogrenme: sirayi ilerletme
 	GangZoneScanNext();
 }
 
