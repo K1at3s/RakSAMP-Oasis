@@ -3143,7 +3143,7 @@ static void ZtkVerifyComplete(const char *szInfo)
 		Log("[ZSNIP] Zone #%d saldiri korumali (cooldown %d dk), atlaniyor.", zid, iCd);
 		g_bridgeSuppressEcho++;
 		char szMsg2[128];
-		sprintf_s(szMsg2, sizeof(szMsg2), LM("!Zone #%d saldiri korumali (%d dk), atlaniyor.", "!Zone #%d is protected (%d min), skipping."), zid, iCd);
+		sprintf_s(szMsg2, sizeof(szMsg2), LM("!Zone #%d saldiri korumali (%d dk), atlaniyor.", "!Zone #%d is protected (%d min), skipping."), ZONE_SHOWN_FROM_IDX(zid), iCd);
 		sendChat(szMsg2);
 		ZtkChainAdvance();
 	return;
@@ -3168,7 +3168,7 @@ static void ZtkVerifyComplete(const char *szInfo)
 	Log("[ZSNIP] Zone #%d sahibi uyusmadi (beklenen %s, gercek %s) - saldiri iptal.", zid, g_snipGroupName, szHave[0] ? szHave : "?");
 	g_bridgeSuppressEcho++;
 	char szMsg[128];
-	sprintf_s(szMsg, sizeof(szMsg), LM("!Zone #%d artik %s degil (%s), atlaniyor.", "!Zone #%d is no longer %s (%s), skipping."), zid, g_snipGroupName, szHave[0] ? szHave : "?");
+	sprintf_s(szMsg, sizeof(szMsg), LM("!Zone #%d artik %s degil (%s), atlaniyor.", "!Zone #%d is no longer %s (%s), skipping."), ZONE_SHOWN_FROM_IDX(zid), g_snipGroupName, szHave[0] ? szHave : "?");
 	sendChat(szMsg);
 	if(g_snipZoneCount > 0 && g_snipZoneIdx + 1 < g_snipZoneCount)
 	{
@@ -4660,7 +4660,7 @@ void ClientMessage(RPCParameters *rpcParams)
 								char szMsg[128];
 								sprintf_s(szMsg, sizeof(szMsg),
 									LM("!Zone #%d bitti, sonraki zone #%d saldiriliyor...",
-										"!Zone #%d ended, attacking next zone #%d..."), zid, nNext);
+										"!Zone #%d ended, attacking next zone #%d..."), ZONE_SHOWN_FROM_IDX(zid), ZONE_SHOWN_FROM_IDX(nNext));
 								sendChat(szMsg);
 							}
 							else
@@ -6041,7 +6041,7 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 
 					char szMsg[128];
 					sprintf_s(szMsg, sizeof(szMsg), LM("!Zone #%d de. /go yazarak yanima isinlanabilirsin, 40 sn sonra donuyorum.",
-				"!At zone #%d. Type /go to teleport to me, returning in 40 sec."), iZone);
+				"!At zone #%d. Type /go to teleport to me, returning in 40 sec."), ZONE_SHOWN_FROM_IDX(iZone));
 					g_bridgeSuppressEcho++;
 					sendChat(szMsg);
 				}
@@ -6252,7 +6252,7 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 					g_bridgeSuppressEcho++;
 					char szMsg[128];
 					sprintf_s(szMsg, sizeof(szMsg),
-						LM("!Zone #%d hedeflendi, savas aciliyor...", "!Zone #%d targeted, starting war..."), iZoneY);
+						LM("!Zone #%d hedeflendi, savas aciliyor...", "!Zone #%d targeted, starting war..."), ZONE_SHOWN_FROM_IDX(iZoneY));
 					sendChat(szMsg);
 				}
 				else if(g_ztkAskNext && g_snipZoneCount > 0 && g_snipZoneIdx < g_snipZoneCount)
@@ -6266,7 +6266,7 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 					g_bridgeSuppressEcho++;
 					char szMsg[128];
 					sprintf_s(szMsg, sizeof(szMsg),
-						LM("!Zone #%d hedeflendi, savas bitisi bekleniyor...", "!Zone #%d targeted, waiting for the war to end..."), iZone);
+						LM("!Zone #%d hedeflendi, savas bitisi bekleniyor...", "!Zone #%d targeted, waiting for the war to end..."), ZONE_SHOWN_FROM_IDX(iZone));
 					sendChat(szMsg);
 				}
 				else
@@ -8853,10 +8853,10 @@ Log("[ZSNIP] Kullanici iptal etti (yetki dogrulandi), sniper kapatildi.");
 	char szMsg[160];
 	if(iWaitSec > 0)
 		sprintf_s(szMsg, sizeof(szMsg),
-			LM("!Zone #%d savasi bitiyor (%d sn), sniper bekliyor...", "!War in zone #%d ending (%d sec), sniper waiting..."), iZone, iWaitSec);
+			LM("!Zone #%d savasi bitiyor (%d sn), sniper bekliyor...", "!War in zone #%d ending (%d sec), sniper waiting..."), ZONE_SHOWN_FROM_IDX(iZone), iWaitSec);
 	else
 		sprintf_s(szMsg, sizeof(szMsg),
-			LM("!Zone #%d hedeflendi, savas aciliyor...", "!Zone #%d targeted, starting war..."), iZone);
+			LM("!Zone #%d hedeflendi, savas aciliyor...", "!Zone #%d targeted, starting war..."), ZONE_SHOWN_FROM_IDX(iZone));
 	g_bridgeSuppressEcho++;
 	sendChat(szMsg);
 }
@@ -9004,8 +9004,12 @@ void ProcessZtkTick()
 			g_ztkWaitAnnounced = true;
 			Log("[ZSNIP] Zone #%d savasi suruyor, bitisi bekleniyor.", g_ztkZoneId);
 			g_bridgeSuppressEcho++;
-			sendChat((char *)LM("!Zone #%d savasi devam ediyor, sniper bitisini bekliyor.",
-				"!War in zone #%d is ongoing, sniper waiting for it to end."));
+			// LM tek basina cagrilamaz (sendChat 1 arg), once sprintf ile doldurulur:
+			// onceki halde %d hic dolmadan gonderiliyordu.
+			char szWarMsg[160];
+			sprintf_s(szWarMsg, sizeof(szWarMsg), LM("!Zone #%d savasi devam ediyor, sniper bitisini bekliyor.",
+				"!War in zone #%d is ongoing, sniper waiting for it to end."), ZONE_SHOWN_FROM_IDX(g_ztkZoneId));
+			sendChat(szWarMsg);
 		}
 		return;
 	}
@@ -9496,7 +9500,7 @@ void ProcessZgoReturn()
 
 	char szMsg[128];
 	if(g_zgoZoneId >= 0)
-		sprintf_s(szMsg, sizeof(szMsg), LM("!Zone #%d beklemesi bitti, geri donuldu.", "!Zone #%d wait finished, returned back."), g_zgoZoneId);
+		sprintf_s(szMsg, sizeof(szMsg), LM("!Zone #%d beklemesi bitti, geri donuldu.", "!Zone #%d wait finished, returned back."), ZONE_SHOWN_FROM_IDX(g_zgoZoneId));
 	else
 		sprintf_s(szMsg, sizeof(szMsg), LM("!Zone beklemesi bitti, geri donuldu.", "!Zone wait finished, returned back."));
 	g_bridgeSuppressEcho++;
