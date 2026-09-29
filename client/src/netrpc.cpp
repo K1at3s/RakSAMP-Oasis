@@ -129,6 +129,11 @@ static int g_zoneCount = 0;
 
 // ?zgo: bot zone'a isinlanip 40 sn bekler, sonra eski pozisyonuna doner.
 #define ZGO_STAY_MS 40000
+// Sunucu zone id'si (ekranda gorunen, /gzinfo) bizim dizinimizden 1 KUCUK:
+// create/flash paketleri 1'den basliyor, /gzinfo 0'dan. 57 ornekte de fark
+// tam -1 idi ("?zgo 4" -> /gzinfo "#3"). Bu iki makro donusumu tek yerde tutar.
+#define ZONE_IDX_FROM_SHOWN(n) ((n) + 1)  // ekranda gorunen numara -> dizin
+#define ZONE_SHOWN_FROM_IDX(i) ((i) - 1)  // dizin -> ekranda gorunen numara
 #define ZGO_TELEPORT_Z 100.0f // yuksekten dus, zemin Z'sine otur (sabit 25 bazi bolgelerde yerin dibinde kaliyor)
 static bool g_zgoActive = false;            // isinlama + bekleme aktif mi
 static DWORD g_zgoReturnTick = 0;           // geri donus zamani
@@ -2283,6 +2288,7 @@ static bool LoadGroupsFromDb()
 					for(const auto &zv : g["zones"])
 					{
 						int zid = zv.is_number() ? zv.get<int>() : atoi(zv.get<std::string>().c_str());
+						zid = ZONE_IDX_FROM_SHOWN(zid);   // DB ekranda gorunen numarayi tutar
 						if(zid < 0 || zid >= MAX_GANG_ZONES) continue;
 						strncpy_s(g_zoneOwnerName[zid], sizeof(g_zoneOwnerName[0]),
 							name.c_str(), sizeof(g_zoneOwnerName[0]) - 1);
@@ -2319,7 +2325,10 @@ static void SyncGroupColorsToDb()
 		// DB canli savas haritasidir: YALNIZCA su an flashing zone'ler yazilir.
 		for(int z = 0; z < MAX_GANG_ZONES; z++)
 			if(g_zoneFlash[z] && g_zoneOwnerName[z][0] && _stricmp(g_zoneOwnerName[z], g_groupColors[i].szName) == 0)
-				zids.push_back(z);
+			{
+				int nShown = ZONE_SHOWN_FROM_IDX(z);
+				if(nShown >= 0) zids.push_back(nShown);   // DB/Discord ayni numarayi gorsun (/gzinfo gibi)
+			}
 		arr.push_back({{"name", g_groupColors[i].szName}, {"tag", g_groupColors[i].szTag}, {"zones", zids}});
 	}
 	if(arr.empty()) return;
@@ -5971,7 +5980,7 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 				g_snipZoneCount = 0; g_snipZoneIdx = 0; g_snipGroupName[0] = 0;
 				if(pArg[0] >= '0' && pArg[0] <= '9')
 				{
-					int zTry = atoi(pArg);
+					int zTry = ZONE_IDX_FROM_SHOWN(atoi(pArg));
 					if(zTry >= 0 && zTry < g_zoneCount) iZone = zTry;
 					// else: sayi gecerli zone degilse tag/isim olarak dene ("737" tagi gibi)
 				}
