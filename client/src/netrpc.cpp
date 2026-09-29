@@ -9049,6 +9049,17 @@ bool LearnGroupTagFromGStats(const char *szInfo)
 		if(s[0] == '/') return false;                       // komut/yardim listesi
 		if(strncmp(s, "Zone Name", 9) == 0) return false;   // /gzinfo zone bilgisi
 		if(strncmp(s, "Zone:", 5) == 0) return false;       // Oasis /gzinfo ("Zone: Bayside")
+		if(strstr(s, "Account ID")) return false;           // /stats cevabindan ("Account ID: 3682305")
+		// gstats dugmeleri/yardim metni grup adi degildir.
+		if(_stricmp(s, "my group") == 0 || strstr(s, "move to new group") || strstr(s, "delete group") || strstr(s, "invite player")) return false;
+		{
+			size_t nL = strlen(s);
+			if(nL >= 7 && _stricmp(s + nL - 7, " Group") == 0) return false; // "... - Group", "Everybody Hates This Group"
+			int nAl = 0;
+			for(const char *p = s; *p; p++)
+				if((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') || (*p >= '0' && *p <= '9')) nAl++;
+			if(nAl < 3) return false;                         // "-", "!", "...", "[G.C.]", "nO." -> isaret yigini
+		}
 		if(strstr(s, "Welcome")) return false;              // karsilama dialogu
 		if(strncmp(s, "ID Name", 7) == 0 && strstr(s, "Members")) return false; // /groups basligi
 		if(strstr(s, "Slot") && strstr(s, "Members Online")) return false; // Oasis /groups basligi
