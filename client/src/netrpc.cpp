@@ -966,6 +966,7 @@ static bool  g_zoneScanWaitingTeleport = false; // /pos gonderildi, /gzinfo henu
 static float g_zoneScanReturnPos[3] = {0, 0, 0};
 // ?follow (whisper): hedefi /pos ile takip. Hedef streamden duserse
 // (freeroamdan cikmis/gamemode/offline) 5 tur sonra otomatik biter.
+static const char *LM(const char *tr, const char *en); // tanim asagida (dil secimi)
 static bool  g_followActive = false;
 static char  g_followName[24] = {0};
 static int   g_followSlot = -1;
@@ -1002,7 +1003,7 @@ void ProcessFollowTick()
 		if(++g_followMiss >= FOLLOW_MAX_MISS)
 		{
 			g_followActive = false;
-			FollowWhisperReply("hedef freeroamda degil, takip bitti.");
+			FollowWhisperReply(LM("hedef freeroamda degil, takip bitti.", "Target left freeroam, stopped following."));
 			Log("[FOLLOW] %s streamde yok (%d tur), takip bitti.", g_followName, g_followMiss);
 		}
 		return;
@@ -5033,25 +5034,32 @@ g_bridgeSuppressEcho++;
 		{
 			const char *pFArg = szWClean + 7;
 			while(*pFArg == ' ') pFArg++;
+			if(!pFArg[0])
+			{
+				if(g_zoneScanIdx >= 0 || g_zgoActive || g_ztkActive || g_inZoneWar)
+				{
+					FollowWhisperReply(LM("mesgulum (tarama/savas), sonra dene.", "Busy (scan/war), try later."));
+					Log("[FOLLOW] %s istedi ama mesgul, baslatilmadi.", szWName);
+					return;
+				}
+				strncpy_s(g_followName, sizeof(g_followName), szWName, _TRUNCATE);
+				g_followSlot = iWId;
+				g_followMiss = 0;
+				g_followLastTick = 0;
+				g_followLastX = 0.0f; g_followLastY = 0.0f; g_followLastZ = 0.0f;
+				g_followActive = true;
+				FollowWhisperReply(LM("takip basladi.", "Following you."));
+				Log("[FOLLOW] %s (%d) takip ediliyor.", szWName, iWId);
+				return;
+			}
 			if(!_stricmp(pFArg, "stop"))
 			{
-				if(g_followActive) { g_followActive = false; FollowWhisperReply("takip durdu."); Log("[FOLLOW] %s istedi: durdu.", szWName); }
-				else FollowWhisperReply("zaten takip etmiyorum.");
+				if(g_followActive) { g_followActive = false; FollowWhisperReply(LM("takip durdu.", "Stopped following.")); Log("[FOLLOW] %s istedi: durdu.", szWName); }
+				else FollowWhisperReply(LM("takip etmiyorum.", "Not following anyone."));
 				return;
 			}
-			if(g_zoneScanIdx >= 0 || g_zgoActive || g_ztkActive || g_inZoneWar)
-			{
-				FollowWhisperReply("mesgulum (tarama/savas), sonra dene.");
-				Log("[FOLLOW] %s istedi ama mesgul, baslatilmadi.", szWName);
-				return;
-			}
-			strncpy_s(g_followName, sizeof(g_followName), szWName, _TRUNCATE);
-			g_followSlot = iWId;
-			g_followMiss = 0;
-			g_followLastTick = 0;
-			g_followActive = true;
-			FollowWhisperReply("takip basladi.");
-			Log("[FOLLOW] %s (%d) takip ediliyor.", szWName, iWId);
+			FollowWhisperReply(LM("Kullanim: ?follow | ?follow stop", "Usage: ?follow | ?follow stop"));
+			Log("[FOLLOW] %s bilinmeyen arguman, kullanim gonderildi.", szWName);
 			return;
 		}
 	}
