@@ -440,9 +440,35 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
         // Hedef adi: canli grup basligindan ??renilen ad -> cache'teki ad -> "Player <id>".
         // Botun kendi adi (g_szNickName) SADECE hedef botun kendisiyse kullanilir; ?pl <id>
         // cevabi "hakixld's PL" gibi yanlis isimle donemez.
+        // Isim ONCE dialog govdesinden: "/stats <id>" cevabinin ilk satiri
+        // "{renk}Isim(id)" bicimindedir ve sunucunun gercegini tasir.
+        // playerInfo/cache bayat olabilir (?pl 1 "zaza" derken gercek Flora).
+        char szDlgName[32] = {0};
+        int iDlgAcc = 0;
+        if (szInfo && szInfo[0])
+        {
+            char szFirst[64] = {0};
+            size_t nF = strcspn(szInfo, "\r\n");
+            if (nF > 63) nF = 63;
+            memcpy(szFirst, szInfo, nF); szFirst[nF] = 0;
+            const char *pN = szFirst;
+            while (pN[0] == '{') { const char *pC = strchr(pN, '}'); if (!pC) break; pN = pC + 1; }
+            while (*pN == ' ' || *pN == '\t') pN++;
+            const char *pO = strchr(pN, '(');
+            if (pO && pO > pN)
+            {
+                size_t nN = (size_t)(pO - pN);
+                if (nN > 31) nN = 31;
+                memcpy(szDlgName, pN, nN); szDlgName[nN] = 0;
+            }
+            const char *pA = strstr(szInfo, "Account ID");
+            if (pA) { pA += 10; while (*pA && (*pA < '0' || *pA > '9')) pA++; iDlgAcc = atoi(pA); }
+            if (szDlgName[0]) Log("[PNETSTATS] /stats ismi: '%s' (hesap ID %d).", szDlgName, iDlgAcc);
+        }
         char szFallbackName[32];
         const char *pPlName = "Player ?";
-        if (g_plTargetId >= 0 && g_plTargetId < MAX_PLAYERS) {
+        if (szDlgName[0]) pPlName = szDlgName;
+        else if (g_plTargetId >= 0 && g_plTargetId < MAX_PLAYERS) {
             if (playerInfo[g_plTargetId].szPlayerName[0]) {
                 pPlName = playerInfo[g_plTargetId].szPlayerName;
             } else if (g_playerCache[g_plTargetId].szName[0]) {
