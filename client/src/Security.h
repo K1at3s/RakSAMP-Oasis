@@ -84,6 +84,8 @@ void ProcessGmembers();
 void StartGmembersCollect(const char *requestId = "");
 void ProcessZgoReturn();
 void ProcessZtkTick();
+// ?follow (whisper): hedef oyuncuyu /pos ile takip
+void ProcessFollowTick();
 // ?zgrp grup ogrenme harvester'i: /groups + /gstats <ID> zinciri
 void OnGroupsListCaptured(const char *szInfo);
 void LearnOwnGroupName(const char *szName);
