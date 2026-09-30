@@ -971,6 +971,7 @@ static char  g_followName[24] = {0};
 static int   g_followSlot = -1;
 static int   g_followMiss = 0;
 static DWORD g_followLastTick = 0;
+static float g_followLastX = 0.0f, g_followLastY = 0.0f, g_followLastZ = 0.0f;
 #define FOLLOW_TICK_MS 3000
 #define FOLLOW_MAX_MISS 5
 static void FollowWhisperReply(const char *szMsg)
@@ -1010,8 +1011,12 @@ void ProcessFollowTick()
 	float *pP = playerInfo[iSlot].onfootData.vecPos;
 	if(playerInfo[iSlot].iAreWeInAVehicle && (playerInfo[iSlot].incarData.vecPos[0] != 0.0f || playerInfo[iSlot].incarData.vecPos[1] != 0.0f))
 		pP = playerInfo[iSlot].incarData.vecPos;
+	if(pP[0] == 0.0f && pP[1] == 0.0f) { g_followMiss++; return; } // konum henuz yok
+	float fDX = pP[0] - g_followLastX, fDY = pP[1] - g_followLastY, fDZ = pP[2] - g_followLastZ;
+	if((g_followLastX != 0.0f || g_followLastY != 0.0f) && (fDX*fDX + fDY*fDY + fDZ*fDZ) < 4.0f) return; // hedef oynamadi, yerinde dur
+	g_followLastX = pP[0]; g_followLastY = pP[1]; g_followLastZ = pP[2];
 	char szCmd[128];
-	sprintf_s(szCmd, sizeof(szCmd), "/pos %.2f %.2f %.2f", pP[0], pP[1], pP[2] + 2.0f);
+	sprintf_s(szCmd, sizeof(szCmd), "/pos %.2f %.2f %.2f", pP[0] + 2.5f, pP[1], pP[2]); // yaninda, yerde (havada degil)
 	sendServerCommand(szCmd);
 }
 static bool  g_zoneScanDone = false;   // oturumda bir kez
