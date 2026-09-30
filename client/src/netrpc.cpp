@@ -964,6 +964,56 @@ static void ResumeZoneScanAfterSnip()
 static DWORD g_zoneScanDeadline = 0;   // ornek icin zaman asimi
 static bool  g_zoneScanWaitingTeleport = false; // /pos gonderildi, /gzinfo henuz gonderilmedi
 static float g_zoneScanReturnPos[3] = {0, 0, 0};
+// ?follow (whisper): hedefi /pos ile takip. Hedef streamden duserse
+// (freeroamdan cikmis/gamemode/offline) 5 tur sonra otomatik biter.
+static bool  g_followActive = false;
+static char  g_followName[24] = {0};
+static int   g_followSlot = -1;
+static int   g_followMiss = 0;
+static DWORD g_followLastTick = 0;
+#define FOLLOW_TICK_MS 3000
+#define FOLLOW_MAX_MISS 5
+static void FollowWhisperReply(const char *szMsg)
+{
+	char szW[160];
+	sprintf_s(szW, sizeof(szW), "~ %s", szMsg);
+	g_bridgeSuppressEcho++;
+	sendChat(szW);
+	Log("[FOLLOW] whisper cevabi: %s", szMsg);
+}
+void ProcessFollowTick()
+{
+	if(!g_followActive) return;
+	DWORD dwNow = GetTickCount();
+	if(dwNow - g_followLastTick < FOLLOW_TICK_MS) return;
+	g_followLastTick = dwNow;
+	int iSlot = g_followSlot;
+	if(iSlot < 0 || iSlot >= MAX_PLAYERS || !playerInfo[iSlot].szPlayerName[0]
+		|| _stricmp(playerInfo[iSlot].szPlayerName, g_followName) != 0)
+	{
+		iSlot = -1;
+		for(int s = 0; s < MAX_PLAYERS; s++)
+			if(playerInfo[s].szPlayerName[0] && _stricmp(playerInfo[s].szPlayerName, g_followName) == 0) { iSlot = s; break; }
+		if(iSlot >= 0) { g_followSlot = iSlot; Log("[FOLLOW] slot guncellendi: %s -> %d.", g_followName, iSlot); }
+	}
+	if(iSlot < 0 || !playerInfo[iSlot].iIsStreamedIn)
+	{
+		if(++g_followMiss >= FOLLOW_MAX_MISS)
+		{
+			g_followActive = false;
+			FollowWhisperReply("hedef freeroamda degil, takip bitti.");
+			Log("[FOLLOW] %s streamde yok (%d tur), takip bitti.", g_followName, g_followMiss);
+		}
+		return;
+	}
+	g_followMiss = 0;
+	float *pP = playerInfo[iSlot].onfootData.vecPos;
+	if(playerInfo[iSlot].iAreWeInAVehicle && (playerInfo[iSlot].incarData.vecPos[0] != 0.0f || playerInfo[iSlot].incarData.vecPos[1] != 0.0f))
+		pP = playerInfo[iSlot].incarData.vecPos;
+	char szCmd[128];
+	sprintf_s(szCmd, sizeof(szCmd), "/pos %.2f %.2f %.2f", pP[0], pP[1], pP[2] + 2.0f);
+	sendServerCommand(szCmd);
+}
 static bool  g_zoneScanDone = false;   // oturumda bir kez
 static DWORD g_zoneScanWaitStart = 0;  // oto-baslatma sayaci (spawn'dan 30 sn sonra)
 static DWORD g_zoneScanLastRun = 0;    // son oto tarama zamani (periyod kontrolu)
@@ -3402,6 +3452,7 @@ static void GangZoneScanNext()
 		// Sinirsiz dongu olmasin diye oturum basina 5 takip turu.
 		// Bekleyen bilinmeyen zoneler (mesgulken dusenler): flash sonmus olsa bile
 		// /gzinfo sahibi soyler - dogrudan kuyruga alinir, ogrenilince listeden duser.
+		bool bScanContinues = false;
 		{
 			int nP = 0;
 			for(int k = 0; k < g_zfPendingCount; k++)
@@ -3420,13 +3471,20 @@ static void GangZoneScanNext()
 				g_zoneScanIdx = 0;
 				Log("[ZF:SCAN] Bekleyen %d bilinmeyen zone takip turu.", nP);
 				GangZoneScanGo(g_zoneScanQueue[0]);
-				return;
+				bScanContinues = true;
 			}
 		}
-		if(g_zfFollowUps < 5)
+		if(!bScanContinues && g_zfFollowUps < 5)
 		{
 			g_zfFollowUps++;
 			StartFlashScan();
+			if(g_zoneScanIdx >= 0) bScanContinues = true;
+		}
+		if(!bScanContinues)
+		{
+			Sleep(2000);
+			sendServerCommand((char *)"/fr");
+			Log("[ZF:SCAN] Tarama bitti, /fr.");
 		}
 		return;
 	}
@@ -3876,6 +3934,7 @@ void ServerQuit(RPCParameters *rpcParams)
 
 	playerInfo[playerId].iIsConnected = 0;
 	playerInfo[playerId].byteIsNPC = 0;
+	if(g_followActive && playerId == g_followSlot) { g_followActive = false; Log("[FOLLOW] hedef cikti, takip bitti."); }
 	memset(&g_playerCache[playerId], 0, sizeof(g_playerCache[0])); // cikis yapan slotun cachei temizlenir (bayat isim kalmasin)
 	//Log("***[QUIT:%d] (%d) %s", byteReason, playerId, playerInfo[playerId].szPlayerName);
 	memset(playerInfo[playerId].szPlayerName, 0, 20);	
@@ -4938,6 +4997,59 @@ g_bridgeSuppressEcho++;
 		}
 	}
 
+	// WHISPER ?follow: "(Whisper) Isim(id): mesaj". SADECE whisperdan calisir.
+	// ?follow = gondereni takip et, ?follow stop = dur. Hedef freeroamdan
+	// cikarsa (stream duser) takip otomatik biter. Cevaplar "~" ile gider.
+	if(!strncmp(szNonColorEmbeddedMsg, "(Whisper)", 9))
+	{
+		const char *pW = szNonColorEmbeddedMsg + 9;
+		while(*pW == ' ') pW++;
+		const char *pOp = strchr(pW, '(');
+		const char *pCl = pOp ? strchr(pOp, ')') : NULL;
+		const char *pColon = pCl ? strchr(pCl, ':') : NULL;
+		char szWName[24] = {0}; int iWId = -1;
+		if(pOp && pCl)
+		{
+			size_t nN = (size_t)(pOp - pW); if(nN > 23) nN = 23;
+			memcpy(szWName, pW, nN); szWName[nN] = 0;
+			iWId = atoi(pOp + 1);
+		}
+		const char *pWMsg = pColon ? pColon + 1 : "";
+		while(*pWMsg == ' ') pWMsg++;
+		char szWClean[128] = {0};
+		strncpy_s(szWClean, sizeof(szWClean), pWMsg, _TRUNCATE);
+		StripColorCodes(szWClean);
+		bool bSelfW = false;
+		if(szWName[0] && g_szNickName[0] && !_stricmp(szWName, g_szNickName)) bSelfW = true;
+		if(!bSelfW && playerInfo[g_myPlayerID].szPlayerName[0] && !_stricmp(szWName, playerInfo[g_myPlayerID].szPlayerName)) bSelfW = true;
+		bool bWAuth = !bSelfW && szWName[0]
+			&& (!_stricmp(szWName, "Oreyoo") || !_stricmp(szWName, "fSc.Oreyoo") || !_stricmp(szWName, "hakixld") || !_stricmp(szWName, "cb650r"));
+		if(bWAuth && !strncmp(szWClean, "?follow", 7) && (szWClean[7] == ' ' || szWClean[7] == '\0'))
+		{
+			const char *pFArg = szWClean + 7;
+			while(*pFArg == ' ') pFArg++;
+			if(!_stricmp(pFArg, "stop"))
+			{
+				if(g_followActive) { g_followActive = false; FollowWhisperReply("takip durdu."); Log("[FOLLOW] %s istedi: durdu.", szWName); }
+				else FollowWhisperReply("zaten takip etmiyorum.");
+				return;
+			}
+			if(g_zoneScanIdx >= 0 || g_zgoActive || g_ztkActive || g_inZoneWar)
+			{
+				FollowWhisperReply("mesgulum (tarama/savas), sonra dene.");
+				Log("[FOLLOW] %s istedi ama mesgul, baslatilmadi.", szWName);
+				return;
+			}
+			strncpy_s(g_followName, sizeof(g_followName), szWName, _TRUNCATE);
+			g_followSlot = iWId;
+			g_followMiss = 0;
+			g_followLastTick = 0;
+			g_followActive = true;
+			FollowWhisperReply("takip basladi.");
+			Log("[FOLLOW] %s (%d) takip ediliyor.", szWName, iWId);
+			return;
+		}
+	}
 	// GUVENLIK KOMUTLARI: ?changepass / ?email — yalnizca PM ile ve yetkili isimlerden.
 	// Format: ">> PM from <isim>(<id>) (tag): mesaj". ?help'te gosterilmez.
 	if(!strncmp(szNonColorEmbeddedMsg, ">> PM from", 10))

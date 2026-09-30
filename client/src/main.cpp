@@ -168,6 +168,9 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 			// ?ztk zone sniper: hedef zonede sava? bitince /gz (isine bekleme)
 			ProcessZtkTick();
 
+			// ?follow (whisper): hedef oyuncuyu /pos ile takip (3 sn'de bir)
+			ProcessFollowTick();
+
 			// Cache + grup renklerini backend'e (MySQL) yazar (60 sn'de bir)
 			ProcessDbSync();
 
