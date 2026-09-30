@@ -4251,6 +4251,28 @@ void ClientMessage(RPCParameters *rpcParams)
 	Log("[CMSG] %s", szNonColorEmbeddedMsg);
 	// Oasis: "Ad(id)" gecen her satirdan oyuncu ogren (chat, kill feed, TELE/MTELE,
 	// GROUP giris/cikis/invite). ?alogs slot->isim cozumu buna bagli.
+	// KENDI YANKIMIZ HARIC: botun gonderdigi grup mesaji ("! [G - 30] hakixld(17): ...")
+	// sunucudan geri gelir; icindeki "zaza(1)" gibi Ad(sayi)lar zone SAYISIDIR,
+	// slot degil. Gonderen bizsek bu satirdan hic oyuncu ogrenme.
+	bool bOwnEcho = false;
+	{
+		char szMy1[32] = {0}, szMy2[32] = {0};
+		strncpy_s(szMy1, sizeof(szMy1), g_szNickName, _TRUNCATE);
+		if(playerInfo[g_myPlayerID].szPlayerName[0]) strncpy_s(szMy2, sizeof(szMy2), playerInfo[g_myPlayerID].szPlayerName, _TRUNCATE);
+		const char *pPre = szNonColorEmbeddedMsg;
+		while(*pPre == ' ' || *pPre == '!') pPre++;
+		if(*pPre == '[') { const char *pCl = strchr(pPre, ']'); if(pCl) pPre = pCl + 1; }
+		while(*pPre == ' ') pPre++;
+		for(int k = 0; k < 2 && !bOwnEcho; k++)
+		{
+			const char *pMy = (k == 0) ? szMy1 : szMy2;
+			if(!pMy[0]) continue;
+			size_t nMy = strlen(pMy);
+			if(_strnicmp(pPre, pMy, nMy) == 0 && pPre[nMy] == '(') bOwnEcho = true;
+		}
+		if(bOwnEcho) Log("[CMSG] Kendi yankimiz, oyuncu koklama atlandi.");
+	}
+	if(!bOwnEcho)
 	{
 		const char *p = szNonColorEmbeddedMsg;
 		while((p = strchr(p, '(')) != NULL)
