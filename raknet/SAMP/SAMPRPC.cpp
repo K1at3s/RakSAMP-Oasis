@@ -300,7 +300,7 @@ static double ExtractNumberNear(const char *szText, const char *key) {
 
 // Uye listesi dialogu tanima: UIF "Last Active" kolonlular + Oasis "Group Members" basliklilar.
 static bool IsMemberListDlg(const char* szTitle, const char* szInfo) {
-    if (IsMemberListDlg(szTitle, szInfo)) return true;
+    if (szInfo && strstr(szInfo, "Last Active")) return true;
     if (szTitle && strstr(szTitle, "Group Members")) return true;
     return false;
 }
