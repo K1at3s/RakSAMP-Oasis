@@ -922,11 +922,10 @@ static bool  g_forceFullVerifyOnce = false; // ?zscan sn: tek seferlik tam kontr
 static void PauseZoneScanForSnip()
 {
 	// Kullanici istegi: sniper aktifken harvest de dursun (sadece sniper odak).
-	if(g_ghpActive || g_zgrpAuto)
+	if(g_ghpActive)
 	{
 		g_ghpActive = false;
-		g_zgrpAuto = false;
-		Log("[ZSNIP] Harvest durduruldu (sadece sniper odak).");
+		Log("[ZSNIP] Harvest durduruldu (sadece sniper odak; oto ?zgrp acik kalir).");
 	}
 	// Sniper bitince tarama otomatik baslamasin (kullanici ?zscan on/sn yazana kadar).
 	g_zsnipeHoldScan = true;
@@ -3821,16 +3820,12 @@ void ProcessZoneScan()
 			&& g_spawnTick != 0 && (GetTickCount() - g_spawnTick) >= 30000) // spawn dan 30 sn koruma
 		{
 			// Eksik tag tespiti: tag bos veya placeholder (tag == isim) olan grup
-			for(int gi = 0; gi < g_groupColorCount; gi++)
-			{
-				if(!g_groupColors[gi].szName[0]) continue;
-				if(!g_groupColors[gi].szTag[0]
-					|| _stricmp(g_groupColors[gi].szTag, g_groupColors[gi].szName) == 0)
-				{ bNeedHarvest = true; break; }
-			}
+			// Oto harvest periyodu doldu: her zaman harvest baslat. Bilinen gruplar
+			// zincirde atlanir (nSkipped logu), sadece YENI gruplar icin /gstats gider.
+			// Tek seferlik degil: ?zgrp on kaldigi surece her 15 dk tekrarlar.
+			bNeedHarvest = true;
 			// Sifirdan baslangic: hic grup yoksa kesif icin /groups cek (bos DB/dosya sonrasi bootstrap)
-			if(g_groupColorCount == 0) bNeedHarvest = true;
-			if(g_ghpForce) bNeedHarvest = true; // zorla: tag kontrolsuz tam tarama
+			if(g_ghpForce) bNeedHarvest = true; // elle tetik: periyot disinda da calisir
 		}
 		if(bNeedHarvest && !g_ghpActive && !g_inZoneWar && !g_zgoActive)
 		{
@@ -6478,10 +6473,10 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 					g_zgrpAuto = _stricmp(pArg, "on") == 0;
 					if(g_zgrpAuto) g_ghpForce = true;
 					SyncBotStatusToDb(); // gruba gore DB'ye kaydet
-					Log("[GHP] Oto tag harvest %s.", g_zgrpAuto ? "ACIK (tek seferlik)" : "KAPALI");
+					Log("[GHP] Oto tag harvest %s.", g_zgrpAuto ? "ACIK (15 dk periyodik)" : "KAPALI");
 					g_bridgeSuppressEcho++;
-					sendChat((char *)LM(g_zgrpAuto ? "!Oto tag toplama: ACIK (1 kere, sonra off)." : "!Oto tag toplama: KAPALI.",
-						g_zgrpAuto ? "!Auto tag harvest: ON (once, then off)." : "!Auto tag harvest: OFF."));
+					sendChat((char *)LM(g_zgrpAuto ? "!Oto tag toplama: ACIK (15 dk periyodik)." : "!Oto tag toplama: KAPALI.",
+						g_zgrpAuto ? "!Auto tag harvest: ON (15 min periodic)." : "!Auto tag harvest: OFF."));
 					if(g_zgrpAuto)
 					{
 						// Tek seferlik tetik: g_ghpLastRun sifirlanir, ProcessZoneScan
@@ -9546,15 +9541,8 @@ void ProcessGhpHarvestStep()
 		g_ghpActive = false;
 		g_ghpNextStepAt = 0;
 		g_forceZscanAfterHarvest = true; // zone scan harvesti tetikle (yeni veri varsa, zscan off olsa bile)
-		// ?zgrp on TEK SEferliktir: harvest bitti, otomatik off'a dus (kullanici
-		// istedigi an tekrar ?zgrp on diyebilir; periyodik tekrar YOK).
-		// g_zgrpAuto surekli acik - bitince standby (uyku) moduna gecer, kapanmaz
-		if(false)
-		{
-			g_zgrpAuto = false;
-			SyncBotStatusToDb(); // gruba gore DB'ye kaydet
-			Log("[GHP] Oto tag harvest tamamlandi, standby (uyku) moduna gecildi.");
-		}
+		// ?zgrp on kalicidir: harvest bitti, oto bayrak acik kalir, sonraki
+		// periyotta (15 dk) yeni gruplar icin tekrar calisir.
 		SyncGroupColorsToDb();
 		// Gruba mesaj ATILMAZ (harvest arka plan isidir; spam olmasin).
 		if(g_ghpLearnedCount > 0)
