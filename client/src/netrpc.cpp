@@ -4343,7 +4343,7 @@ void ClientMessage(RPCParameters *rpcParams)
 			size_t nMy = strlen(pMy);
 			if(_strnicmp(pPre, pMy, nMy) == 0 && pPre[nMy] == '(') bOwnEcho = true;
 		}
-		if(bOwnEcho) Log("[CMSG] Kendi yankimiz, oyuncu koklama atlandi.");
+		// (sessiz: her kendi mesajimizda log basmak gurultuydu)
 	}
 	if(!bOwnEcho)
 	{
@@ -6091,10 +6091,10 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 						Log("[ZF:SCAN] ?zscan on: sniper duraklamasi kaldirildi.");
 					}
 					SyncBotStatusToDb(); // gruba gore DB'ye kaydet
-					// TARAMA ANINDA BASLATILMAZ: sadece bayrak acilir. Tarama ilk
-					// giris sonrasi + periyodik akista (ProcessZoneScan) baslar.
-					// Test icin surekli ac/kapa yapilinca her toggle'da tarama+DB push
-					// tetikleniyordu; bu hem DB'yi yoruyor hem var olan veriyi karistiriyordu.
+					g_zoneScanLastRun = 0; // ?zscan on = hemen tara
+					// g_zoneScanLastRun sifirlandi: periyodik kapi bir sonraki tickte
+					// ateslenir (savas/harvest/spawn korumasi gecerliyse). Ac/kapa spaminda
+					// her seferinde bastan baslamamak icin kapi sartlari aynen gecerli.
 					g_bridgeSuppressEcho++;
 					if(g_inZoneWar)
 						// Savas sirasinda tarama bilin-gli bekletilir (teleport = savas bugu);
