@@ -841,20 +841,21 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             Log("[GHP] /gmembers sayfa yakalandi (style %d, baslik: %s) -> %s",
                 sampDialog.bDialogStyle, szTitle, (r == 1) ? "sonraki sayfa" : "finaliz");
 
+            if (r == 0) {
+                // Bitis: Select (buton 1) ile kapat. Cancel (buton 0) Oasis
+                // tarafinda islenmiyordu: dialog acik kalip /pos reddediliyordu.
+                sendDialogResponse(wDialogID, 1, 0xFFFF, (char*)"");
+                Log("[GHP] /gmembers kapatildi (Select).");
+                OnGmembersFinalize();              // sonuc uygula (ba?lat/red)
+                return 1;
+            }
             RakNet::BitStream bsR;
             bsR.Write((uint16_t)wDialogID);
-            if (r == 1) {
-                bsR.Write((uint8_t)iBtn);          // ">>" satiri sec (1) veya '>>' butonu (0)
-                bsR.Write((uint16_t)(iItem >= 0 ? iItem : 0xFFFF));
-            } else {
-                bsR.Write((uint8_t)0);             // bitis: Cancel ile kapat (Select/Cancel listesi)
-                bsR.Write((uint16_t)0xFFFF);
-            }
+            bsR.Write((uint8_t)iBtn);          // ">>" satiri sec (1) veya '>>' butonu (0)
+            bsR.Write((uint16_t)(iItem >= 0 ? iItem : 0xFFFF));
             bsR.Write((uint8_t)0);                 // Input Text Length
             pRakClient->RPC(&RPC_DialogResponse, &bsR, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
-            if (r == 0)
-                OnGmembersFinalize();              // sonuc uygula (ba?lat/red)
-            // r==1: g_waitingForGmembers A?IK kalir, siradaki sayfa diyalo?su buraya gelir
+            // r==1: g_waitingForGmembers acik kalir, siradaki sayfa diyalo?su buraya gelir
             return 1;
         }
         // Farkli bir dialog geldi: /gmembers cevabi degil, beklemede kal
