@@ -1597,15 +1597,19 @@ static void ParseRankTransition(const char *pFrom, char *oldRank, size_t oldLen,
 	oldRank[0] = 0; newRank[0] = 0;
 	if(!pFrom) return;
 	const char *pOld = strstr(pFrom, "from '");
+	char qOld = '\'';
+	if(!pOld) { pOld = strstr(pFrom, "from \""); qOld = '"'; }
 	if(!pOld) return;
-	pOld += strlen("from '");
-	const char *pOldEnd = strchr(pOld, '\'');
+	pOld += 6;
+	const char *pOldEnd = strchr(pOld, qOld);
 	if(!pOldEnd) return;
 	CopyToken(oldRank, oldLen, pOld, pOldEnd);
 	const char *pTo = strstr(pOldEnd, "to '");
+	char qTo = '\'';
+	if(!pTo) { pTo = strstr(pOldEnd, "to \""); qTo = '"'; }
 	if(!pTo) return;
-	pTo += strlen("to '");
-	const char *pToEnd = strchr(pTo, '\'');
+	pTo += 4;
+	const char *pToEnd = strchr(pTo, qTo);
 	if(pToEnd) CopyToken(newRank, newLen, pTo, pToEnd);
 }
 
@@ -1614,7 +1618,9 @@ static void CheckGroupLogMessage(const char *msg)
 {
 	const char *pChg = strstr(msg, "changed the rank of");
 	int iType = 2;
+	if(!pChg){ pChg = strstr(msg, "changed the Rank of"); }
 	if(!pChg){ pChg = strstr(msg, "changed the role of"); iType = 1; }
+	if(!pChg){ pChg = strstr(msg, "changed the Role of"); iType = 1; }
 	if(!pChg)
 	{
 		// invite: "GROUP: X invited/invite Y ..." - kick ile ayni Name(acc) formu
@@ -1738,13 +1744,15 @@ static void CheckGroupLogMessage(const char *msg)
 		}
 	}
 	// hedef: "changed the rank of " sonrasi "Ad(accid)" - ad paranteze kadar
-	const char *pTgt = pChg + (strstr(pChg, "changed the rank of") ? strlen("changed the rank of") : strlen("changed the role of"));
+	const char *pTgt = pChg + 19; // "changed the rank/role of" dort formda da 19 harf
 	while(*pTgt == ' ') pTgt++;
 	const char *pTOpen = strchr(pTgt, '(');
+	const char *pTBr = strchr(pTgt, '[');
+	if(pTBr && (!pTOpen || pTBr < pTOpen)) pTOpen = pTBr; // Oasis "Ad[id]" formu
 	if(pTOpen)
 	{
 		CopyToken(target, sizeof(target), pTgt, pTOpen);
-		const char *pTClose = strchr(pTOpen + 1, ')');
+		const char *pTClose = strchr(pTOpen + 1, (*pTOpen == '[') ? ']' : ')');
 		if(pTClose) targetAcc = _strtoi64(pTOpen + 1, NULL, 10);
 	}
 	else
