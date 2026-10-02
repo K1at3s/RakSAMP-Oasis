@@ -842,10 +842,15 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                 sampDialog.bDialogStyle, szTitle, (r == 1) ? "sonraki sayfa" : "finaliz");
 
             if (r == 0) {
-                // Bitis: Select (buton 1) ile kapat. Cancel (buton 0) Oasis
-                // tarafinda islenmiyordu: dialog acik kalip /pos reddediliyordu.
-                sendDialogResponse(wDialogID, 1, 0xFFFF, (char*)"");
-                Log("[GHP] /gmembers kapatildi (Select).");
+                // Bitis: Cancel + SATIR 0 ile kapat. Secimsiz (0xFFFF) Cancel
+                // yutuluyor (/groups DENEY2 ile bulunan calisan yol).
+                RakNet::BitStream bsR;
+                bsR.Write((uint16_t)wDialogID);
+                bsR.Write((uint8_t)0);             // Button 0 (Cancel)
+                bsR.Write((uint16_t)0);            // Item 0 (secili satir)
+                bsR.Write((uint8_t)0);             // Input Text Length (BYTE)
+                pRakClient->RPC(&RPC_DialogResponse, &bsR, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
+                Log("[GHP] /gmembers kapatildi (Cancel row 0).");
                 OnGmembersFinalize();              // sonuc uygula (ba?lat/red)
                 return 1;
             }
