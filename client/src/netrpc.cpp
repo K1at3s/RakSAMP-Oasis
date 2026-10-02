@@ -52,6 +52,11 @@ static int g_knownGroupMembers[MAX_PLAYERS];
 // Zone war süresi: sabit 10 dk (sunucu kuralý). ?gzt kalan süreyi bundan hesaplar;
 // "Type /gz2 to join" bildirimi sava-sýn ba-slangý-g anýdýr (g_zoneWarStartTick).
 #define ZONE_WAR_TOTAL_MS 60000 // Oasis: savas ~60 sn
+// GENEL savas takibi (?gzt time tum savaslar icin): grubumuz olmasa da aktif
+// savas gorunur. Geri sayim duyurulari (10/5/3/1) sadece BIZIM savasimizda atilir.
+static bool  g_anyWarActive = false;
+static DWORD g_anyWarStartTick = 0;
+static char  g_anyWarDesc[128] = {0};
 #define KILL_LIST_CAPTURE_WINDOW_MS 90000 // sonu-g textdraw'larý i-gin toplama penceresi (son 60 sn giri? + bitis textdraw'lari)
 static DWORD g_zoneWarStartTick = 0;
 
@@ -4490,6 +4495,28 @@ void ClientMessage(RPCParameters *rpcParams)
 		// Grup uyelerine ozel gider -> dogrudan bizim savasimizdir.
 		bool bOasisUnderAttack = (strstr(pZoneMsg, "Your group is under attack") != NULL);
 		bool bOasisAttacking = (strstr(pZoneMsg, "Your group is attacking a zone") != NULL);
+		// Herhangi bir savas basladi/bitiyor: grubumuz olmasa da ?gzt time icin izle.
+		if(strstr(pZoneMsg, "Started at ") != NULL && strstr(pZoneMsg, " vs. ") != NULL)
+		{
+			const char *pSt = strstr(pZoneMsg, "Started at ");
+			char szNew[128] = {0};
+			strncpy_s(szNew, sizeof(szNew), pSt, _TRUNCATE);
+			{ char *pE = szNew; while(*pE && *pE != '.' && (pE - szNew) < 120) pE++; *pE = 0; }
+			if(!g_anyWarActive || strcmp(g_anyWarDesc, szNew) != 0)
+			{
+				strncpy_s(g_anyWarDesc, sizeof(g_anyWarDesc), szNew, _TRUNCATE);
+				g_anyWarStartTick = GetTickCount();
+				Log("[WAR] Genel savas basladi: %s", g_anyWarDesc);
+			}
+			g_anyWarActive = true;
+		}
+		if(strstr(pZoneMsg, " defeated ") != NULL || strstr(pZoneMsg, "Results [") != NULL)
+		{
+			if(g_anyWarActive) Log("[WAR] Genel savas bitti.");
+			g_anyWarActive = false;
+			g_anyWarStartTick = 0;
+			g_anyWarDesc[0] = 0;
+		}
 		bool bOasisStarted = (strstr(pZoneMsg, "Started at ") != NULL && strstr(pZoneMsg, " vs. ") != NULL
 			&& !g_myGroupName.empty() && strstr(pZoneMsg, g_myGroupName.c_str()) != NULL);
 		bool bNamedOurWar = false;
@@ -5779,6 +5806,18 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 				int iRemainingSec = -1;
 				if(!g_inZoneWar)
 				{
+					if(g_anyWarActive && g_anyWarStartTick != 0 && dwNow - g_anyWarStartTick < ZONE_WAR_TOTAL_MS)
+					{
+						int iElapsed = (int)((dwNow - g_anyWarStartTick) / 1000);
+						int iRem = (int)(ZONE_WAR_TOTAL_MS / 1000) - iElapsed;
+						if(iRem < 0) iRem = 0;
+						char szAny[256];
+						sprintf_s(szAny, sizeof(szAny), LM("!War time: %d sn kaldi (%s)", "!War time: %d sec left (%s)"), iRem, g_anyWarDesc[0] ? g_anyWarDesc : "?");
+						Log("[GZT] Baska grubun savasi: %s", szAny);
+						g_bridgeSuppressEcho++;
+						sendChat(szAny);
+						return;
+					}
 					Log("[GZT] Savas aktif degil, War time bilgisi gonderilemiyor.");
 					g_bridgeSuppressEcho++;
 					sendChat((char *)LM("!War time: yok", "!War time: none"));
