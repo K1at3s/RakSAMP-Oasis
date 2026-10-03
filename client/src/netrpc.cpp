@@ -3751,21 +3751,40 @@ void ProcessGrCandidateClicks()
 	if(g_grankActive && g_grankPhase != 1) return;
 	if(g_gkickActive && g_gkickPhase != 1) return;
 	if(g_grClickAttempt < 0){ g_grClickAttempt = 0; g_grDblPhase = 0; g_grClickAt = GetTickCount() + 100; return; }
-	if(g_grClickAttempt >= 5 || GetTickCount() < g_grClickAt) return;
-	int item;
-	const char *szInput;
-	switch(g_grClickAttempt){
-		case 0: item = g_grRawRow;     szInput = ""; break;
-		case 1: item = g_grRawRow - 1; szInput = ""; break;
-		case 2: item = g_grRawRow - 2; szInput = ""; break;
-		case 3: item = g_grTargetItem; szInput = ""; break;
-		default: item = g_grRawRow - 3; szInput = ""; break;
+	if(GetTickCount() < g_grClickAt) return;
+	if(g_grClickAttempt >= 4)
+	{
+		Log("[GROLE] Hedef item tiklanamadi, iptal ediliyor.");
+		RakNet::BitStream bsC;
+		bsC.Write((uint16_t)g_grDlgId);
+		bsC.Write((uint8_t)0);
+		bsC.Write((uint16_t)0);
+		bsC.Write((uint8_t)0);
+		pRakClient->RPC(&RPC_DialogResponse, &bsC, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
+		g_bridgeSuppressEcho++;
+		sendChat((char *)LM("!Uye secilemedi, islem iptal.", "!Member could not be selected, cancelled."));
+		g_groleActive = false; g_grolePhase = 0;
+		g_grankActive = false; g_grankPhase = 0;
+		g_gkickActive = false; g_gkickPhase = 0;
+		g_grTargetItem = -1; g_grDlgId = 0;
+		return;
 	}
+	int item = g_grTargetItem;
+	const char *szInput = (g_grClickAttempt == 0) ? g_grRowText : "";
 	if(item < 0) item = 0;
-	Log("[GROLE] Aday %d/5: item=%d (tek tik)...", g_grClickAttempt + 1, item);
-	SendGrClick(item, szInput);
-	g_grClickAttempt++;
-	g_grClickAt = GetTickCount() + 1500;
+	if(g_grDblPhase == 0){
+		Log("[GROLE] Hedef item=%d cift tik (1/2)...", item);
+		SendGrClick(item, szInput);
+		g_grDblPhase = 1;
+		g_grClickAt = GetTickCount() + 400;
+	}
+	else{
+		Log("[GROLE] Hedef item=%d cift tik (2/2)...", item);
+		SendGrClick(item, szInput);
+		g_grDblPhase = 0;
+		g_grClickAttempt++;
+		g_grClickAt = GetTickCount() + 2500;
+	}
 }
 
 // Faz-2 ikinci tik: rol/rank secimini tamamlar (cift tik = UIF'de onay).
