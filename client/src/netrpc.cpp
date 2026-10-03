@@ -3754,31 +3754,18 @@ void ProcessGrCandidateClicks()
 	if(g_grClickAttempt >= 5 || GetTickCount() < g_grClickAt) return;
 	int item;
 	const char *szInput;
-	const char *szName = g_groleActive ? g_groleTarget.c_str() : (g_grankActive ? g_grankTarget.c_str() : g_gkickTarget.c_str());
 	switch(g_grClickAttempt){
-		case 0: item = g_grRawRow;                              szInput = g_grRowText; break; // 29 + ilk sutun
-		case 1: item = g_grTargetItem;                          szInput = g_grRowText; break; // 14 + ilk sutun
-		case 2: item = g_grTargetItem + g_grPage * 25 + 1;      szInput = g_grRowText; break; // 40 + ilk sutun
-		case 3: item = g_grTargetItem;                          szInput = szName;      break; // 14 + isim
-		default: item = g_grRawRow;                             szInput = szName;      break; // 29 + isim
+		case 0: item = g_grRawRow;     szInput = ""; break;
+		case 1: item = g_grRawRow - 1; szInput = ""; break;
+		case 2: item = g_grRawRow - 2; szInput = ""; break;
+		case 3: item = g_grTargetItem; szInput = ""; break;
+		default: item = g_grRawRow - 3; szInput = ""; break;
 	}
-	if(g_grDblPhase == 0){
-		Log("[GROLE] Aday %d/5: item=%d input='%s' cift tik (1/2)...", g_grClickAttempt + 1, item, szInput);
-		SendGrClick(item, szInput);
-		g_grDblPhase = 1;
-		g_grClickAt = GetTickCount() + 300;
-	}
-	else if(g_grDblPhase == 1){
-		Log("[GROLE] Aday %d/5: item=%d input='%s' cift tik (2/2)...", g_grClickAttempt + 1, item, szInput);
-		SendGrClick(item, szInput);
-		g_grDblPhase = 2;
-		g_grClickAt = GetTickCount() + 1500;
-	}
-	else{
-		g_grClickAttempt++;
-		g_grDblPhase = 0;
-		g_grClickAt = GetTickCount() + 100;
-	}
+	if(item < 0) item = 0;
+	Log("[GROLE] Aday %d/5: item=%d (tek tik)...", g_grClickAttempt + 1, item);
+	SendGrClick(item, szInput);
+	g_grClickAttempt++;
+	g_grClickAt = GetTickCount() + 1500;
 }
 
 // Faz-2 ikinci tik: rol/rank secimini tamamlar (cift tik = UIF'de onay).
