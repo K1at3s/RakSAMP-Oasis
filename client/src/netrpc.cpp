@@ -981,15 +981,25 @@ static DWORD g_watchDlgAt = 0;
 static int   g_watchDlgStyle = 0;
 static bool  g_watchDlgKeep = false;
 static DWORD g_lastPosOkTick = 0;
+// Acik liste dialogunu HEMEN kapat (grole sonu/timeout/ret). Bekci 30sn bekler,
+// o arada /pos reddedilir. Sadece liste stilleri + son 15sn icinde gorulmusse.
+static void CloseOpenListDlg()
+{
+	if(g_watchDlgId < 0 || g_watchDlgKeep) return;
+	if(GetTickCount() - g_watchDlgAt > 15000) return;
+	if(g_watchDlgStyle != DIALOG_STYLE_LIST && g_watchDlgStyle != DIALOG_STYLE_TABLIST && g_watchDlgStyle != DIALOG_STYLE_TABLIST_HEADERS) return;
+	SendListClose(g_watchDlgId);
+	Log("[DLG] Acik liste kapatildi (id=%d).", g_watchDlgId);
+	g_watchDlgId = -1;
+}
 static int   g_watchCloseMode = 0;
-// Liste kapatma: Select (buton 1) + secimsiz + BYTE len. Buton 0 (Cancel/ESC)
-// bu sunucuda HICBIR listede islenmiyor; WORD-uzunluklular da yutuluyordu.
+// Liste kapatma: Cancel + satir 0 + BYTE (DENEY2, calisan yol).
 static void SendListClose(int iDlgId)
 {
 	RakNet::BitStream bsE;
 	bsE.Write((uint16_t)iDlgId);
-	bsE.Write((uint8_t)1);
-	bsE.Write((uint16_t)0xFFFF);
+	bsE.Write((uint8_t)0);
+	bsE.Write((uint16_t)0);
 	bsE.Write((uint8_t)0);
 	pRakClient->RPC(&RPC_DialogResponse, &bsE, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
 }
@@ -1673,6 +1683,7 @@ static void CheckGroupLogMessage(const char *msg)
 			g_groleActive = false; g_grolePhase = 0; g_groleDirectPending = false;
 			g_grankActive = false; g_grankPhase = 0;
 			g_grRoleDblPending = false;
+			CloseOpenListDlg();
 		}
 		return;
 	}
@@ -1846,6 +1857,7 @@ static void CheckGroupLogMessage(const char *msg)
 		sprintf_s(szOk, sizeof(szOk), LM("!Rol degisti: %s ('%s' -> '%s').", "!Role changed: %s ('%s' -> '%s')."), target, oldRank, newRank);
 		sendChat(szOk);
 		g_groleActive = false; g_grolePhase = 0; g_grRoleDblPending = false;
+		CloseOpenListDlg();
 	}
 	if(g_grankActive && target[0] && !_stricmp(target, g_grankTarget.c_str()))
 	{
@@ -3846,14 +3858,11 @@ void ProcessZoneScan()
 		{
 			RakNet::BitStream bsW;
 			bsW.Write((uint16_t)iWdId);
-			if(g_watchCloseMode == 1 || g_watchCloseMode == 3) bsW.Write((uint8_t)1);
-			else bsW.Write((uint8_t)0);
-			if(g_watchCloseMode >= 2) bsW.Write((uint16_t)0);
-			else bsW.Write((uint16_t)0xFFFF);
+			bsW.Write((uint8_t)0);
+			bsW.Write((uint16_t)0);
 			bsW.Write((uint8_t)0);
 			pRakClient->RPC(&RPC_DialogResponse, &bsW, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
-			Log("[DLG-WATCH] kapatma denemesi %d/4 (id=%d style=%d).", g_watchCloseMode + 1, iWdId, iWdStyle);
-			g_watchCloseMode = (g_watchCloseMode + 1) % 4;
+			Log("[DLG-WATCH] 30 sn acik kalan dialog kapatiliyor (id=%d style=%d).", iWdId, iWdStyle);
 		}
 		else
 			sendDialogResponse((WORD)iWdId, 1, 0xFFFF, (char *)"");
