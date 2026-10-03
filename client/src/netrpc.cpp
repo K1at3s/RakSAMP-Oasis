@@ -3090,7 +3090,9 @@ void BuildFlashZoneSummary()
 	// tarama baslat (yalnizca flashing zonelere gider); ogrenilince tekrar ozet atilir.
 	if(nItems == 0)
 	{
-		Log("[ZF] Bilinen flashing grup yok (bolge bos veya hepsi bilinmeyen), mesaj atilmadi. Toplam %d zone.", total);
+		Log("[ZF] Bilinen flashing grup yok (bolge bos veya hepsi bilinmeyen). Toplam %d zone.", total);
+		g_bridgeSuppressEcho++;
+		sendChat((char *)LM("!Flashing zone yok.", "!No flashing zones."));
 		// Tag ogrenme yalnizca ?zgrp ile (elle): otomatik /gstats spam'i mute riski.
 		return;
 	}
@@ -3450,6 +3452,11 @@ static void GangZoneScanNext()
 		}
 		szFree[nF < (int)sizeof(szFree) ? nF : (int)sizeof(szFree)-1] = 0;
 		Log("[ZF:SCAN] Serbest zone'lar:%s", nF > 0 ? szFree : " (yok)");
+		if(nF == 0)
+		{
+			g_bridgeSuppressEcho++;
+			sendChat((char *)LM("!Serbest zone yok.", "!No free zones."));
+		}
 
 		// ?zf bilinmeyen renkler icin tarama baslatmissa: guncel ozeti tekrar gonder
 		// (artik renkler ogrenildi, "?" yerine isimler gorunecek).
