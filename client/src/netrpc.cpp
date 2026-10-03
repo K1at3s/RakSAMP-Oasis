@@ -1050,7 +1050,8 @@ void ProcessFollowTick()
 static bool  g_zoneScanDone = false;   // oturumda bir kez
 static DWORD g_zoneScanWaitStart = 0;  // oto-baslatma sayaci (spawn'dan 30 sn sonra)
 static DWORD g_zoneScanLastRun = 0;    // son oto tarama zamani (periyod kontrolu)
-bool g_loginPending = false;           // UIF Login dialogu acik (SAMPRPC extern); kullanici sifre girene
+bool g_loginPending = false;
+static bool g_bLoggedIn = false; // oto giris mesaji goruldu (harvest/scan bunu bekler)           // UIF Login dialogu acik (SAMPRPC extern); kullanici sifre girene
                                        // kadar spawn/akislar bekler, tmp hesaba atilmaz.
 unsigned long g_loginPendingUntil = 0; // login bekleme timeout (10 sn) - dialog hic gelmezse devam et
 static bool  g_zscanAuto = false;      // ?zscan on/off: otomatik aralikli tarama acik mi
@@ -2864,7 +2865,7 @@ static void SyncZscanFromDb()
 				g_myGroupName.c_str(), bOn ? "ACIK" : "KAPALI", bGzt ? "ACIK" : "KAPALI", bZgrp ? "ACIK" : "KAPALI");
 			if(bOn && s_bGroupDbRestored && g_zoneScanIdx < 0 && iSpawned
 				&& !g_ghpActive && !g_waitingForGroups
-				&& g_spawnTick != 0 && (GetTickCount() - g_spawnTick) >= 60000
+				&& g_spawnTick != 0 && (GetTickCount() - g_spawnTick) >= 60000 && g_bLoggedIn
 				&& (g_zoneScanLastRun == 0 || GetTickCount() - g_zoneScanLastRun >= ZONE_SCAN_PERIOD_MS))
 				StartZoneScan(true); // restore sonrasi ilk tarama: spawn korumasi + harvest oncelikli
 		}
@@ -3821,6 +3822,11 @@ static void SendGrRoleSecondClick()
 
 void ProcessZoneScan()
 {
+	if(!g_bLoggedIn && iSpawned && g_spawnTick != 0 && GetTickCount() - g_spawnTick > 180000)
+	{
+		g_bLoggedIn = true;
+		Log("[LOGIN] Giris mesaji gorulmedi (180sn), varsayimla devam ediliyor.");
+	}
 	if(g_watchDlgId >= 0 && !g_watchDlgKeep && GetTickCount() - g_watchDlgAt > 30000)
 	{
 		int iWdId = g_watchDlgId, iWdStyle = g_watchDlgStyle;
@@ -3918,7 +3924,7 @@ void ProcessZoneScan()
 			Log("[GHP] Acilis taramasi kuruldu (kayitli ?zgrp on): ilk sessizlikte baslayacak.");
 		}
 		if(g_zgrpAuto && s_bGroupDbRestored && iSpawned && !g_myGroupName.empty() && (g_ghpLastRun == 0 || GetTickCount() - g_ghpLastRun >= GHP_AUTO_PERIOD_MS)
-			&& g_spawnTick != 0 && (GetTickCount() - g_spawnTick) >= 30000) // spawn dan 30 sn koruma
+			&& g_spawnTick != 0 && (GetTickCount() - g_spawnTick) >= 30000 && g_bLoggedIn) // spawn+login korumasi
 		{
 			// Eksik tag tespiti: tag bos veya placeholder (tag == isim) olan grup
 			// Oto harvest periyodu doldu: her zaman harvest baslat. Bilinen gruplar
@@ -3947,7 +3953,7 @@ void ProcessZoneScan()
 		// onceliklidir, sonra harvest/zscan devam eder).
 		// HARVEST SONRASI OTOMATIK: harvest bitti, yeni veri varsa zone scan tetikle (zscan off olsa bile).
 		else if(s_bGroupDbRestored && !g_myGroupName.empty() && iSpawned && !g_ghpActive && !g_waitingForGroups && !g_inZoneWar && !g_zgoActive && g_zscanAuto && !g_zscanPausedForSnip
-			&& g_spawnTick != 0 && (dwNow3 - g_spawnTick) >= 30000) // harvest ile ayni spawn korumasi: once harvest, sonra scan
+			&& g_spawnTick != 0 && (dwNow3 - g_spawnTick) >= 30000 && g_bLoggedIn) // harvest ile ayni spawn korumasi + login: once harvest, sonra scan
 		{
 			bool bForce = g_forceZscanAfterHarvest;
 			g_forceZscanAfterHarvest = false;
@@ -4482,6 +4488,17 @@ void ClientMessage(RPCParameters *rpcParams)
 	// --- Admin + grup rol degisikligi loglari (DB'ye kayit) ---
 	// "(GROUP)" prefix'siz gelen sistem mesajlari: "ADMIN: X banned Y(id) ..."
 	// ve "GROUP: (...) changed the rank of ..." buradan yakalanir.
+	if(!g_bLoggedIn && strstr(szNonColorEmbeddedMsg, "logged in") && !strstr(szNonColorEmbeddedMsg, "logged out"))
+	{
+		char szMy[32] = {0};
+		strncpy_s(szMy, sizeof(szMy), g_szNickName, _TRUNCATE);
+		if(strstr(szNonColorEmbeddedMsg, "You have been logged in") || strstr(szNonColorEmbeddedMsg, "You logged in")
+			|| (szMy[0] && !_strnicmp(szNonColorEmbeddedMsg, "GROUP:", 6) && strstr(szNonColorEmbeddedMsg, szMy)))
+		{
+			g_bLoggedIn = true;
+			Log("[LOGIN] Giris tamamlandi, oto harvest/scan serbest.");
+		}
+	}
 	CheckAdminLogMessage(szNonColorEmbeddedMsg);
 	CheckGroupLogMessage(szNonColorEmbeddedMsg);
 	// Chat mutesi: oyuncu imzali satirlar haric (biri chatte MUTED yazarsa atlanir)
