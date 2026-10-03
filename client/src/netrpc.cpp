@@ -907,7 +907,9 @@ void ProcessZfFlashSummary()
 static int  s_iGmPage = 1;
 static bool s_bGmBotOk = false;
 static bool s_bGmUserOk = false;
-void GmembersReset() { s_iGmPage = 1; s_bGmBotOk = false; s_bGmUserOk = false; }
+static char s_sGmBotRole[32] = {0};
+static char s_sGmUserRole[32] = {0};
+void GmembersReset() { s_iGmPage = 1; s_bGmBotOk = false; s_bGmUserOk = false; s_sGmBotRole[0] = 0; s_sGmUserRole[0] = 0; }
 
 // Oto zone taramasi: flashing zone'lara isinlanip /gzinfo'dan grup adini ogrenir
 // (zgo mantigi). Sonuc group_colors.txt'ye yazilir; ?zf etiketleri ve
@@ -9099,11 +9101,28 @@ int OnGmembersPage(const char *szInfo, int *outButton, int *outItem)
 			{
 				char szLine[256];
 				memcpy(szLine, pL, nLen); szLine[nLen] = 0;
-				bool bLeaderLine = (strstr(szLine, "Co-Leader") || strstr(szLine, "Leader"));
-				if(bLeaderLine)
+				char szRowRole[32] = {0};
 				{
-					if(!s_bGmBotOk && pBot[0] && strstr(szLine, pBot)) { s_bGmBotOk = true; Log("[ZSNIP] Bot bu sayfada bulundu (satir %d).", iRow); }
-					if(!s_bGmUserOk && pUser[0] && strstr(szLine, pUser)) { s_bGmUserOk = true; Log("[ZSNIP] Kullanici bu sayfada bulundu (satir %d).", iRow); }
+					const char *pC1 = strchr(szLine, '\t');
+					const char *pC2 = pC1 ? strchr(pC1 + 1, '\t') : NULL;
+					if(pC2)
+					{
+						const char *pR = pC2 + 1;
+						const char *pRE = strchr(pR, '\t');
+						size_t nR = pRE ? (size_t)(pRE - pR) : strlen(pR);
+						if(nR > 31) nR = 31;
+						memcpy(szRowRole, pR, nR); szRowRole[nR] = 0;
+						StripColorCodes(szRowRole);
+						char *pT = szRowRole; while(*pT == ' ') pT++;
+						if(pT != szRowRole) memmove(szRowRole, pT, strlen(pT) + 1);
+						for(int k = (int)strlen(szRowRole) - 1; k >= 0 && szRowRole[k] == ' '; k--) szRowRole[k] = 0;
+					}
+				}
+				bool bAuthRole = szRowRole[0] && (!_stricmp(szRowRole, "Owner") || !_stricmp(szRowRole, "Deputy Owner") || !_stricmp(szRowRole, "Leader") || !_stricmp(szRowRole, "Co-Leader"));
+				if(bAuthRole)
+				{
+					if(!s_bGmBotOk && pBot[0] && strstr(szLine, pBot)) { s_bGmBotOk = true; strncpy_s(s_sGmBotRole, sizeof(s_sGmBotRole), szRowRole, _TRUNCATE); Log("[ZSNIP] Bot rolu eslesti: '%s' (satir %d).", szRowRole, iRow); }
+					if(!s_bGmUserOk && pUser[0] && strstr(szLine, pUser)) { s_bGmUserOk = true; strncpy_s(s_sGmUserRole, sizeof(s_sGmUserRole), szRowRole, _TRUNCATE); Log("[ZSNIP] Kullanici rolu eslesti: '%s' (satir %d).", szRowRole, iRow); }
 				}
 				// Acik "sonraki sayfa" satiri varsa kaydet (tiklanacak ogge)
 				if(strstr(szLine, "Sonraki") || strstr(szLine, "sonraki") || strstr(szLine, "Next")
@@ -9143,7 +9162,7 @@ void OnGmembersFinalize()
 			? g_playerCache[g_snipSenderId].szName : "";
 
 	Log("[ZSNIP] Yetki aramasi bitti (sayfa %d): bot=%s (%s), kullanici=%s (%s).",
-		s_iGmPage, pBot, s_bGmBotOk ? "Co-Leader" : "YOK", pUser, s_bGmUserOk ? "Co-Leader" : "YOK");
+		s_iGmPage, pBot, s_bGmBotOk ? s_sGmBotRole : "YOK", pUser, s_bGmUserOk ? s_sGmUserRole : "YOK");
 
 	if(!pBot[0] || !pUser[0])
 	{
@@ -9164,8 +9183,14 @@ void OnGmembersFinalize()
 			return;
 		}
 		g_bridgeSuppressEcho++;
-		sendChat((char *)LM("!Zone sniper icin bot ve kullanici Co-Leader olmali.",
-			"!Zone sniper requires both bot and user to be Co-Leader."));
+		{
+			char szPerm[224];
+			sprintf_s(szPerm, sizeof(szPerm),
+				LM("!Rol eslesmedi, sniper baslamadi (bot: %s, kullanici: %s).",
+				"!Role mismatch, sniper not started (bot: %s, user: %s)."),
+				s_bGmBotOk ? s_sGmBotRole : "yok", s_bGmUserOk ? s_sGmUserRole : "yok");
+			sendChat(szPerm);
+		}
 		return;
 	}
 
