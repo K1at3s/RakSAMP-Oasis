@@ -57,6 +57,8 @@ static int g_knownGroupMembers[MAX_PLAYERS];
 static bool  g_anyWarActive = false;
 static DWORD g_anyWarStartTick = 0;
 static char  g_anyWarDesc[128] = {0};
+static DWORD g_zwLastGzAt = 0;   // son /gz gonderimi (yetki reddi korelasyonu)
+static bool  g_zwNoGzEntry = false; // /gz reddedildi: bu savas giris deneme
 #define KILL_LIST_CAPTURE_WINDOW_MS 90000 // sonu-g textdraw'larý i-gin toplama penceresi (son 60 sn giri? + bitis textdraw'lari)
 static DWORD g_zoneWarStartTick = 0;
 
@@ -4263,6 +4265,8 @@ static void ZwJoinCaptureReturn()
 	// sonra /fr ile geri don. (Uzun kalma GZ'de takilma/ban riski tasir.)
 	g_zwReturnAt = GetTickCount() + 3000; // ilk 3 sn kurali: Oasis
 	Log("[ZONEWAR] Kisa GZ giris yapiliyor, takim rengi ogrenilip /fr ile geri donulecek.");
+	if(g_zwNoGzEntry) { Log("[ZONEWAR] Kisa giris atlandi (/gz once reddedildi)."); return; }
+	g_zwLastGzAt = GetTickCount();
 	sendServerCommand((char *)"/gz");
 }
 
@@ -4517,6 +4521,50 @@ void ClientMessage(RPCParameters *rpcParams)
 			g_anyWarStartTick = 0;
 			g_anyWarDesc[0] = 0;
 		}
+		{ // Savas sonucu chatten Discord (kill textdraw yoksa da gitsin)
+			static char s_wrWin[64] = {0}, s_wrLose[64] = {0}, s_wrScore[64] = {0}, s_wrZone[64] = {0};
+			static bool s_wrPosted = false;
+			if(!strncmp(pZoneMsg, "ZONE WAR:", 9) && strstr(pZoneMsg, " defeated ") != NULL)
+			{
+				const char *pD = strstr(pZoneMsg, " defeated ");
+				const char *pW = pZoneMsg + 9;
+				while(*pW == ' ') pW++;
+				size_t nW = (size_t)(pD - pW);
+				if(nW > 0 && nW < sizeof(s_wrWin)) { memcpy(s_wrWin, pW, nW); s_wrWin[nW] = 0; }
+				const char *pL = pD + 11;
+				while(*pL == ' ') pL++;
+				size_t nL = strcspn(pL, ".\r\n");
+				if(nL > 0 && nL < sizeof(s_wrLose)) { memcpy(s_wrLose, pL, nL); s_wrLose[nL] = 0; }
+				s_wrScore[0] = 0; s_wrZone[0] = 0; s_wrPosted = false;
+			}
+			if(!strncmp(pZoneMsg, "ZONE WAR:", 9) && strstr(pZoneMsg, "Results [") != NULL)
+			{
+				const char *pR = strstr(pZoneMsg, "Results [") + 9;
+				const char *pE = strchr(pR, ']');
+				if(pE && (size_t)(pE - pR) < sizeof(s_wrScore)) { memcpy(s_wrScore, pR, (size_t)(pE - pR)); s_wrScore[pE - pR] = 0; }
+				const char *pDash = pE ? strstr(pE, " - ") : NULL;
+				if(pDash) { strncpy_s(s_wrZone, sizeof(s_wrZone), pDash + 3, _TRUNCATE); char *pZ = s_wrZone + strlen(s_wrZone); while(pZ > s_wrZone && (pZ[-1] == ' ' || pZ[-1] == '\r' || pZ[-1] == '\n' || pZ[-1] == '. ')) pZ--; *pZ = 0; }
+				bool bOurs = !g_myGroupName.empty() && (strstr(pZoneMsg, g_myGroupName.c_str()) != NULL || (s_wrWin[0] && _stricmp(s_wrWin, g_myGroupName.c_str()) == 0) || (s_wrLose[0] && _stricmp(s_wrLose, g_myGroupName.c_str()) == 0));
+				if(s_wrWin[0] && s_wrScore[0] && !s_wrPosted && !g_zwKillListSent && bOurs)
+				{
+					s_wrPosted = true;
+					char szBox[256];
+					sprintf_s(szBox, sizeof(szBox), "%s defeated %s\n%s%s%s (chat sonucu)", s_wrWin, s_wrLose[0] ? s_wrLose : "?", s_wrScore, s_wrZone[0] ? " - " : "", s_wrZone);
+					Log("[WAR] Sonuc Discord'a: %s", szBox);
+					SendKillList(szBox, "", s_wrWin, s_wrLose, "", "", 0, 0, !g_myGroupName.empty() && _stricmp(s_wrWin, g_myGroupName.c_str()) == 0, "", "", 0, 0, 0, "", "");
+				}
+			}
+		}
+		if(strstr(szNonColorEmbeddedMsg, "sufficient permissions") != NULL && GetTickCount() - g_zwLastGzAt < 5000)
+		{
+			if(!g_zwNoGzEntry)
+			{
+				g_zwNoGzEntry = true;
+				Log("[ZONEWAR] /gz yetki reddi: bu savas GZsiz izlenecek (rank yetersiz olabilir).");
+				g_bridgeSuppressEcho++;
+				sendChat((char *)LM("!GZye giremiyorum (yetki yok), savas disaridan izlenecek.", "!Can't enter GZ (no permission), watching from outside."));
+			}
+		}
 		bool bOasisStarted = (strstr(pZoneMsg, "Started at ") != NULL && strstr(pZoneMsg, " vs. ") != NULL
 			&& !g_myGroupName.empty() && strstr(pZoneMsg, g_myGroupName.c_str()) != NULL);
 		bool bNamedOurWar = false;
@@ -4608,8 +4656,11 @@ void ClientMessage(RPCParameters *rpcParams)
 			// tekrarda sifirlanir ve ?gzt kalan sureyi yanlis hesaplar.) Savas zaten
 			// aktifse gelen her yeni join duyurusu tekrar sayilir; zone tag'i uyu-smuyorsa
 			// (bos tag dahil) da ayni savasin devami kabul edilir.
-			if(g_inZoneWar && g_zoneWarStartTick != 0
+			bool bGeneralRepeat = (g_anyWarActive && g_anyWarDesc[0] && strstr(pZoneMsg, g_anyWarDesc) != NULL
+				&& GetTickCount() - g_anyWarStartTick > 5000 && g_warRemainingSec >= 0);
+			if((g_inZoneWar && g_zoneWarStartTick != 0
 				&& (!szZoneTag[0] || !strcmp(g_zwWarZone, szZoneTag)))
+				|| bGeneralRepeat)
 			{
 				// Tekrar duyurusu. Bot yeniden basladiysa / oturum ortasinda savasa
 				// denk geldiyse timer hic cekilmemis olabilir (g_warRemainingSec<0):
@@ -4626,6 +4677,7 @@ void ClientMessage(RPCParameters *rpcParams)
 			else
 			{
 				pAction = "join";
+				g_zwNoGzEntry = false; // yeni savas: giris yasagi sifirla
 				strncpy_s(g_zwWarZone, sizeof(g_zwWarZone), szZoneTag, sizeof(g_zwWarZone) - 1);
 				// Savas baslangic anini kaydet: kalan sure = ZONE_WAR_TOTAL_MS - gecen sure.
 				g_zoneWarStartTick = GetTickCount();
@@ -8878,7 +8930,8 @@ void ProcessZoneWarAutoJoin()
 				Log("[KILLLIST] GZ bitimine 00:03 kala giriliyor (takim rengi bilinmiyor, giris sirasinda ogrenilecek).");
 			else
 				Log("[KILLLIST] GZ bitimine 00:03 kala giriliyor, kill/death/assist/DMG textdraw'lari toplanacak.");
-			sendServerCommand((char *)"/gz");
+			if(g_zwNoGzEntry) { Log("[KILLLIST] 00:03 girisi atlandi (/gz once reddedildi)."); }
+			else { g_zwLastGzAt = GetTickCount(); sendServerCommand((char *)"/gz"); }
 		}
 	}
 
