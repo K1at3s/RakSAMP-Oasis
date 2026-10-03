@@ -299,6 +299,16 @@ static double ExtractNumberNear(const char *szText, const char *key) {
 }
 
 // Uye listesi dialogu tanima: UIF "Last Active" kolonlular + Oasis "Group Members" basliklilar.
+// Uye listesi ("Change Member Role" baslikli da olabilir): govdede Uye[id]
+// satirlari olur. Rol/rank diyalogu tek sutun rol adidir, [id] icermez.
+// Faz-1unden faz-2ye gecis bunu kontrol eder (uye listesini rol sanma -
+// yanlis kisinin rolune tiklaniyordu).
+static bool DlgHasMemberIds(const char* szInfo) {
+    if (!szInfo) return false;
+    const char *pB = strchr(szInfo, '[');
+    if (pB && pB[1] >= '0' && pB[1] <= '9') return true;
+    return false;
+}
 static bool IsMemberListDlg(const char* szTitle, const char* szInfo) {
     if (szInfo && strstr(szInfo, "Last Active")) return true;
     if (szTitle && strstr(szTitle, "Group Members")) return true;
@@ -1143,6 +1153,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
         if (g_groleStartTime != 0 && GetTickCount() - g_groleStartTime > 45000) {
             g_groleActive = false;
             g_grolePhase = 0;
+            g_grRoleDblPending = false;
             Log("[GROLE] Zaman asimi (45sn), otomasyon iptal.");
             return 0;
         }
@@ -1169,7 +1180,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             // Rol diyalogu geldi (baslik "UIF - Group Role"): uye cift tiklamasi ba?ar?l?,
             // faz 2'ye gec ve rol sec. (Aday tiklarken gelen rol diyalogu hedef uyenindir:
             // adaylarin tamami hedefin satir/inputtext'iyle tikladi.)
-            if(g_grolePhase == 1 && strstr(szTitle, "Role") && (strstr(szInfo, "Co-Leader") || strstr(szInfo, "Member")))
+            if(g_grolePhase == 1 && !DlgHasMemberIds(szInfo) && strstr(szTitle, "Role") && (strstr(szInfo, "Co-Leader") || strstr(szInfo, "Member")))
             {
                 Log("[GROLE] Rol diyalogu algilandi ('%s'), faz 2'ye gecilir.", szTitle);
                 g_grolePhase = 2;
@@ -1319,6 +1330,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
         if (g_grankStartTime != 0 && GetTickCount() - g_grankStartTime > 45000) {
             g_grankActive = false;
             g_grankPhase = 0;
+            g_grRoleDblPending = false;
             Log("[GRANK] Zaman asimi (45sn), otomasyon iptal.");
             return 0;
         }
@@ -1329,7 +1341,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             Log("[GRANK] Dialog yakalandi (phase=%d page=%d baslik='%s')", g_grankPhase, g_grankPage, szTitle);
             Log("[GRANK-DATA] %.400s", szInfo ? szInfo : "");
             // Rank diyalogu geldi (baslik "Group Role"/"Rank"): uye cift tiklamasi ba?ar?l?, faz 2.
-            if(g_grankPhase == 1 && (strstr(szTitle, "Role") || strstr(szTitle, "Rank")) && (g_grTargetItem >= 0 || strstr(szInfo, "Co-Leader") || strstr(szInfo, "Member")))
+            if(g_grankPhase == 1 && !DlgHasMemberIds(szInfo) && (strstr(szTitle, "Role") || strstr(szTitle, "Rank")) && (g_grTargetItem >= 0 || strstr(szInfo, "Co-Leader") || strstr(szInfo, "Member")))
             {
                 Log("[GRANK] Rank diyalogu algilandi ('%s'), faz 2'ye gecilir.", szTitle);
                 g_grankPhase = 2;
