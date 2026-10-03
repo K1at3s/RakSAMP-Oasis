@@ -3017,7 +3017,7 @@ static void BindZoneGroup(int iZone, const char *szName)
 void ResetPlayerCache()
 {
 	memset(g_playerCache, 0, sizeof(g_playerCache));
-	Log("[BUILD] Oasis beta 2026-10-03 (dialog watchdog + grole faz + warresult).");
+	Log("[BUILD] Oasis beta v1.8.2 (liste kapatma buton-1).");
 	Log("[PL-CACHE] bellek sifirlandi (kaynak: canli + DB).");
 }
 
