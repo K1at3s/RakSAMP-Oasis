@@ -57,6 +57,7 @@ static int g_knownGroupMembers[MAX_PLAYERS];
 static bool  g_anyWarActive = false;
 static DWORD g_anyWarStartTick = 0;
 static char  g_anyWarDesc[128] = {0};
+static DWORD g_lastWarEndTick = 0; // son savas bitisi (sonuc dialogu penceresi)
 static DWORD g_zwLastGzAt = 0;   // son /gz gonderimi (yetki reddi korelasyonu)
 static bool  g_zwNoGzEntry = false; // /gz reddedildi: bu savas giris deneme
 #define KILL_LIST_CAPTURE_WINDOW_MS 90000 // sonu-g textdraw'larý i-gin toplama penceresi (son 60 sn giri? + bitis textdraw'lari)
@@ -4516,6 +4517,7 @@ void ClientMessage(RPCParameters *rpcParams)
 		}
 		if(strstr(pZoneMsg, " defeated ") != NULL || strstr(pZoneMsg, "Results [") != NULL)
 		{
+			g_lastWarEndTick = GetTickCount();
 			if(g_anyWarActive) Log("[WAR] Genel savas bitti.");
 			g_anyWarActive = false;
 			g_anyWarStartTick = 0;
@@ -7291,6 +7293,25 @@ DWORD WINAPI DialogBoxThread(PVOID)
 // UIF tarafindaki gibi textdraw yok: tablo dogrudan dialogdan alinir, ayni SendKillList
 // hatti ile Discord tarafina gider. Takim dagilimi dialogda yok: tum satirlar tek kutuda,
 // takim adlari + skor basliktan.
+// Savas sonucu select-menu dialogu: savas biteli <90sn ve baslik savasla ilgiliyse
+// dokumle, bilinen formatta parse et, her halukarda Cancel satir 0 ile kapat
+// (secimsiz birakilirsa dialog acik kalir, /pos reddedilir).
+static bool OasisKillListDialog(const char *szTitle, const char *szInfo);
+static bool WarResultDialogTry(const char *szTitle, const char *szInfo, int iDlgId, int iStyle)
+{
+	if(GetTickCount() - g_lastWarEndTick > 90000) return false;
+	if(iStyle != DIALOG_STYLE_LIST && iStyle != DIALOG_STYLE_TABLIST && iStyle != DIALOG_STYLE_TABLIST_HEADERS) return false;
+	if(!(strstr(szTitle, "War") || strstr(szTitle, "Result") || strstr(szTitle, "Score") || strstr(szTitle, "Kill") || strstr(szTitle, "Winner") || strstr(szTitle, "MVP") || strstr(szTitle, "GZ"))) return false;
+	Log("[WARRESULT-DATA] '%s': %.800s", szTitle, szInfo ? szInfo : "");
+	if(OasisKillListDialog(szTitle, szInfo)) return true;
+	RakNet::BitStream bsR;
+	bsR.Write((uint16_t)iDlgId);
+	bsR.Write((uint8_t)0);
+	bsR.Write((uint16_t)0);
+	bsR.Write((uint8_t)0);
+	pRakClient->RPC(&RPC_DialogResponse, &bsR, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
+	return true;
+}
 static bool OasisKillListDialog(const char *szTitle, const char *szInfo)
 {
 	if(!strstr(szTitle, "Group Zone War [")) return false;
@@ -7545,6 +7566,11 @@ void ScrDialogBox(RPCParameters *rpcParams)
 	if(OasisKillListDialog(sampDialog.szTitle, szDlgInfo))
 	{
 		sendDialogResponse(sampDialog.wDialogID, 1, 0xFFFF, (char *)"");
+		sampDialog.iIsActive = 0;
+		return;
+	}
+	if(WarResultDialogTry(sampDialog.szTitle, szDlgInfo, sampDialog.wDialogID, sampDialog.bDialogStyle))
+	{
 		sampDialog.iIsActive = 0;
 		return;
 	}
