@@ -1634,6 +1634,25 @@ static void ParseRankTransition(const char *pFrom, char *oldRank, size_t oldLen,
 // "GROUP: (Harm)(3716972) changed the rank of [YS]FamilyRoots(3752380) from 'F' to 'F'"
 static void CheckGroupLogMessage(const char *msg)
 {
+	// Sunucu rol/rank degisikligini reddetti: otomasyonu DURDUR (donguye girme),
+	// gruba bildir. ("SYSTEM: You cannot change the Role of this member.")
+	if(strstr(msg, "cannot change the Role") || strstr(msg, "cannot change the role")
+		|| strstr(msg, "cannot change the Rank") || strstr(msg, "cannot change the rank"))
+	{
+		if(g_groleActive || g_grankActive)
+		{
+			const char *pWho = g_groleActive ? g_groleTarget.c_str() : g_grankTarget.c_str();
+			Log("[GROLE] Sunucu reddetti (yetki/rutbe), otomasyon durduruldu: %s.", pWho ? pWho : "?");
+			g_bridgeSuppressEcho++;
+			char szDeny[160];
+			sprintf_s(szDeny, sizeof(szDeny), LM("!Rol degisikligi reddedildi (yetkim yetmiyor): %s.", "!Role change denied (insufficient rank): %s."), pWho ? pWho : "?");
+			sendChat(szDeny);
+			g_groleActive = false; g_grolePhase = 0; g_groleDirectPending = false;
+			g_grankActive = false; g_grankPhase = 0;
+			g_grRoleDblPending = false;
+		}
+		return;
+	}
 	const char *pChg = strstr(msg, "changed the rank of");
 	int iType = 2;
 	if(!pChg){ pChg = strstr(msg, "changed the Rank of"); }
@@ -1794,6 +1813,25 @@ static void CheckGroupLogMessage(const char *msg)
 		g_grolePhase = 0;
 		g_groleDirectPending = false;
 		g_grTargetItem = -1; g_grDlgId = 0;
+	}
+	// Menu yolu (dialog otomasyonu) yayin onayi: hedef tutuyorsa basari, gruba bildir.
+	if(g_groleActive && target[0] && !_stricmp(target, g_groleTarget.c_str()))
+	{
+		Log("[GROLE] Onay alindi: %s rol degisti ('%s' -> '%s').", target, oldRank, newRank);
+		g_bridgeSuppressEcho++;
+		char szOk[192];
+		sprintf_s(szOk, sizeof(szOk), LM("!Rol degisti: %s ('%s' -> '%s').", "!Role changed: %s ('%s' -> '%s')."), target, oldRank, newRank);
+		sendChat(szOk);
+		g_groleActive = false; g_grolePhase = 0; g_grRoleDblPending = false;
+	}
+	if(g_grankActive && target[0] && !_stricmp(target, g_grankTarget.c_str()))
+	{
+		Log("[GRANK] Onay alindi: %s rank degisti ('%s' -> '%s').", target, oldRank, newRank);
+		g_bridgeSuppressEcho++;
+		char szOk2[192];
+		sprintf_s(szOk2, sizeof(szOk2), LM("!Rank degisti: %s ('%s' -> '%s').", "!Rank changed: %s ('%s' -> '%s')."), target, oldRank, newRank);
+		sendChat(szOk2);
+		g_grankActive = false; g_grankPhase = 0; g_grRoleDblPending = false;
 	}
 }
 
@@ -3743,16 +3781,13 @@ static void SendGrRoleSecondClick()
 	bs.Write((uint8_t)len);
 	if(len) bs.Write(g_grRoleInput, len);
 	pRakClient->RPC(&RPC_DialogResponse, &bs, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
+	if(!g_groleActive && !g_grankActive) return; // zaman asimi/iptal sonrasi bayat tiklama: gonderme
 	g_grRoleDblPending = false;
 	if(g_grRoleIsGrank){
-		Log("[GRANK] Otomasyon tamam: %s -> %s", g_grankTarget.c_str(), g_grankRank.c_str());
-		g_grankActive = false;
-		g_grankPhase = 0;
+		Log("[GRANK] Secim gonderildi, yayin onayi bekleniyor: %s -> %s", g_grankTarget.c_str(), g_grankRank.c_str());
 	}
 	else{
-		Log("[GROLE] Otomasyon tamam: %s -> %s", g_groleTarget.c_str(), g_groleRole.c_str());
-		g_groleActive = false;
-		g_grolePhase = 0;
+		Log("[GROLE] Secim gonderildi, yayin onayi bekleniyor: %s -> %s", g_groleTarget.c_str(), g_groleRole.c_str());
 	}
 }
 
