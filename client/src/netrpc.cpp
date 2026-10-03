@@ -980,6 +980,8 @@ static int   g_watchDlgId = -1;
 static DWORD g_watchDlgAt = 0;
 static int   g_watchDlgStyle = 0;
 static bool  g_watchDlgKeep = false;
+static DWORD g_lastPosOkTick = 0;
+static int   g_watchCloseMode = 0;
 // Liste kapatma: Select (buton 1) + secimsiz + BYTE len. Buton 0 (Cancel/ESC)
 // bu sunucuda HICBIR listede islenmiyor; WORD-uzunluklular da yutuluyordu.
 static void SendListClose(int iDlgId)
@@ -3822,6 +3824,15 @@ static void SendGrRoleSecondClick()
 
 void ProcessZoneScan()
 {
+	if((g_zoneScanIdx >= 0 || g_followActive || g_zgoActive || g_ztkActive)
+		&& g_lastPosOkTick != 0 && GetTickCount() - g_lastPosOkTick > 5*60*1000)
+	{
+		Log("[DLG-WATCH] 5dkdir /pos basarisiz, yeniden baglaniliyor.");
+		g_lastPosOkTick = 0;
+		g_watchDlgId = -1;
+		resetPools(1, 0);
+		return;
+	}
 	if(!g_bLoggedIn && iSpawned && g_spawnTick != 0 && GetTickCount() - g_spawnTick > 180000)
 	{
 		g_bLoggedIn = true;
@@ -3832,11 +3843,20 @@ void ProcessZoneScan()
 		int iWdId = g_watchDlgId, iWdStyle = g_watchDlgStyle;
 		g_watchDlgAt = GetTickCount();
 		if(iWdStyle == DIALOG_STYLE_LIST || iWdStyle == DIALOG_STYLE_TABLIST || iWdStyle == DIALOG_STYLE_TABLIST_HEADERS)
-			SendListClose(iWdId);
-		else
 		{
-			sendDialogResponse((WORD)iWdId, 1, 0xFFFF, (char *)"");
+			RakNet::BitStream bsW;
+			bsW.Write((uint16_t)iWdId);
+			if(g_watchCloseMode == 1 || g_watchCloseMode == 3) bsW.Write((uint8_t)1);
+			else bsW.Write((uint8_t)0);
+			if(g_watchCloseMode >= 2) bsW.Write((uint16_t)0);
+			else bsW.Write((uint16_t)0xFFFF);
+			bsW.Write((uint8_t)0);
+			pRakClient->RPC(&RPC_DialogResponse, &bsW, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
+			Log("[DLG-WATCH] kapatma denemesi %d/4 (id=%d style=%d).", g_watchCloseMode + 1, iWdId, iWdStyle);
+			g_watchCloseMode = (g_watchCloseMode + 1) % 4;
 		}
+		else
+			sendDialogResponse((WORD)iWdId, 1, 0xFFFF, (char *)"");
 		Log("[DLG-WATCH] 30 sn acik kalan dialog kapatildi (id=%d style=%d).", iWdId, iWdStyle);
 	}
 
@@ -4625,6 +4645,7 @@ void ClientMessage(RPCParameters *rpcParams)
 			}
 			g_anyWarActive = true;
 		}
+		if(strstr(pZoneMsg, "Your position has been set") != NULL) g_lastPosOkTick = GetTickCount();
 		if(strstr(pZoneMsg, " defeated ") != NULL || strstr(pZoneMsg, "Results [") != NULL)
 		{
 			g_lastWarEndTick = GetTickCount();
