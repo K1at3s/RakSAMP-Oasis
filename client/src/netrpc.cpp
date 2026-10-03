@@ -971,6 +971,13 @@ static void ResumeZoneScanAfterSnip()
 static DWORD g_zoneScanDeadline = 0;   // ornek icin zaman asimi
 static bool  g_zoneScanWaitingTeleport = false; // /pos gonderildi, /gzinfo henuz gonderilmedi
 static float g_zoneScanReturnPos[3] = {0, 0, 0};
+// Dialog bekcisi: 30 sn yanitsiz kalan dialogu stile gore kapatir. Acik dialog
+// /pos ve /gzinfo komutlarini reddettirir ("dialog open"). Otomasyonlar bazen
+// dialogu kapatmadan birakiyor (timeout/iptal); bekci hepsini toplar.
+static int   g_watchDlgId = -1;
+static DWORD g_watchDlgAt = 0;
+static int   g_watchDlgStyle = 0;
+static bool  g_watchDlgKeep = false;
 // ?follow (whisper): hedefi /pos ile takip. Hedef streamden duserse
 // (freeroamdan cikmis/gamemode/offline) 5 tur sonra otomatik biter.
 static const char *LM(const char *tr, const char *en); // tanim asagida (dil secimi)
@@ -3793,6 +3800,25 @@ static void SendGrRoleSecondClick()
 
 void ProcessZoneScan()
 {
+	if(g_watchDlgId >= 0 && !g_watchDlgKeep && GetTickCount() - g_watchDlgAt > 30000)
+	{
+		int iWdId = g_watchDlgId, iWdStyle = g_watchDlgStyle;
+		g_watchDlgId = -1;
+		if(iWdStyle == DIALOG_STYLE_LIST || iWdStyle == DIALOG_STYLE_TABLIST || iWdStyle == DIALOG_STYLE_TABLIST_HEADERS)
+		{
+			RakNet::BitStream bsW;
+			bsW.Write((uint16_t)iWdId);
+			bsW.Write((uint8_t)0);
+			bsW.Write((uint16_t)0);
+			bsW.Write((uint8_t)0);
+			pRakClient->RPC(&RPC_DialogResponse, &bsW, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
+		}
+		else
+		{
+			sendDialogResponse((WORD)iWdId, 1, 0xFFFF, (char *)"");
+		}
+		Log("[DLG-WATCH] 30 sn acik kalan dialog kapatildi (id=%d style=%d).", iWdId, iWdStyle);
+	}
 
 
 	// ?post gerekce penceresi doldu mu? (30 sn) — gerekce yazilmadiysa bos gonderilir,
@@ -7525,6 +7551,17 @@ void ScrDialogBox(RPCParameters *rpcParams)
 	bool bIsSpawnMenu = (strstr(sampDialog.szTitle, "Where would you like to go") != NULL);
 	// Oasis: spawn basinda "Oasis | Mode" listesi gelir - secim ayni, /fr YOK.
 	bool bIsOasisMode = (strstr(sampDialog.szTitle, "Oasis") != NULL && strstr(sampDialog.szTitle, "Mode") != NULL);
+	g_watchDlgId = sampDialog.wDialogID;
+	g_watchDlgAt = GetTickCount();
+	g_watchDlgStyle = sampDialog.bDialogStyle;
+	g_watchDlgKeep = false;
+	if(strstr(sampDialog.szTitle, "Giris") || strstr(sampDialog.szTitle, "Login") ||
+		strstr(sampDialog.szTitle, "Authentication"))
+		g_watchDlgKeep = true;
+	else if(bIsSpawnMenu || bIsOasisMode)
+		g_watchDlgKeep = true;
+	else if(sampDialog.bDialogStyle == DIALOG_STYLE_INPUT && g_waitingForGStats && !g_gstatsAutoSubmit)
+		g_watchDlgKeep = true;
 	if((bIsSpawnMenu || bIsOasisMode) && (sampDialog.bDialogStyle == DIALOG_STYLE_LIST ||
 		sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST || sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST_HEADERS))
 	{
