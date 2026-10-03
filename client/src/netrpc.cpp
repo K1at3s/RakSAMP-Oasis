@@ -980,13 +980,13 @@ static int   g_watchDlgId = -1;
 static DWORD g_watchDlgAt = 0;
 static int   g_watchDlgStyle = 0;
 static bool  g_watchDlgKeep = false;
-// Stok-ESC: gercek client ESC/Cancel paketiyle BIREBIR ayni (6 byte: id+buton+item+BYTE len).
-// WORD-uzunluklu kapatmalar liste dialoglarinda yutuluyordu ("dialog open" kilidi).
-static void SendStockEsc(int iDlgId)
+// Liste kapatma: Select (buton 1) + secimsiz + BYTE len. Buton 0 (Cancel/ESC)
+// bu sunucuda HICBIR listede islenmiyor; WORD-uzunluklular da yutuluyordu.
+static void SendListClose(int iDlgId)
 {
 	RakNet::BitStream bsE;
 	bsE.Write((uint16_t)iDlgId);
-	bsE.Write((uint8_t)0);
+	bsE.Write((uint8_t)1);
 	bsE.Write((uint16_t)0xFFFF);
 	bsE.Write((uint8_t)0);
 	pRakClient->RPC(&RPC_DialogResponse, &bsE, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
@@ -3826,7 +3826,7 @@ void ProcessZoneScan()
 		int iWdId = g_watchDlgId, iWdStyle = g_watchDlgStyle;
 		g_watchDlgAt = GetTickCount();
 		if(iWdStyle == DIALOG_STYLE_LIST || iWdStyle == DIALOG_STYLE_TABLIST || iWdStyle == DIALOG_STYLE_TABLIST_HEADERS)
-			SendStockEsc(iWdId);
+			SendListClose(iWdId);
 		else
 		{
 			sendDialogResponse((WORD)iWdId, 1, 0xFFFF, (char *)"");
@@ -7722,7 +7722,7 @@ void ScrDialogBox(RPCParameters *rpcParams)
 		}
 		Log("[AUTOCLOSE] Dialog id=%d '%s' (style %d) kapatildi.", sampDialog.wDialogID, sampDialog.szTitle, sampDialog.bDialogStyle);
 		if(sampDialog.bDialogStyle == DIALOG_STYLE_LIST || sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST || sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST_HEADERS)
-			SendStockEsc(sampDialog.wDialogID);
+			SendListClose(sampDialog.wDialogID);
 		else
 			sendDialogResponse(sampDialog.wDialogID, 0, 0xFFFF, (char *)"");
 		sampDialog.iIsActive = 0;
