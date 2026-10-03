@@ -10,7 +10,7 @@
 // (harvest /gstats diyaloglari da "UIF - Group Stats" basligini tasir -
 // grup adi ??renme fazi bunlari kendi diyalogu sanip YANLIS isim ??renmesin).
 extern bool g_ghpActive;
-// UIF Login dialogu a??k mi (netrpc.cpp): kullan?c? ?ifre girene kadar tmp hesaba atilmaz
+// UIF Login dialogu a??k mi (netrpc.cpp): kullanici ?ifre girene kadar tmp hesaba atilmaz
 extern bool g_loginPending;
 extern unsigned long g_loginPendingUntil;
 // /grole / /grank paginated otomasyonu (netrpc.cpp)
@@ -322,16 +322,16 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
     if (!g_isEngineActive || g_sessionToken.empty()) return 0;
 
     // -------------------------------------------------------------
-    // 1. G??R???S (LOGIN) EKRANI KORUMASI
-    // Giri?s ekran?? geldi?sinde diyalogu KAPANMAKTAN korur (0 d?nd??r??r).
+    // 1. GIRIS (LOGIN) EKRANI KORUMASI
+    // Giris ekrani geldiginde diyalogu KAPANMAKTAN korur (0 dondurur).
     // -------------------------------------------------------------
     if (szTitle && (strstr(szTitle, "Login") || strstr(szTitle, "Giri?") || strstr(szTitle, "Giri?s") || strstr(szTitle, "Authentication"))) {
         Log("[LOGIN] Giri? ekrani algilandi (style=%d, baslik='%s', btn1='%s' btn2='%s'). Bilgi: %.200s",
             sampDialog.bDialogStyle, szTitle, sampDialog.szButton1, sampDialog.szButton2, szInfo ? szInfo : "");
-        // UIF Login dialogu: kullan?c? diyalogda ?ifreyi elle yazip Login'e basar.
+        // UIF Login dialogu: kullanici diyalogda ?ifreyi elle yazip Login'e basar.
         // Dialogu a??k birak (kapatma) - tmp hesaba atilmasin diye spawn akisi bekler.
         g_loginPending = true;
-        g_loginPendingUntil = 0; // dialog geldi: kullan?c? girene kadar beklenir (timeout yok)
+        g_loginPendingUntil = 0; // dialog geldi: kullanici girene kadar beklenir (timeout yok)
         std::cout << "[INFO] Giri? ekrani algilandi, diyalog kapatilmadi.\n";
         return 0; // 0 d?nerek diyalogu kapatmaz, RakSAMP'??n normal ak???s??na b??rak??r
     }
@@ -387,7 +387,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
         double dFps = ExtractNumberNear(szInfo, "fps");
         double dPing = ExtractNumberNear(szInfo, "ping");
         // /stats <id> dialogu FPS/ping iceriyorsa cache'e yaz: ?pl cevabinda bu taze
-        // veriler g?sterilir (kullan?c?: "stats'tan fps+ping cek, cache'e save, ?pl'de yaz").
+        // veriler g?sterilir (kullanici: "stats'tan fps+ping cek, cache'e save, ?pl'de yaz").
         if (g_plTargetId >= 0 && g_plTargetId < MAX_PLAYERS) {
             if (dLoss >= 0.0) {
                 g_playerCache[g_plTargetId].dLoss = dLoss;
@@ -412,7 +412,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
         if (dPing < 0.0 && g_plTargetId >= 0 && g_plTargetId < MAX_PLAYERS)
             dPing = (double)playerInfo[g_plTargetId].dwPing; // scoreboard ping'i
 
-        // UIF /pnetstats FPS icermez (FPS: --) ve kullan?c?ya ait loss/ping dialogda
+        // UIF /pnetstats FPS icermez (FPS: --) ve kullaniciya ait loss/ping dialogda
         // olmayabilir. "Stats ->" grup mesajlarindan doldurulan cache'ten eksikleri
         // tamamla (netrpc.cpp doldurur, player_cache.txt'ye kalici yazar).
         if (g_plTargetId >= 0 && g_plTargetId < MAX_PLAYERS && g_playerCache[g_plTargetId].dwTime != 0) {
@@ -440,7 +440,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             bsResponse.Write((uint16_t)0xFFFF);   // Item ID
             bsResponse.Write((uint8_t)0);        // Input Text Length
             pRakClient->RPC(&RPC_DialogResponse, &bsResponse, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
-            std::cout << "[AUTOCLOSE] pnetstats (bos) diyalogu kapat?ld?, Stats-> bekleniyor\n";
+            std::cout << "[AUTOCLOSE] pnetstats (bos) diyalogu kapatildi, Stats-> bekleniyor\n";
             return 1; // g_waitingForPNetStats A?IK kalir
         }
 
@@ -527,7 +527,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
         bsResponse.Write((uint8_t)0);        // Input Text Length
         pRakClient->RPC(&RPC_DialogResponse, &bsResponse, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
 
-        std::cout << "[AUTOCLOSE] pnetstats diyalogu kapat?ld?!\n";
+        std::cout << "[AUTOCLOSE] pnetstats diyalogu kapatildi!\n";
         return 1;
     }
 
@@ -537,14 +537,14 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
     if (g_waitingForGst) {
         if (g_gstReqTime != 0 && GetTickCount() - g_gstReqTime > 20000) {
             g_waitingForGst = false;
-            Log("[GST] Bekleme zamana?s??m??, flag s??f??rland??.");
+            Log("[GST] Bekleme zaman asimi, flag sifirlandi.");
             return 0;
         }
 
         if (sampDialog.bDialogStyle == DIALOG_STYLE_INPUT || sampDialog.bDialogStyle == DIALOG_STYLE_PASSWORD) {
             const char *pszInput = "";
             size_t nInputLen = 0;
-            Log("[GST] ID giri? dialogu algilandi, bos submit g?nderiliyor (kendi grubu)...");
+            Log("[GST] ID giris dialogu algilandi, bos submit gonderiliyor (kendi grubu)...");
             RakNet::BitStream bsResponse;
             bsResponse.Write((uint16_t)wDialogID);
             bsResponse.Write((uint8_t)1);        // Button 1 (OK)
@@ -669,7 +669,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             Log("[GST] Sonuc: %s", szResult);
             sendChat(szResult);
         } else {
-            Log("[GST] Zone bilgisi bulunamadi, ham veri g?nderiliyor.");
+            Log("[GST] Zone bilgisi bulunamadi, ham veri gonderiliyor.");
             char szRaw[256];
             sprintf_s(szRaw, "!%s", pszInfo);
             sendChat(szRaw);
@@ -682,7 +682,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
         bsResponse.Write((uint16_t)0xFFFF);
         bsResponse.Write((uint8_t)0);
         pRakClient->RPC(&RPC_DialogResponse, &bsResponse, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
-        Log("[GST] Sonuc dialogu otomatik kapat?ld? (AUTOCLOSE).");
+        Log("[GST] Sonuc dialogu otomatik kapatildi (AUTOCLOSE).");
         return 1;
     }
 
@@ -692,13 +692,13 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
     if (g_waitingForAdmins) {
         if (g_adminsReqTime != 0 && GetTickCount() - g_adminsReqTime > 20000) {
             g_waitingForAdmins = false;
-            Log("[ADMINS] Bekleme zamana?s??m??, flag s??f??rland??.");
+            Log("[ADMINS] Bekleme zaman asimi, flag sifirlandi.");
             return 0;
         }
 
         g_waitingForAdmins = false;
 
-        Log("[ADMINS] Sonuc dialogu yakalandi. Discord'a g?nderiliyor...");
+        Log("[ADMINS] Sonuc dialogu yakalandi. Discord'a gonderiliyor...");
         Log("[ADMINS-DATA] %.250s", szInfo);
 
         // Security.cpp ??zerinden Discord VDS'e aktarma
@@ -712,7 +712,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
         bsResponse.Write((uint8_t)0);        // Input Text Length
         pRakClient->RPC(&RPC_DialogResponse, &bsResponse, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
 
-        Log("[ADMINS] Sonuc dialogu otomatik kapat?ld? (AUTOCLOSE).");
+        Log("[ADMINS] Sonuc dialogu otomatik kapatildi (AUTOCLOSE).");
         return 1;
     }
 
@@ -724,7 +724,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
     if (g_waitingForGroups) {
         if (g_groupsReqTime != 0 && GetTickCount() - g_groupsReqTime > 15000) {
             g_waitingForGroups = false;
-            Log("[GHP] /groups bekleme zamana?s??m??, flag s??f??rland??.");
+            Log("[GHP] /groups bekleme zaman asimi, flag sifirlandi.");
             return 0;
         }
         // /groups cevabi LIST dialog style'inda gelir (veya INFO). Ham olarak gecir:
@@ -750,7 +750,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             pRakClient->RPC(&RPC_DialogResponse, &bsResponse, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
             return 1;
         }
-        // Farkli bir dialog geldi (ID giri? vs.): bu /groups cevabi degil, beklemede kal
+        // Farkli bir dialog geldi (ID giris vs.): bu /groups cevabi degil, beklemede kal
     }
 
     // -------------------------------------------------------------
@@ -825,12 +825,12 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
 
     // -------------------------------------------------------------
     // 3.6 /gmembers YAKALAMASI (?zsnip yetki kontrolu)
-    // Bot + komutu atan kullan?c? Co-Leader mi diye /gmembers listesini parse eder.
+    // Bot + komutu atan kullanici Co-Leader mi diye /gmembers listesini parse eder.
     // -------------------------------------------------------------
     if (g_waitingForGmembers) {
         if (g_gmembersReqTime != 0 && GetTickCount() - g_gmembersReqTime > 30000) {
             g_waitingForGmembers = false;
-            Log("[GHP] /gmembers bekleme zamana?s??m??, flag s??f??rland??.");
+            Log("[GHP] /gmembers bekleme zaman asimi, flag sifirlandi.");
             return 0;
         }
         // UIF /gmembers cevabi LIST/TABLIST olabilir; bazi sunucularda MSGBOX.
@@ -881,7 +881,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
     // -------------------------------------------------------------
     if (g_groleListActive) {
         if (g_groleListStartTime != 0 && GetTickCount() - g_groleListStartTime > 20000) {
-            Log("[GROLE-LIST] Zaman asimi, %d uye ile g?nderiliyor.", (int)g_groleListMembers.size());
+            Log("[GROLE-LIST] Zaman asimi, %d uye ile gonderiliyor.", (int)g_groleListMembers.size());
             FinishGroleListAndPost();
             return 0;
         }
@@ -973,7 +973,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
     // 3.7b /grank LIST FETCH (uye listesi, rank secimi oncesi)
     if (g_grankListActive) {
         if (g_grankListStartTime != 0 && GetTickCount() - g_grankListStartTime > 20000) {
-            Log("[GRANK-LIST] Zaman asimi, %d uye ile g?nderiliyor.", (int)g_grankListMembers.size());
+            Log("[GRANK-LIST] Zaman asimi, %d uye ile gonderiliyor.", (int)g_grankListMembers.size());
             FinishGrankListAndPost();
             return 0;
         }
@@ -1621,18 +1621,18 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
         if (g_gstatsReqTime != 0 && GetTickCount() - g_gstatsReqTime > 20000) {
             g_waitingForGStats = false;
             g_gstatsSentFirst = false;
-            std::cout << "[gstats] Bekleme zamana?s??m??, flag s??f??rland??.\n";
+            std::cout << "[gstats] Bekleme zaman asimi, flag sifirlandi.\n";
             return 0;
         }
 
-        // Sunucu once ID giri? dialogu (INPUT) g?nderir.
+        // Sunucu once ID giris dialogu (INPUT) g?nderir.
         // /gstats ve /stats: dialogu anlik ac-kapat, g_gstatsInput doluysa o degeri yazip
         // submit et (belirli grup/oyuncu), bos ise bos submit -> kendi grubu (RakGravy davranisi).
-        // /astats: parametre yoksa kullan?c? account ID girmeli, otomatik submit YAPILMAZ.
+        // /astats: parametre yoksa kullanici account ID girmeli, otomatik submit YAPILMAZ.
         if (sampDialog.bDialogStyle == DIALOG_STYLE_INPUT || sampDialog.bDialogStyle == DIALOG_STYLE_PASSWORD) {
             if(!g_gstatsAutoSubmit)
             {
-                Log("[GSTATS] /astats ID giri? dialogu atlaniyor (kullan?c? account ID girecek)...");
+                Log("[GSTATS] /astats ID giris dialogu atlaniyor (kullanici account ID girecek)...");
                 return 0;
             }
 
@@ -1640,7 +1640,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             size_t nInputLen = g_gstatsInput.length();
             if(nInputLen > 128) nInputLen = 128;
 
-            Log("[GSTATS] ID giri? dialogu algilandi, %s submit g?nderiliyor...",
+            Log("[GSTATS] ID giris dialogu algilandi, %s submit gonderiliyor...",
                 nInputLen > 0 ? ("'" + g_gstatsInput + "' ile").c_str() : "bos");
 
             // Girilen deger + Button 1 (OK) ile DialogResponse g?nder
@@ -1653,7 +1653,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                 bsResponse.Write(pszInput, nInputLen);
             pRakClient->RPC(&RPC_DialogResponse, &bsResponse, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
 
-            std::cout << "[gstats] ID dialogu submit ile kapat?ld?, sonuc bekleniyor.\n";
+            std::cout << "[gstats] ID dialogu submit ile kapatildi, sonuc bekleniyor.\n";
             return 1;
         }
 
@@ -1757,7 +1757,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             bsResponse.Write((uint16_t)0xFFFF);
             bsResponse.Write((uint8_t)0);
             pRakClient->RPC(&RPC_DialogResponse, &bsResponse, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
-            Log("[GHP] gstats sonuc dialogu kapat?ld? (harvest).");
+            Log("[GHP] gstats sonuc dialogu kapatildi (harvest).");
             return 1;
         }
 
@@ -1790,7 +1790,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
         {
             // Discord'dan istenen ilk sonuc: Discord'a g?nder. /stats ikinci sonuc
             // dialogunu (grup stats) da acar; o sadece kapatilir (g_gstatsSentFirst=true).
-            Log("[GSTATS] Sonuc dialogu yakalandi. Discord'a g?nderiliyor...");
+            Log("[GSTATS] Sonuc dialogu yakalandi. Discord'a gonderiliyor...");
             Log("[GSTATS-DATA] %.250s", szInfo);
 
             // Security.cpp ??zerinden Discord VDS'e aktarma
@@ -1815,7 +1815,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
         bsResponse.Write((uint8_t)0);        // Input Text Length
         pRakClient->RPC(&RPC_DialogResponse, &bsResponse, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
 
-        Log("[GSTATS] Sonuc dialogu otomatik kapat?ld? (AUTOCLOSE).");
+        Log("[GSTATS] Sonuc dialogu otomatik kapatildi (AUTOCLOSE).");
         return 1;
     }
 

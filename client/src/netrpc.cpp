@@ -3005,6 +3005,7 @@ static void BindZoneGroup(int iZone, const char *szName)
 void ResetPlayerCache()
 {
 	memset(g_playerCache, 0, sizeof(g_playerCache));
+	Log("[BUILD] Oasis beta 2026-10-03 (dialog watchdog + grole faz + warresult).");
 	Log("[PL-CACHE] bellek sifirlandi (kaynak: canli + DB).");
 }
 
@@ -7673,6 +7674,9 @@ void ScrDialogBox(RPCParameters *rpcParams)
 	if(!g_accPendingName.empty() && GetTickCount() - g_accPendingAt < ACC_PROBE_TIMEOUT_MS)
 		Log("[ACCDBG] isim='%s' baslik='%s' govde=%.300s", g_accPendingName.c_str(), sampDialog.szTitle, szDlgInfo);
 
+	if(g_groleActive || g_grankActive || g_gkickActive || g_waitingForGmembers || g_waitingForGStats)
+		Log("[DLG-SKIP] otomasyon aktifken yakalanmadi (grole=%d grank=%d gkick=%d gm=%d gs=%d): '%s'",
+		g_groleActive, g_grankActive, g_gkickActive, g_waitingForGmembers, g_waitingForGStats, sampDialog.szTitle);
 	// --- GLOBAL AUTOCLOSE ---
 	// Acik kalmasi zorunlu diyaloglar disindakileri otomatik kapat (ekranda birikmesin).
 	// Acik kalanlar: Login/Giris/Authentication, spawn menusu (freeroam secilmediyse),
