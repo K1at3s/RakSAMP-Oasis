@@ -750,7 +750,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             Log("[GHP] /groups kapatma DENEY2: Cancel row 0 gonderiliyor (id %d).", wDialogID);
             RakNet::BitStream bsResponse;
             bsResponse.Write((uint16_t)wDialogID);
-            bsResponse.Write((uint8_t)1);        // Button 1 (Select, secimsiz kapatir)
+            bsResponse.Write((uint8_t)0);        // Button 0 (Cancel) + satir 0 = DENEY2
             bsResponse.Write((uint16_t)0xFFFF);    // Item -1 (secimsiz stok ESC)
             bsResponse.Write((uint8_t)0);        // Input Text Length (BYTE)
             pRakClient->RPC(&RPC_DialogResponse, &bsResponse, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
@@ -862,7 +862,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                 // yutuluyor (/groups DENEY2 ile bulunan calisan yol).
                 RakNet::BitStream bsR;
                 bsR.Write((uint16_t)wDialogID);
-                bsR.Write((uint8_t)1);             // Button 1 (Select, secimsiz kapatir)
+                bsR.Write((uint8_t)0);             // Button 0 (Cancel) + satir 0 = DENEY2
                 bsR.Write((uint16_t)0xFFFF);       // Item -1 (secimsiz stok ESC)
                 bsR.Write((uint8_t)0);             // Input Text Length (BYTE)
                 pRakClient->RPC(&RPC_DialogResponse, &bsR, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
@@ -1161,6 +1161,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             g_grolePhase = 0;
             g_grRoleDblPending = false;
             Log("[GROLE] Zaman asimi (45sn), otomasyon iptal.");
+            { RakNet::BitStream bsT; bsT.Write((uint16_t)wDialogID); bsT.Write((uint8_t)0); bsT.Write((uint16_t)0); bsT.Write((uint8_t)0); pRakClient->RPC(&RPC_DialogResponse, &bsT, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL); }
             return 0;
         }
         if (sampDialog.bDialogStyle == DIALOG_STYLE_LIST ||
@@ -1338,6 +1339,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             g_grankPhase = 0;
             g_grRoleDblPending = false;
             Log("[GRANK] Zaman asimi (45sn), otomasyon iptal.");
+            { RakNet::BitStream bsT; bsT.Write((uint16_t)wDialogID); bsT.Write((uint8_t)0); bsT.Write((uint16_t)0); bsT.Write((uint8_t)0); pRakClient->RPC(&RPC_DialogResponse, &bsT, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL); }
             return 0;
         }
         if (sampDialog.bDialogStyle == DIALOG_STYLE_LIST ||
