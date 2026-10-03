@@ -1481,6 +1481,9 @@ static void SendGroupLog(const char *actor, long long actorAcc,
 	g_pushPending = true;
 	g_pushUntil = GetTickCount() + 30000;
 	g_pushReason[0] = 0;
+	g_pushRequester = -1;
+	for(int s = 0; s < MAX_PLAYERS; s++)
+		if(playerInfo[s].szPlayerName[0] && !_stricmp(playerInfo[s].szPlayerName, actor)) { g_pushRequester = s; break; }
 	g_bridgeSuppressEcho++;
 	// ponytail: LM() asagida tanimli (satir ~2626), burada g_langTurkish dogrudan
 	sendChat((char *)(g_langTurkish ? "!Gerekce yazabilirsin (30 sn)." : "!You can type a reason (30 secs)."));
@@ -1574,6 +1577,7 @@ static void PushLastGroupLog(const char *reason)
 	if(!g_isEngineActive || g_sessionToken.empty()) return;
 	if(!g_lastGlogTarget[0]) return;
 	g_pushPending = false; // tek embed: gonderince pencere kapanir (yoksa 30sn sonunda kopya embed gider)
+	g_pushRequester = -1;
 	try
 	{
 		httplib::Client cli(g_szBackendBase);
@@ -1591,7 +1595,14 @@ static void PushLastGroupLog(const char *reason)
 		};
 		auto res = cli.Post("/api/grouppost", body.dump(), "application/json");
 		if(res && res->status == 200)
+		{
 			Log("[POST] Discord'a gonderildi: %s -> %s (tip %d, gerekce: %s).", g_lastGlogActor, g_lastGlogTarget, g_lastGlogType, (reason && reason[0]) ? reason : "-");
+			if(reason && reason[0])
+			{
+				g_bridgeSuppressEcho++;
+				sendChat((char *)LM("!Discord'a gonderildi.", "!Sent to Discord."));
+			}
+		}
 		else
 			Log("[POST] Discord'a GONDERILEMEDI (HTTP %d).", res ? res->status : -1);
 	}
@@ -5442,7 +5453,7 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 {
 			// ?post gerekce penceresi: ?post sonrasi 30 sn icinde yazilan normal grup
 			// mesaji gerekce olarak yakalanir (komutlar haric).
-			if(g_pushPending && pGroupMsg[0] != '?' && pGroupMsg[0] != '!' && pGroupMsg[0] != '/' && pGroupMsg[0] != '\0')
+			if(g_pushPending && g_pushRequester >= 0 && iSenderId == g_pushRequester && pGroupMsg[0] != '?' && pGroupMsg[0] != '!' && pGroupMsg[0] != '/' && pGroupMsg[0] != '\0')
 			{
 				strncpy_s(g_pushReason, sizeof(g_pushReason), pGroupMsg, sizeof(g_pushReason) - 1);
 				Log("[POST] Gerekce alindi: '%s'", g_pushReason);
@@ -6037,6 +6048,7 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 					if(*pReason != '\0')
 					{
 						Log("[POST] ?post gerekceli: %s", pReason);
+						g_pushRequester = iSenderId;
 						PushLastGroupLog(pReason);
 					}
 					else
