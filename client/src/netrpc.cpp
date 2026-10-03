@@ -2853,7 +2853,8 @@ static void SyncZscanFromDb()
 				g_myGroupName.c_str(), bOn ? "ACIK" : "KAPALI", bGzt ? "ACIK" : "KAPALI", bZgrp ? "ACIK" : "KAPALI");
 			if(bOn && s_bGroupDbRestored && g_zoneScanIdx < 0 && iSpawned
 				&& !g_ghpActive && !g_waitingForGroups
-				&& g_spawnTick != 0 && (GetTickCount() - g_spawnTick) >= 60000)
+				&& g_spawnTick != 0 && (GetTickCount() - g_spawnTick) >= 60000
+				&& (g_zoneScanLastRun == 0 || GetTickCount() - g_zoneScanLastRun >= ZONE_SCAN_PERIOD_MS))
 				StartZoneScan(true); // restore sonrasi ilk tarama: spawn korumasi + harvest oncelikli
 		}
 	}
