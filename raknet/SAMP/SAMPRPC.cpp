@@ -309,6 +309,12 @@ static bool DlgHasMemberIds(const char* szInfo) {
     if (pB && pB[1] >= '0' && pB[1] <= '9') return true;
     return false;
 }
+static bool IsRoleMemberListDlg(const char* szTitle, const char* szInfo) {
+    if (!szTitle) return false;
+    if (strstr(szTitle, "Change Member Role")) return true;
+    if (strstr(szTitle, "Change Member Rank")) return true;
+    return false;
+}
 static bool IsMemberListDlg(const char* szTitle, const char* szInfo) {
     if (szInfo && strstr(szInfo, "Last Active")) return true;
     if (szTitle && strstr(szTitle, "Group Members")) return true;
@@ -922,7 +928,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                             while(*p=='.'||*p==':'||*p=='-'||*p==' '||*p=='\t') p++;
                             char name[64]={0}; int ni=0;
                             while(p[ni] && p[ni]!=' ' && p[ni]!='\t' && p[ni]!='-' && ni<63){ name[ni]=p[ni]; ni++; }
-                            name[ni]=0;
+                            name[ni]=0; { char *pBr = strchr(name, '['); if(pBr) *pBr = 0; char *pPr = strchr(name, '('); if(pPr) *pPr = 0; }
                             // fallback: if no word extracted, use whole trimmed line first token
                             if(!name[0]){
                                 int k=0; while(s[k] && s[k]!=' ' && s[k]!='\t' && k<63){ name[k]=s[k]; k++; } name[k]=0;
@@ -1009,7 +1015,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                             while(*p=='.'||*p==':'||*p=='-'||*p==' '||*p=='\t') p++;
                             char name[64]={0}; int ni=0;
                             while(p[ni] && p[ni]!=' ' && p[ni]!='\t' && p[ni]!='-' && ni<63){ name[ni]=p[ni]; ni++; }
-                            name[ni]=0;
+                            name[ni]=0; { char *pBr = strchr(name, '['); if(pBr) *pBr = 0; char *pPr = strchr(name, '('); if(pPr) *pPr = 0; }
                             if(!name[0]){ int k=0; while(s[k] && s[k]!=' ' && s[k]!='\t' && k<63){ name[k]=s[k]; k++; } name[k]=0; }
                             if(name[0] && strchr(name, '>')==NULL){
                                 bool dup=false; for(auto &m: g_grankListMembers) if(_stricmp(m.c_str(), name)==0) dup=true;
@@ -1095,7 +1101,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                             while(*pn=='.'||*pn==':'||*pn=='-'||*pn==' '||*pn=='\t') pn++;
                             char name[64]={0}; int ni=0;
                             while(pn[ni] && pn[ni]!=' ' && pn[ni]!='\t' && pn[ni]!='-' && ni<63){ name[ni]=pn[ni]; ni++; }
-                            name[ni]=0;
+                            name[ni]=0; { char *pBr = strchr(name, '['); if(pBr) *pBr = 0; char *pPr = strchr(name, '('); if(pPr) *pPr = 0; }
                             if(!name[0]){ int k=0; while(s[k] && s[k]!=' ' && s[k]!='\t' && k<63){ name[k]=s[k]; k++; } name[k]=0; }
                             if(name[0] && strchr(name, '>')==NULL){
                                 bool dup=false; for(auto &m: g_gkickListMembers) if(_stricmp(m.c_str(), name)==0) dup=true;
@@ -1186,7 +1192,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                 g_grolePhase = 2;
                 g_grolePage = 0;
             }
-            if (g_grolePhase == 1 && IsMemberListDlg(szTitle, szInfo)) {
+            if (g_grolePhase == 1 && (IsMemberListDlg(szTitle, szInfo) || IsRoleMemberListDlg(szTitle, szInfo))) {
                 // Uye listesi: hedefi ara
                 int targetRow = -1, targetItem = -1, nextRow = -1, nextItem = -1;
                 char firstCol[128] = {0}; // hedef satirin ilk sutunu (renksiz) - TABLIST inputtext
@@ -1216,7 +1222,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                         while(*pN=='.'||*pN==':'||*pN=='-'||*pN==' '||*pN=='\t') pN++;
                         char name[64]={0}; int ni=0;
                         while(pN[ni] && pN[ni]!=' ' && pN[ni]!='\t' && pN[ni]!='\r' && ni<63){ name[ni]=pN[ni]; ni++; }
-                        name[ni]=0;
+                        name[ni]=0; { char *pBr = strchr(name, '['); if(pBr) *pBr = 0; char *pPr = strchr(name, '('); if(pPr) *pPr = 0; }
                         // SADECE isim eslesmesi (renksiz, case-insensitive)
                         if(name[0] && !_stricmp(name, g_groleTarget.c_str())){
                             targetRow = row; targetItem = dataRow;
@@ -1347,7 +1353,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                 g_grankPhase = 2;
                 g_grankPage = 0;
             }
-            if (g_grankPhase == 1 && IsMemberListDlg(szTitle, szInfo)) {
+            if (g_grankPhase == 1 && (IsMemberListDlg(szTitle, szInfo) || IsRoleMemberListDlg(szTitle, szInfo))) {
                 int targetRow = -1, targetItem = -1, nextRow = -1, nextItem = -1;
                 char firstColG[128] = {0}; // grank hedef satirin ilk sutunu
                 const char *pL = szInfo;
@@ -1374,7 +1380,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                         while(*pN=='.'||*pN==':'||*pN=='-'||*pN==' '||*pN=='\t') pN++;
                         char name[64]={0}; int ni=0;
                         while(pN[ni] && pN[ni]!=' ' && pN[ni]!='\t' && pN[ni]!='\r' && ni<63){ name[ni]=pN[ni]; ni++; }
-                        name[ni]=0;
+                        name[ni]=0; { char *pBr = strchr(name, '['); if(pBr) *pBr = 0; char *pPr = strchr(name, '('); if(pPr) *pPr = 0; }
                         // SADECE isim eslesmesi (renksiz, case-insensitive)
                         if(name[0] && !_stricmp(name, g_grankTarget.c_str())){
                             targetRow = row; targetItem = dataRow;
@@ -1520,7 +1526,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                 g_gkickPhase = 2;
                 g_gkickPage = 0;
             }
-            if (g_gkickPhase == 1 && IsMemberListDlg(szTitle, szInfo)) {
+            if (g_gkickPhase == 1 && (IsMemberListDlg(szTitle, szInfo) || IsRoleMemberListDlg(szTitle, szInfo))) {
                 int targetRow = -1, targetItem = -1, nextRow = -1, nextItem = -1;
                 char firstCol[128] = {0};
                 const char *pL = szInfo;
@@ -1546,7 +1552,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                         while(*pN=='.'||*pN==':'||*pN=='-'||*pN==' '||*pN=='\t') pN++;
                         char name[64]={0}; int ni=0;
                         while(pN[ni] && pN[ni]!=' ' && pN[ni]!='\t' && pN[ni]!='\r' && ni<63){ name[ni]=pN[ni]; ni++; }
-                        name[ni]=0;
+                        name[ni]=0; { char *pBr = strchr(name, '['); if(pBr) *pBr = 0; char *pPr = strchr(name, '('); if(pPr) *pPr = 0; }
                         if(name[0] && !_stricmp(name, g_gkickTarget.c_str())){
                             targetRow = row; targetItem = dataRow;
                             int fc = 0;
