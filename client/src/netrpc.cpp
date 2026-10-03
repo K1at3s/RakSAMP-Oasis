@@ -980,6 +980,17 @@ static int   g_watchDlgId = -1;
 static DWORD g_watchDlgAt = 0;
 static int   g_watchDlgStyle = 0;
 static bool  g_watchDlgKeep = false;
+// Stok-ESC: gercek client ESC/Cancel paketiyle BIREBIR ayni (6 byte: id+buton+item+BYTE len).
+// WORD-uzunluklu kapatmalar liste dialoglarinda yutuluyordu ("dialog open" kilidi).
+static void SendStockEsc(int iDlgId)
+{
+	RakNet::BitStream bsE;
+	bsE.Write((uint16_t)iDlgId);
+	bsE.Write((uint8_t)0);
+	bsE.Write((uint16_t)0xFFFF);
+	bsE.Write((uint8_t)0);
+	pRakClient->RPC(&RPC_DialogResponse, &bsE, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
+}
 // ?follow (whisper): hedefi /pos ile takip. Hedef streamden duserse
 // (freeroamdan cikmis/gamemode/offline) 5 tur sonra otomatik biter.
 static const char *LM(const char *tr, const char *en); // tanim asagida (dil secimi)
@@ -3813,16 +3824,9 @@ void ProcessZoneScan()
 	if(g_watchDlgId >= 0 && !g_watchDlgKeep && GetTickCount() - g_watchDlgAt > 30000)
 	{
 		int iWdId = g_watchDlgId, iWdStyle = g_watchDlgStyle;
-		g_watchDlgId = -1;
+		g_watchDlgAt = GetTickCount();
 		if(iWdStyle == DIALOG_STYLE_LIST || iWdStyle == DIALOG_STYLE_TABLIST || iWdStyle == DIALOG_STYLE_TABLIST_HEADERS)
-		{
-			RakNet::BitStream bsW;
-			bsW.Write((uint16_t)iWdId);
-			bsW.Write((uint8_t)0);
-			bsW.Write((uint16_t)0);
-			bsW.Write((uint8_t)0);
-			pRakClient->RPC(&RPC_DialogResponse, &bsW, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
-		}
+			SendStockEsc(iWdId);
 		else
 		{
 			sendDialogResponse((WORD)iWdId, 1, 0xFFFF, (char *)"");
@@ -7717,8 +7721,12 @@ void ScrDialogBox(RPCParameters *rpcParams)
 			return;
 		}
 		Log("[AUTOCLOSE] Dialog id=%d '%s' (style %d) kapatildi.", sampDialog.wDialogID, sampDialog.szTitle, sampDialog.bDialogStyle);
-		sendDialogResponse(sampDialog.wDialogID, 0, 0xFFFF, (char *)"");
+		if(sampDialog.bDialogStyle == DIALOG_STYLE_LIST || sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST || sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST_HEADERS)
+			SendStockEsc(sampDialog.wDialogID);
+		else
+			sendDialogResponse(sampDialog.wDialogID, 0, 0xFFFF, (char *)"");
 		sampDialog.iIsActive = 0;
+		g_watchDlgId = -1;
 		return;
 	}
 

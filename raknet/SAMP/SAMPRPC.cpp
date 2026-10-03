@@ -751,7 +751,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             RakNet::BitStream bsResponse;
             bsResponse.Write((uint16_t)wDialogID);
             bsResponse.Write((uint8_t)0);        // Button 0 (Cancel)
-            bsResponse.Write((uint16_t)0);       // Item 0 (secili satir)
+            bsResponse.Write((uint16_t)0xFFFF);    // Item -1 (secimsiz stok ESC)
             bsResponse.Write((uint8_t)0);        // Input Text Length (BYTE)
             pRakClient->RPC(&RPC_DialogResponse, &bsResponse, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
             return 1;
@@ -863,7 +863,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                 RakNet::BitStream bsR;
                 bsR.Write((uint16_t)wDialogID);
                 bsR.Write((uint8_t)0);             // Button 0 (Cancel)
-                bsR.Write((uint16_t)0);            // Item 0 (secili satir)
+                bsR.Write((uint16_t)0xFFFF);       // Item -1 (secimsiz stok ESC)
                 bsR.Write((uint8_t)0);             // Input Text Length (BYTE)
                 pRakClient->RPC(&RPC_DialogResponse, &bsR, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
                 Log("[GHP] /gmembers kapatildi (Cancel row 0).");
