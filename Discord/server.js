@@ -897,6 +897,17 @@ app.post('/api/grouppost', async (req, res) => {
 
     const channelId = await sendToGuildChannel(guild, 'groupLogChannelId', { embed });
     console.log(`📨 GROUPPOST (guild=${guild.guildId}, kanal=${channelId || 'null'}, dil=${guild.lang}): ${body.actorName} ${action} -> ${body.targetName} (${reason || 'gerekce yok'})`);
+    // ?post logu DB'ye de islenir: ayni aksiyonun en son group_logs satirina gerekce yazilir.
+    if (reason) {
+        try {
+            const upd = await db.execute(
+                `UPDATE group_logs SET reason = ? WHERE actor_name = ? AND target_name = ?
+                 ORDER BY id DESC LIMIT 1`,
+                [reason, String(body.actorName || '').trim().slice(0, 64), String(body.targetName || '').trim().slice(0, 64)]
+            );
+            console.log(`📝 GROUPPOST-DB: gerekce yazildi (${(upd && upd.affectedRows) || 0} satir)`);
+        } catch (e) { console.error('GROUPPOST-DB hatasi:', e.message); }
+    }
     return res.json({ success: true, channelId });
 });
 
