@@ -51,7 +51,7 @@ static int g_knownGroupMembers[MAX_PLAYERS];
 
 // Zone war süresi: sabit 10 dk (sunucu kuralý). ?gzt kalan süreyi bundan hesaplar;
 // "Type /gz2 to join" bildirimi sava-sýn ba-slangý-g anýdýr (g_zoneWarStartTick).
-#define ZONE_WAR_TOTAL_MS 60000 // Oasis: savas ~60 sn
+#define ZONE_WAR_TOTAL_MS 600000 // Oasis: savas ~6-10 dk (logda 6dk18sn olculdu)
 // GENEL savas takibi (?gzt time tum savaslar icin): grubumuz olmasa da aktif
 // savas gorunur. Geri sayim duyurulari (10/5/3/1) sadece BIZIM savasimizda atilir.
 static bool  g_anyWarActive = false;
@@ -8738,8 +8738,8 @@ void ProcessZoneWarAutoJoin()
 {
 	DWORD dwNow = GetTickCount();
 	// Stuck war temizleme
-	if(g_inZoneWar && g_zoneWarStartTick != 0 && dwNow - g_zoneWarStartTick > 3*60*1000){
-		Log("[ZONEWAR] Savas 3dk'yi asti (stuck), temizleniyor.");
+	if(g_inZoneWar && g_zoneWarStartTick != 0 && dwNow - g_zoneWarStartTick > 11*60*1000){
+		Log("[ZONEWAR] Savas 11dk'yi asti (stuck), temizleniyor.");
 		g_inZoneWar = false;
 		g_warRemainingSec = -1;
 		g_warTimerTick = 0;
@@ -8753,11 +8753,13 @@ void ProcessZoneWarAutoJoin()
 	// 00:10 / 00:03 / 00:01. SADECE TEXTDRAW kaynakli timer gecerli (kendi savasimiz
 	// GZ'sinde g-rünür); baska sava?larin "Time left:" chat mesajlari geri sayim
 	// baslatmaz (bizde savas yokken "War ends in 05:00!" phantom duyurulariyordu).
-	if(g_inZoneWar && g_gztOn && g_warTimerViaTdw)
+	if(g_inZoneWar && g_gztOn)
 	{
 		int iRemainingSec = -1;
-		if(g_warTimerTick != 0 && g_warRemainingSec > 0 && dwNow - g_warTimerTick < ZONE_WAR_TOTAL_MS)
+		if(g_warTimerViaTdw && g_warTimerTick != 0 && g_warRemainingSec > 0 && dwNow - g_warTimerTick < ZONE_WAR_TOTAL_MS)
 			iRemainingSec = g_warRemainingSec - (int)((dwNow - g_warTimerTick) / 1000);
+		else if(g_zoneWarStartTick != 0 && dwNow - g_zoneWarStartTick < ZONE_WAR_TOTAL_MS)
+			iRemainingSec = (int)((ZONE_WAR_TOTAL_MS - (dwNow - g_zoneWarStartTick)) / 1000); // textdraw yoksa baslangic hesabi
 
 		if(iRemainingSec >= 0)
 		{
