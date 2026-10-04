@@ -981,6 +981,7 @@ static DWORD g_watchDlgAt = 0;
 static int   g_watchDlgStyle = 0;
 static bool  g_watchDlgKeep = false;
 static DWORD g_lastPosOkTick = 0;
+static void SendListClose(int iDlgId); // tanim asagida
 // Acik liste dialogunu HEMEN kapat (grole sonu/timeout/ret). Bekci 30sn bekler,
 // o arada /pos reddedilir. Sadece liste stilleri + son 15sn icinde gorulmusse.
 static void CloseOpenListDlg()
