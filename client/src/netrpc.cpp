@@ -57,7 +57,13 @@ static int g_knownGroupMembers[MAX_PLAYERS];
 static bool  g_anyWarActive = false;
 static DWORD g_anyWarStartTick = 0;
 static char  g_anyWarDesc[128] = {0};
-static DWORD g_lastWarEndTick = 0; // son savas bitisi (sonuc dialogu penceresi)
+static DWORD g_lastWarEndTick = 0;
+// Chat savas sonucu (yedek): dialog verisi gelmezse 15sn sonra gonderilir.
+// Dialog/textdraw sonucu oncelikli (kullanici chat ozeti istemiyor).
+static char  g_wrWin[64] = {0}, g_wrLose[64] = {0}, g_wrScore[64] = {0}, g_wrZone[64] = {0};
+static bool  g_wrPosted = false;
+static DWORD g_wrArmedAt = 0;
+ // son savas bitisi (sonuc dialogu penceresi)
 static DWORD g_zwLastGzAt = 0;   // son /gz gonderimi (yetki reddi korelasyonu)
 static bool  g_zwNoGzEntry = false; // /gz reddedildi: bu savas giris deneme
 #define KILL_LIST_CAPTURE_WINDOW_MS 90000 // sonu-g textdraw'larý i-gin toplama penceresi (son 60 sn giri? + bitis textdraw'lari)
@@ -3866,6 +3872,14 @@ static void SendGrRoleSecondClick()
 
 void ProcessZoneScan()
 {
+	if(g_wrArmedAt != 0 && !g_wrPosted && !g_zwKillListSent && GetTickCount() - g_wrArmedAt > 15000)
+	{
+		g_wrPosted = true;
+		char szBox[256];
+		sprintf_s(szBox, sizeof(szBox), "%s defeated %s\n%s%s%s (chat sonucu)", g_wrWin, g_wrLose[0] ? g_wrLose : "?", g_wrScore, g_wrZone[0] ? " - " : "", g_wrZone);
+		Log("[WAR] Dialog verisi gelmedi, chat sonucu Discord'a: %s", szBox);
+		SendKillList(szBox, "", g_wrWin, g_wrLose, "", "", 0, 0, !g_myGroupName.empty() && _stricmp(g_wrWin, g_myGroupName.c_str()) == 0, "", "", 0, 0, 0, "", "");
+	}
 	if(g_firstRejectTick != 0 && GetTickCount() - g_firstRejectTick > 2*60*1000)
 	{
 		Log("[DLG-WATCH] 2dkdir surekli red, yeniden baglaniliyor.");
@@ -4697,37 +4711,40 @@ void ClientMessage(RPCParameters *rpcParams)
 			g_anyWarStartTick = 0;
 			g_anyWarDesc[0] = 0;
 		}
-		{ // Savas sonucu chatten Discord (kill textdraw yoksa da gitsin)
-			static char s_wrWin[64] = {0}, s_wrLose[64] = {0}, s_wrScore[64] = {0}, s_wrZone[64] = {0};
-			static bool s_wrPosted = false;
+		{ // Savas sonucu chatten: doldur + kur, 15sn icinde dialog verisi gelmezse gonderilir
+			if(g_wrArmedAt != 0 && !g_wrPosted && !g_zwKillListSent && g_wrWin[0] && g_wrScore[0])
+			{
+				g_wrPosted = true;
+				char szOld[256];
+				sprintf_s(szOld, sizeof(szOld), "%s defeated %s\n%s%s%s (chat sonucu)", g_wrWin, g_wrLose[0] ? g_wrLose : "?", g_wrScore, g_wrZone[0] ? " - " : "", g_wrZone);
+				Log("[WAR] Yeni savas basladi, onceki sonuc hemen gonderiliyor: %s", szOld);
+				SendKillList(szOld, "", g_wrWin, g_wrLose, "", "", 0, 0, !g_myGroupName.empty() && _stricmp(g_wrWin, g_myGroupName.c_str()) == 0, "", "", 0, 0, 0, "", "");
+			}
 			if(!strncmp(pZoneMsg, "ZONE WAR:", 9) && strstr(pZoneMsg, " defeated ") != NULL)
 			{
 				const char *pD = strstr(pZoneMsg, " defeated ");
 				const char *pW = pZoneMsg + 9;
 				while(*pW == ' ') pW++;
 				size_t nW = (size_t)(pD - pW);
-				if(nW > 0 && nW < sizeof(s_wrWin)) { memcpy(s_wrWin, pW, nW); s_wrWin[nW] = 0; }
+				if(nW > 0 && nW < sizeof(g_wrWin)) { memcpy(g_wrWin, pW, nW); g_wrWin[nW] = 0; }
 				const char *pL = pD + 11;
 				while(*pL == ' ') pL++;
 				size_t nL = strcspn(pL, ".\r\n");
-				if(nL > 0 && nL < sizeof(s_wrLose)) { memcpy(s_wrLose, pL, nL); s_wrLose[nL] = 0; }
-				s_wrScore[0] = 0; s_wrZone[0] = 0; s_wrPosted = false;
+				if(nL > 0 && nL < sizeof(g_wrLose)) { memcpy(g_wrLose, pL, nL); g_wrLose[nL] = 0; }
+				g_wrScore[0] = 0; g_wrZone[0] = 0; g_wrPosted = false; g_wrArmedAt = 0;
 			}
 			if(!strncmp(pZoneMsg, "ZONE WAR:", 9) && strstr(pZoneMsg, "Results [") != NULL)
 			{
 				const char *pR = strstr(pZoneMsg, "Results [") + 9;
 				const char *pE = strchr(pR, ']');
-				if(pE && (size_t)(pE - pR) < sizeof(s_wrScore)) { memcpy(s_wrScore, pR, (size_t)(pE - pR)); s_wrScore[pE - pR] = 0; }
+				if(pE && (size_t)(pE - pR) < sizeof(g_wrScore)) { memcpy(g_wrScore, pR, (size_t)(pE - pR)); g_wrScore[pE - pR] = 0; }
 				const char *pDash = pE ? strstr(pE, " - ") : NULL;
-				if(pDash) { strncpy_s(s_wrZone, sizeof(s_wrZone), pDash + 3, _TRUNCATE); char *pZ = s_wrZone + strlen(s_wrZone); while(pZ > s_wrZone && (pZ[-1] == ' ' || pZ[-1] == '\r' || pZ[-1] == '\n' || pZ[-1] == '. ')) pZ--; *pZ = 0; }
-				bool bOurs = !g_myGroupName.empty() && (strstr(pZoneMsg, g_myGroupName.c_str()) != NULL || (s_wrWin[0] && _stricmp(s_wrWin, g_myGroupName.c_str()) == 0) || (s_wrLose[0] && _stricmp(s_wrLose, g_myGroupName.c_str()) == 0));
-				if(s_wrWin[0] && s_wrScore[0] && !s_wrPosted && !g_zwKillListSent && bOurs)
+				if(pDash) { strncpy_s(g_wrZone, sizeof(g_wrZone), pDash + 3, _TRUNCATE); char *pZ = g_wrZone + strlen(g_wrZone); while(pZ > g_wrZone && (pZ[-1] == ' ' || pZ[-1] == '\r' || pZ[-1] == '\n' || pZ[-1] == '. ')) pZ--; *pZ = 0; }
+				bool bOurs = !g_myGroupName.empty() && (strstr(pZoneMsg, g_myGroupName.c_str()) != NULL || (g_wrWin[0] && _stricmp(g_wrWin, g_myGroupName.c_str()) == 0) || (g_wrLose[0] && _stricmp(g_wrLose, g_myGroupName.c_str()) == 0));
+				if(g_wrWin[0] && g_wrScore[0] && !g_wrPosted && bOurs)
 				{
-					s_wrPosted = true;
-					char szBox[256];
-					sprintf_s(szBox, sizeof(szBox), "%s defeated %s\n%s%s%s (chat sonucu)", s_wrWin, s_wrLose[0] ? s_wrLose : "?", s_wrScore, s_wrZone[0] ? " - " : "", s_wrZone);
-					Log("[WAR] Sonuc Discord'a: %s", szBox);
-					SendKillList(szBox, "", s_wrWin, s_wrLose, "", "", 0, 0, !g_myGroupName.empty() && _stricmp(s_wrWin, g_myGroupName.c_str()) == 0, "", "", 0, 0, 0, "", "");
+					g_wrArmedAt = GetTickCount();
+					Log("[WAR] Chat sonucu kuruldu (15sn dialog verisi bekleniyor): %s vs %s.", g_wrWin, g_wrLose);
 				}
 			}
 		}
