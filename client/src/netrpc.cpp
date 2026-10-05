@@ -5069,6 +5069,7 @@ void ClientMessage(RPCParameters *rpcParams)
 						if(g_ztkActive && zid == g_ztkZoneId)
 						{
 							g_ztkTargetWar = false;
+							g_ztkAttackPending = false; // bayat 20sn timeri zinciri oldurmesin
 							// O zone bitti (kim alirsa alsin - grubun datasindan duser):
 							// SONRAKI zone'a aninda gec + saldir (Faz1 /gz atar).
 							Log("[ZSNIP] Hedef zone #%d savasi bitti (takes over), sonraki zone'a geciliyor.", zid);
@@ -5133,6 +5134,7 @@ void ClientMessage(RPCParameters *rpcParams)
 					if(bSnipTarget)
 					{
 						g_ztkTargetWar = false;
+						g_ztkAttackPending = false; // eski saldirinin 20sn timeri zinciri oldurmesin
 						Log("[ZSNIP] Hedef zone savassiz el degistirdi (seized), sonraki zone'a geciliyor.");
 						if(g_snipZoneCount > 0 && g_snipZoneIdx + 1 < g_snipZoneCount)
 						{
