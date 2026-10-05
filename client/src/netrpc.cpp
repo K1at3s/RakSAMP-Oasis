@@ -995,6 +995,19 @@ static void CloseOpenListDlg()
 	g_watchDlgId = -1;
 }
 static int   g_watchCloseMode = 0;
+static char  g_watchDlgRow[256] = {0};
+static void SendListSelectRaw(int iDlgId, int iItem, const char *szRow)
+{
+	RakNet::BitStream bsE;
+	bsE.Write((uint16_t)iDlgId);
+	bsE.Write((uint8_t)1);
+	bsE.Write((uint16_t)iItem);
+	size_t nL = szRow ? strlen(szRow) : 0;
+	if(nL > 200) nL = 200;
+	bsE.Write((uint8_t)nL);
+	if(nL) bsE.Write(szRow, nL);
+	pRakClient->RPC(&RPC_DialogResponse, &bsE, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
+}
 // Liste kapatma: Cancel + satir 0 + BYTE (DENEY2, calisan yol).
 static void SendListClose(int iDlgId)
 {
@@ -3856,15 +3869,8 @@ void ProcessZoneScan()
 		int iWdId = g_watchDlgId, iWdStyle = g_watchDlgStyle;
 		g_watchDlgAt = GetTickCount();
 		if(iWdStyle == DIALOG_STYLE_LIST || iWdStyle == DIALOG_STYLE_TABLIST || iWdStyle == DIALOG_STYLE_TABLIST_HEADERS)
-		{
-			RakNet::BitStream bsW;
-			bsW.Write((uint16_t)iWdId);
-			bsW.Write((uint8_t)0);
-			bsW.Write((uint16_t)0);
-			bsW.Write((uint8_t)0);
-			pRakClient->RPC(&RPC_DialogResponse, &bsW, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
-			Log("[DLG-WATCH] 30 sn acik kalan dialog kapatiliyor (id=%d style=%d).", iWdId, iWdStyle);
-		}
+			SendListSelectRaw(iWdId, 0, g_watchDlgRow[0] ? g_watchDlgRow : NULL);
+		Log("[DLG-WATCH] satir secimi gonderildi (id=%d).", iWdId);
 		else
 			sendDialogResponse((WORD)iWdId, 1, 0xFFFF, (char *)"");
 		Log("[DLG-WATCH] 30 sn acik kalan dialog kapatildi (id=%d style=%d).", iWdId, iWdStyle);
@@ -7621,6 +7627,14 @@ void ScrDialogBox(RPCParameters *rpcParams)
 	g_watchDlgId = sampDialog.wDialogID;
 	g_watchDlgAt = GetTickCount();
 	g_watchDlgStyle = sampDialog.bDialogStyle;
+	g_watchDlgRow[0] = 0;
+	if(sampDialog.bDialogStyle == DIALOG_STYLE_LIST || sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST || sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST_HEADERS)
+	{
+		const char *pFR = szDlgInfo;
+		if(sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST_HEADERS) { const char *pNL = strchr(pFR, 10); if(pNL) pFR = pNL + 1; }
+		size_t nFR = 0; while(pFR[nFR] && pFR[nFR] != 13 && pFR[nFR] != 10 && nFR < 200) nFR++;
+		memcpy(g_watchDlgRow, pFR, nFR); g_watchDlgRow[nFR] = 0;
+	}
 	g_watchDlgKeep = false;
 	if(strstr(sampDialog.szTitle, "Giris") || strstr(sampDialog.szTitle, "Login") ||
 		strstr(sampDialog.szTitle, "Authentication"))
