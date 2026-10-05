@@ -943,6 +943,13 @@ static void PauseZoneScanForSnip()
 		g_ghpActive = false;
 		Log("[ZSNIP] Harvest durduruldu (sadece sniper odak; oto ?zgrp acik kalir).");
 	}
+	if(g_gmPhase != 0)
+	{
+		g_gmPhase = 0;
+		g_gmAstatsWaiting = false;
+		g_gmGvipsWaiting = false;
+		Log("[ZSNIP] Gmembers harvest durduruldu (sadece sniper odak).");
+	}
 	// Sniper bitince tarama otomatik baslamasin (kullanici ?zscan on/sn yazana kadar).
 	g_zsnipeHoldScan = true;
 	if(g_zscanPausedForSnip) return;
@@ -995,6 +1002,13 @@ static void CloseOpenListDlg()
 {
 	if(g_watchDlgId < 0 || g_watchDlgKeep) return;
 	if(GetTickCount() - g_watchDlgAt > 15000) return;
+	if(g_watchDlgStyle == DIALOG_STYLE_MSGBOX)
+	{
+		sendDialogResponse((WORD)g_watchDlgId, 1, 0xFFFF, (char *)"");
+		Log("[DLG] Acik dialog kapatildi (id=%d).", g_watchDlgId);
+		g_watchDlgId = -1;
+		return;
+	}
 	if(g_watchDlgStyle != DIALOG_STYLE_LIST && g_watchDlgStyle != DIALOG_STYLE_TABLIST && g_watchDlgStyle != DIALOG_STYLE_TABLIST_HEADERS) return;
 	SendListClose(g_watchDlgId);
 	Log("[DLG] Acik liste kapatildi (id=%d).", g_watchDlgId);
@@ -6572,9 +6586,24 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 				const char *pArg = pGroupMsg + 6;
 				while(*pArg == ' ' || *pArg == '#') pArg++;
 				// off: bekleyen istegi/bekleyen yetki kontrolunu iptal edebilmeli, gecir.
-				if(g_snipPermPending && _stricmp(pArg, "off") != 0)
+				if(g_snipPermPending && _stricmp(pArg, "off") != 0 && _stricmp(pArg, "stop") != 0)
 				{
 					Log("[ZSNIP] Onceki yetki kontrolu hala suruyor, yeni istek yoksayildi.");
+					return;
+				}
+				// ?zsnip stop: yetkisiz ACIL durdurma (yetki kontrolsuz, hepsi durur).
+				if(!_stricmp(pArg, "stop"))
+				{
+					g_ztkActive = false; g_ztkZoneId = -1; g_ztkWaitAnnounced = false; g_ztkAttackPending = false;
+					g_ztkOutcome = 0; g_ztkTargetWar = false; g_ztkAskNext = false;
+					g_snipInterrupt = false; g_snipPermPending = false; g_waitingForGmembers = false;
+					g_snipAction = 0; g_snipZone = -1;
+					g_zsnipeHoldScan = false;
+					CloseOpenListDlg();
+					ResumeZoneScanAfterSnip();
+					Log("[ZSNIP] stop: sniper durduruldu, normale donuldu.");
+					g_bridgeSuppressEcho++;
+					sendChat((char *)LM("!Sniper durduruldu.", "!Sniper stopped."));
 					return;
 				}
 				// ?zsnip off: aktif sniper'i iptal et (uL.Hold: "Aborted by user. ZTK disabled.")
@@ -6613,7 +6642,7 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 				g_snipZoneCount = 0; g_snipZoneIdx = 0; g_snipGroupName[0] = 0;
 				if(pArg[0] >= '0' && pArg[0] <= '9')
 				{
-					int zTry = atoi(pArg);
+					int zTry = ZONE_IDX_FROM_SHOWN(atoi(pArg));
 					if(zTry >= 0 && zTry < g_zoneCount) iZone = zTry;
 					// else: sayi gecerli zone degilse tag/isim olarak dene ("737" tagi gibi)
 				}
@@ -6661,6 +6690,7 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 				// (taramanin /pos teleportlari sniperin /pos + /gz akisiyla cakisiyor).
 				// Onay gelirse sniper baslar; ?no gelirse tarama kaldigi yerden devam eder.
 				PauseZoneScanForSnip();
+				CloseOpenListDlg();
 				g_snipInterrupt = true; // istek beklemede: ?yes saldirir, ?no taramaya doner
 				g_snipAction = 0;
 				g_snipZone = iZone;
