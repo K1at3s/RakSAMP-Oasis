@@ -6586,24 +6586,9 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 				const char *pArg = pGroupMsg + 6;
 				while(*pArg == ' ' || *pArg == '#') pArg++;
 				// off: bekleyen istegi/bekleyen yetki kontrolunu iptal edebilmeli, gecir.
-				if(g_snipPermPending && _stricmp(pArg, "off") != 0 && _stricmp(pArg, "stop") != 0)
+				if(g_snipPermPending && _stricmp(pArg, "off") != 0)
 				{
 					Log("[ZSNIP] Onceki yetki kontrolu hala suruyor, yeni istek yoksayildi.");
-					return;
-				}
-				// ?zsnip stop: yetkisiz ACIL durdurma (yetki kontrolsuz, hepsi durur).
-				if(!_stricmp(pArg, "stop"))
-				{
-					g_ztkActive = false; g_ztkZoneId = -1; g_ztkWaitAnnounced = false; g_ztkAttackPending = false;
-					g_ztkOutcome = 0; g_ztkTargetWar = false; g_ztkAskNext = false;
-					g_snipInterrupt = false; g_snipPermPending = false; g_waitingForGmembers = false;
-					g_snipAction = 0; g_snipZone = -1;
-					g_zsnipeHoldScan = false;
-					CloseOpenListDlg();
-					ResumeZoneScanAfterSnip();
-					Log("[ZSNIP] stop: sniper durduruldu, normale donuldu.");
-					g_bridgeSuppressEcho++;
-					sendChat((char *)LM("!Sniper durduruldu.", "!Sniper stopped."));
 					return;
 				}
 				// ?zsnip off: aktif sniper'i iptal et (uL.Hold: "Aborted by user. ZTK disabled.")
@@ -6636,6 +6621,13 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 					g_bridgeSuppressEcho++;
 					sendChat((char *)LM("!Yetki kontrol ediliyor (/gmembers)...", "!Checking permission (/gmembers)..."));
 					sendServerCommand((char *)"/gmembers");
+					return;
+				}
+				if(g_ztkActive || g_snipInterrupt || g_snipPermPending)
+				{
+					Log("[ZSNIP] Zaten aktif sniper var, yeni istek yoksayildi.");
+					g_bridgeSuppressEcho++;
+					sendChat((char *)LM("!Sniper zaten aktif, durdurmak icin ?zsnip off.", "!Sniper already active, use ?zsnip off to stop."));
 					return;
 				}
 				int iZone = -1;
