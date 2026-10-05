@@ -3544,8 +3544,12 @@ static void GangZoneScanGzDialog(const char *szInfo)
 	if(iZone >= 0 && iZone < MAX_GANG_ZONES)
 		strncpy_s(g_zoneOwnerName[iZone], sizeof(g_zoneOwnerName[0]), szOwner, sizeof(g_zoneOwnerName[0]) - 1);
 	// Sniper dogrulama bekliyorsa tamamla (tarama akisi aynen devam eder).
-	if(g_ztkVerifyPending && iZone == g_ztkVerifyZone)
+	// Sunucu bir geriden sayiyor (ornek #20 -> cevap #19): beklenen-1 de kabul.
+	if(g_ztkVerifyPending && (iZone == g_ztkVerifyZone || iZone == g_ztkVerifyZone - 1))
+	{
+		if(iZone != g_ztkVerifyZone) Log("[ZF:SCAN] Dogrulama kayma ile eslesti (beklenen #%d, gelen #%d).", g_ztkVerifyZone, iZone);
 		ZtkVerifyComplete(szInfo);
+	}
 
 	GangZoneScanNext();
 }
