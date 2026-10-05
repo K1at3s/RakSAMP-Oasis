@@ -981,6 +981,7 @@ static DWORD g_watchDlgAt = 0;
 static int   g_watchDlgStyle = 0;
 static bool  g_watchDlgKeep = false;
 static DWORD g_lastPosOkTick = 0;
+static DWORD g_firstRejectTick = 0; // ilk "dialog open" red zamani (surekli red = kilit)
 static void SendListClose(int iDlgId); // tanim asagida
 // Acik liste dialogunu HEMEN kapat (grole sonu/timeout/ret). Bekci 30sn bekler,
 // o arada /pos reddedilir. Sadece liste stilleri + son 15sn icinde gorulmusse.
@@ -3837,8 +3838,7 @@ static void SendGrRoleSecondClick()
 
 void ProcessZoneScan()
 {
-	if((g_zoneScanIdx >= 0 || g_followActive || g_zgoActive || g_ztkActive)
-		&& g_lastPosOkTick != 0 && GetTickCount() - g_lastPosOkTick > 5*60*1000)
+	if(g_firstRejectTick != 0 && GetTickCount() - g_firstRejectTick > 5*60*1000)
 	{
 		Log("[DLG-WATCH] 5dkdir /pos basarisiz, yeniden baglaniliyor.");
 		g_lastPosOkTick = 0;
@@ -4655,7 +4655,12 @@ void ClientMessage(RPCParameters *rpcParams)
 			}
 			g_anyWarActive = true;
 		}
-		if(strstr(pZoneMsg, "Your position has been set") != NULL) g_lastPosOkTick = GetTickCount();
+		if(strstr(pZoneMsg, "Your position has been set") != NULL) { g_lastPosOkTick = GetTickCount(); g_firstRejectTick = 0; }
+		if(strstr(pZoneMsg, "dialog open") != NULL && (g_zoneScanIdx >= 0 || g_followActive || g_zgoActive || g_ztkActive) && g_firstRejectTick == 0)
+		{
+			g_firstRejectTick = GetTickCount();
+			Log("[DLG-WATCH] Surekli red basladi, 5dk surerse reconnect.");
+		}
 		if(strstr(pZoneMsg, " defeated ") != NULL || strstr(pZoneMsg, "Results [") != NULL)
 		{
 			g_lastWarEndTick = GetTickCount();
