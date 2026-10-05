@@ -130,6 +130,7 @@ static int  g_warRemainingSec = -1;         // yakalanan kalan süre (sn)
 // RPC_ScrAddGangZone (108) geldik-ge koordinatlar buraya kaydedilir (?zgo i-gin).
 #define MAX_GANG_ZONES 2048
 static float g_zoneMinX[MAX_GANG_ZONES];
+static char g_zoneNames[MAX_GANG_ZONES][64] = {0}; // /gzinfo "Zone:" satirindan (seized eslemesi icin)
 static float g_zoneMinY[MAX_GANG_ZONES];
 static float g_zoneMaxX[MAX_GANG_ZONES];
 static float g_zoneMaxY[MAX_GANG_ZONES];
@@ -3401,6 +3402,22 @@ static void ZtkVerifyComplete(const char *szInfo)
 }
 // /gzinfo dialogu geldi: "Zone Name: # N" -> zone id, "owned by group "X"" -> ad.
 // Sahipsiz cikarsa renk "Free" (bos tag) olarak isaretlenir; tekrar kontrol edilmez.
+static int FindZoneByName(const char *szName)
+{
+	if(!szName || !szName[0]) return -1;
+	char szNeed[64];
+	strncpy_s(szNeed, sizeof(szNeed), szName, _TRUNCATE);
+	NormalizeGroupName(szNeed);
+	for(int z = 0; z < g_zoneCount && z < MAX_GANG_ZONES; z++)
+	{
+		if(!g_zoneNames[z][0]) continue;
+		char szHave[64];
+		strncpy_s(szHave, sizeof(szHave), g_zoneNames[z], _TRUNCATE);
+		NormalizeGroupName(szHave);
+		if(!_stricmp(szHave, szNeed)) return z;
+	}
+	return -1;
+}
 static void GangZoneScanGzDialog(const char *szInfo)
 {
 	int iZone = -1;
@@ -3448,6 +3465,24 @@ static void GangZoneScanGzDialog(const char *szInfo)
 		return;
 	}
 
+	if(iZone >= 0 && iZone < MAX_GANG_ZONES)
+	{
+		const char *pZn = strstr(szInfo, "Zone:");
+		while(pZn && !strncmp(pZn + 5, " ID:", 4)) pZn = strstr(pZn + 5, "Zone:");
+		if(pZn)
+		{
+			const char *pZS = pZn + 5;
+			while(*pZS == ' ') pZS++;
+			char szZN[64] = {0};
+			size_t nZN = strcspn(pZS, "\r\n");
+			if(nZN > 63) nZN = 63;
+			memcpy(szZN, pZS, nZN); szZN[nZN] = 0;
+			StripColorCodes(szZN);
+			char *pZT = szZN; while(*pZT == ' ') pZT++;
+			for(int k = (int)strlen(szZN) - 1; k >= 0 && (szZN[k] == ' ' || szZN[k] == '\t'); k--) szZN[k] = 0;
+			if(pZT[0]) { strncpy_s(g_zoneNames[iZone], sizeof(g_zoneNames[0]), pZT, _TRUNCATE); Log("[ZF:SCAN] Zone #%d adi: '%s'.", iZone, g_zoneNames[iZone]); }
+		}
+	}
 	char szOwner[80] = {0};
 	const char *pOwn = strstr(szInfo, "owned by group");
 	// Not: sahip adi renk bilinse de ayrismali - bilinen kisa etiket (GeMs gibi)
@@ -5061,6 +5096,60 @@ void ClientMessage(RPCParameters *rpcParams)
 			}
 		}
 
+		if(strncmp(pZoneMsg, "ZONE WAR:", 9) == 0)
+		{
+			const char *pSz = strstr(pZoneMsg, " seized ");
+			if(pSz)
+			{
+				char szWin[80] = {0}, szZName[80] = {0}, szLose[80] = {0};
+				const char *pW = pZoneMsg + 9;
+				while(*pW == ' ') pW++;
+				size_t nW = (size_t)(pSz - pW);
+				if(nW > 0 && nW < sizeof(szWin)) { memcpy(szWin, pW, nW); szWin[nW] = 0; }
+				const char *pR2 = pSz + 8;
+				const char *pFr = strstr(pR2, " from ");
+				if(pFr)
+				{
+					size_t nZ = (size_t)(pFr - pR2);
+					if(nZ > 0 && nZ < sizeof(szZName)) { memcpy(szZName, pR2, nZ); szZName[nZ] = 0; }
+					const char *pL2 = pFr + 6;
+					while(*pL2 == ' ') pL2++;
+					size_t nLg = strcspn(pL2, ".\r\n");
+					if(nLg > 0 && nLg < sizeof(szLose)) { memcpy(szLose, pL2, nLg); szLose[nLg] = 0; }
+				}
+				if(szWin[0] && szZName[0])
+				{
+					int zid = FindZoneByName(szZName);
+					Log("[ZONEWAR] Seized: %s <- %s (%s), zone id=%d.", szZName, szWin, szLose[0] ? szLose : "?", zid);
+					if(zid >= 0) BindZoneGroup(zid, szWin);
+					if(g_ztkActive && zid >= 0 && zid == g_ztkZoneId)
+					{
+						g_ztkTargetWar = false;
+						Log("[ZSNIP] Hedef zone savassiz el degistirdi (seized), sonraki zone'a geciliyor.");
+						if(g_snipZoneCount > 0 && g_snipZoneIdx + 1 < g_snipZoneCount)
+						{
+							g_snipZoneIdx++;
+							int nNext = g_snipZones[g_snipZoneIdx];
+							ZtkGotoZone(nNext);
+							g_bridgeSuppressEcho++;
+							char szMsg[128];
+							sprintf_s(szMsg, sizeof(szMsg), LM("!Zone #%d bitti, sonraki zone #%d saldiriliyor...", "!Zone #%d ended, attacking next zone #%d..."), ZONE_SHOWN_FROM_IDX(zid), ZONE_SHOWN_FROM_IDX(nNext));
+							sendChat(szMsg);
+						}
+						else
+						{
+							g_ztkActive = false;
+							g_ztkZoneId = -1;
+							g_snipZoneCount = 0;
+							g_snipZoneIdx = 0;
+							ResumeZoneScanAfterSnip();
+							sendChat((char *)LM("!Sniper bitti.", "!Sniper finished."));
+							Log("[ZSNIP] Zincir tamamlandi (baska zone yok).");
+						}
+					}
+				}
+			}
+		}
 		if((pTail = strstr(pZoneMsg, "keeps zone")) != NULL) { pAction = "keeps"; }
 		else if((pTail = strstr(pZoneMsg, "takes over")) != NULL) { pAction = "takes"; }
 		else if((pTail = strstr(pZoneMsg, "wins against")) != NULL) { pAction = "wins"; }
