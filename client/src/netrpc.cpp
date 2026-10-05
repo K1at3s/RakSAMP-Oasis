@@ -3869,8 +3869,10 @@ void ProcessZoneScan()
 		int iWdId = g_watchDlgId, iWdStyle = g_watchDlgStyle;
 		g_watchDlgAt = GetTickCount();
 		if(iWdStyle == DIALOG_STYLE_LIST || iWdStyle == DIALOG_STYLE_TABLIST || iWdStyle == DIALOG_STYLE_TABLIST_HEADERS)
+		{
 			SendListSelectRaw(iWdId, 0, g_watchDlgRow[0] ? g_watchDlgRow : NULL);
-		Log("[DLG-WATCH] satir secimi gonderildi (id=%d).", iWdId);
+			Log("[DLG-WATCH] satir secimi gonderildi (id=%d).", iWdId);
+		}
 		else
 			sendDialogResponse((WORD)iWdId, 1, 0xFFFF, (char *)"");
 		Log("[DLG-WATCH] 30 sn acik kalan dialog kapatildi (id=%d style=%d).", iWdId, iWdStyle);
