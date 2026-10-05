@@ -1009,14 +1009,11 @@ static void SendListSelectRaw(int iDlgId, int iItem, const char *szRow)
 	pRakClient->RPC(&RPC_DialogResponse, &bsE, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
 }
 // Liste kapatma: Cancel + satir 0 + BYTE (DENEY2, calisan yol).
+// Liste kapatma: Cancel tiklamasi formati (buton 0 + satir 0 + WORD len).
+// ESC (secimsiz) yutuluyor; Cancel (satirli) kapaniyor.
 static void SendListClose(int iDlgId)
 {
-	RakNet::BitStream bsE;
-	bsE.Write((uint16_t)iDlgId);
-	bsE.Write((uint8_t)0);
-	bsE.Write((uint16_t)0);
-	bsE.Write((uint8_t)0);
-	pRakClient->RPC(&RPC_DialogResponse, &bsE, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
+	sendDialogResponse((WORD)iDlgId, 0, 0, (char *)"");
 }
 // ?follow (whisper): hedefi /pos ile takip. Hedef streamden duserse
 // (freeroamdan cikmis/gamemode/offline) 5 tur sonra otomatik biter.
