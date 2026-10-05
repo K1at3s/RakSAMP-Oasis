@@ -1674,6 +1674,24 @@ static void ParseRankTransition(const char *pFrom, char *oldRank, size_t oldLen,
 	pTo += 4;
 	const char *pToEnd = strchr(pTo, qTo);
 	if(pToEnd) CopyToken(newRank, newLen, pTo, pToEnd);
+	if(!oldRank[0])
+	{
+		const char *pFU = strstr(pFrom, "from ");
+		if(pFU)
+		{
+			pFU += 5;
+			const char *pTU = strstr(pFU, " to ");
+			if(pTU)
+			{
+				CopyToken(oldRank, oldLen, pFU, pTU);
+				const char *pNE = pTU + 4;
+				while(*pNE == ' ') pNE++;
+				const char *pEE = pNE + strlen(pNE);
+				while(pEE > pNE && (pEE[-1] == ' ' || pEE[-1] == '\r' || pEE[-1] == '\n' || pEE[-1] == '.')) pEE--;
+				CopyToken(newRank, newLen, pNE, pEE);
+			}
+		}
+	}
 }
 
 // "GROUP: (Harm)(3716972) changed the rank of [YS]FamilyRoots(3752380) from 'F' to 'F'"
