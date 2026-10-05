@@ -3851,11 +3851,16 @@ static void SendGrRoleSecondClick()
 
 void ProcessZoneScan()
 {
-	if(g_firstRejectTick != 0 && GetTickCount() - g_firstRejectTick > 5*60*1000)
+	if(g_firstRejectTick != 0 && GetTickCount() - g_firstRejectTick > 2*60*1000)
 	{
-		Log("[DLG-WATCH] 5dkdir /pos basarisiz, yeniden baglaniliyor.");
+		Log("[DLG-WATCH] 2dkdir surekli red, yeniden baglaniliyor.");
+		g_firstRejectTick = 0;
 		g_lastPosOkTick = 0;
 		g_watchDlgId = -1;
+		g_ghpActive = false;
+		g_waitingForGroups = false;
+		g_waitingForGStats = false;
+		g_ghpLastRun = GetTickCount() + 45*60*1000; // travma molasi: oto harvest 60dk durur (acilmayan listeyi tekrar acmasin)
 		resetPools(1, 0);
 		return;
 	}
@@ -4664,7 +4669,7 @@ void ClientMessage(RPCParameters *rpcParams)
 			g_anyWarActive = true;
 		}
 		if(strstr(pZoneMsg, "Your position has been set") != NULL) { g_lastPosOkTick = GetTickCount(); g_firstRejectTick = 0; }
-		if(strstr(pZoneMsg, "dialog open") != NULL && (g_zoneScanIdx >= 0 || g_followActive || g_zgoActive || g_ztkActive) && g_firstRejectTick == 0)
+		if(strstr(pZoneMsg, "dialog open") != NULL && (g_zoneScanIdx >= 0 || g_followActive || g_zgoActive || g_ztkActive || g_ghpActive || g_waitingForGroups || g_waitingForGStats) && g_firstRejectTick == 0)
 		{
 			g_firstRejectTick = GetTickCount();
 			Log("[DLG-WATCH] Surekli red basladi, 5dk surerse reconnect.");
