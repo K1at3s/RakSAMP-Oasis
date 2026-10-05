@@ -3453,7 +3453,13 @@ static void GangZoneScanGzDialog(const char *szInfo)
 	// ponytail: duzgun ornek varsa sunucu ID'si ne derse dese yazilir; kayma
 	// varsayimi sadece logda gorunur, sonuc degistirmez.
 	int iDlgZone = iZone;
-	if(g_zoneScanIdx >= 0 && g_zoneScanIdx < g_zoneScanQ)
+	if(g_ztkVerifyPending && g_ztkVerifyZone >= 0 && g_ztkVerifyZone < MAX_GANG_ZONES)
+	{
+		if(iDlgZone != g_ztkVerifyZone)
+			Log("[ZF:SCAN] Dogrulama ornegi #%d kimligiyle ogreniliyor (gelen #%d).", g_ztkVerifyZone, iDlgZone);
+		iZone = g_ztkVerifyZone;
+	}
+	else if(g_zoneScanIdx >= 0 && g_zoneScanIdx < g_zoneScanQ)
 	{
 		if(iDlgZone != g_zoneScanQueue[g_zoneScanIdx])
 			Log("[ZF:SCAN] Sunucu ID #%d dondu, ornegin rect'i #%d (kayma).", iDlgZone, g_zoneScanQueue[g_zoneScanIdx]);
@@ -5122,7 +5128,9 @@ void ClientMessage(RPCParameters *rpcParams)
 					int zid = FindZoneByName(szZName);
 					Log("[ZONEWAR] Seized: %s <- %s (%s), zone id=%d.", szZName, szWin, szLose[0] ? szLose : "?", zid);
 					if(zid >= 0) BindZoneGroup(zid, szWin);
-					if(g_ztkActive && zid >= 0 && zid == g_ztkZoneId)
+					bool bSnipTarget = (g_ztkActive && g_ztkZoneId >= 0 && g_ztkZoneId < MAX_GANG_ZONES
+						&& (zid == g_ztkZoneId || (g_zoneNames[g_ztkZoneId][0] && !_stricmp(szZName, g_zoneNames[g_ztkZoneId]))));
+					if(bSnipTarget)
 					{
 						g_ztkTargetWar = false;
 						Log("[ZSNIP] Hedef zone savassiz el degistirdi (seized), sonraki zone'a geciliyor.");
