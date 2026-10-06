@@ -747,8 +747,13 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             OnGroupsListCaptured(szInfo);
 
             // DENEY2: Cancel + gecerli satir (secimsiz Cancel yutuluyor olabilir).
-            Log("[GHP] /groups kapatma: Cancel tiklamasi gonderiliyor (id %d).", wDialogID);
-            sendDialogResponse(wDialogID, 0, 0, (char*)"");
+            Log("[GHP] /groups kapatma DENEY2: Cancel row 0 gonderiliyor (id %d).", wDialogID);
+            RakNet::BitStream bsResponse;
+            bsResponse.Write((uint16_t)wDialogID);
+            bsResponse.Write((uint8_t)0);
+            bsResponse.Write((uint16_t)0);
+            bsResponse.Write((uint8_t)0);
+            pRakClient->RPC(&RPC_DialogResponse, &bsResponse, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
             return 1;
         }
         // Farkli bir dialog geldi (ID giris vs.): bu /groups cevabi degil, beklemede kal
@@ -853,8 +858,13 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                 sampDialog.bDialogStyle, szTitle, (r == 1) ? "sonraki sayfa" : "finaliz");
 
             if (r == 0) {
-                // Bitis: Cancel tiklamasi (buton 0 + satir 0 + WORD len).
-                sendDialogResponse(wDialogID, 0, 0, (char*)"");
+                // Bitis: orijinal DENEY2 (buton 0 + satir 0 + BYTE).
+                RakNet::BitStream bsR;
+                bsR.Write((uint16_t)wDialogID);
+                bsR.Write((uint8_t)0);
+                bsR.Write((uint16_t)0);
+                bsR.Write((uint8_t)0);
+                pRakClient->RPC(&RPC_DialogResponse, &bsR, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
                 Log("[GHP] /gmembers kapatildi (Cancel tiklamasi).");
                 OnGmembersFinalize();              // sonuc uygula (ba?lat/red)
                 return 1;
