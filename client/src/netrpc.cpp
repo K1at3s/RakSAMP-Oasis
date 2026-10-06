@@ -969,6 +969,46 @@ static void PauseZoneScanForSnip()
 	g_zscanPausedForSnip = true;
 	Log("[ZSNIP] Aktif zone taramasi duraklatildi (sniper bitince devam etmeyecek).");
 }
+// Dialoglu komutlar (?grole/?grank/?gkick): harvestleri durdur + acik dialogu
+// kapat; bitince harvestler kalinan yerden OTOMATIK devam eder.
+static void CloseOpenListDlg(); // tanim asagida
+static bool g_harvestPausedForDlg = false;
+static void PauseHarvestsForDialog(const char *szWho)
+{
+	if(g_ghpActive)
+	{
+		g_ghpActive = false;
+		Log("[DLGCMD] Harvest durduruldu (%s).", szWho);
+	}
+	if(g_gmPhase != 0)
+	{
+		g_gmPhase = 0;
+		g_gmAstatsWaiting = false;
+		g_gmGvipsWaiting = false;
+		Log("[DLGCMD] Gmembers harvest durduruldu (%s).", szWho);
+	}
+	if(!g_harvestPausedForDlg && g_zoneScanIdx >= 0 && !g_zscanPausedForSnip)
+	{
+		g_harvestPausedForDlg = true;
+		g_zscanPausedIdx = g_zoneScanIdx;
+		g_zoneScanIdx = -1;
+		Log("[DLGCMD] Zone taramasi duraklatildi (%s).", szWho);
+	}
+	CloseOpenListDlg();
+}
+static void ResumeHarvestsAfterDialog(const char *szWho)
+{
+	if(!g_harvestPausedForDlg) return;
+	g_harvestPausedForDlg = false;
+	if(g_zscanPausedForSnip || g_zsnipeHoldScan || g_ztkActive)
+		{ Log("[DLGCMD] Tarama snip nedeniyle duraklatilmis, devam edilmiyor (%s).", szWho); return; }
+	if(g_zoneScanIdx < 0 && g_zscanPausedIdx >= 0 && g_zscanPausedIdx < MAX_GANG_ZONES)
+	{
+		g_zoneScanIdx = g_zscanPausedIdx;
+		Log("[DLGCMD] Zone taramasi kalinan yerden devam ediyor (%s).", szWho);
+	}
+	g_zscanPausedIdx = -1;
+}
 static void ResumeZoneScanAfterSnip()
 {
 	if(!g_zscanPausedForSnip) return;
@@ -2639,6 +2679,7 @@ void StartGrole(const char *target, const char *role)
 	g_groleTarget = target;
 	g_groleRole = role;
 	g_grolePhase = 1;
+	PauseHarvestsForDialog("?grole");
 	g_grolePage = 0;
 	g_groleStartTime = GetTickCount();
 	g_grTargetItem = -1; g_grDlgId = 0; g_grClickAttempt = -1; g_grClickAt = 0;
@@ -2656,6 +2697,7 @@ void StartGrank(const char *target, const char *rank)
 	g_grankTarget = target;
 	g_grankRank = rank;
 	g_grankPhase = 1;
+	PauseHarvestsForDialog("?grank");
 	g_grankPage = 0;
 	g_grankStartTime = GetTickCount();
 	g_grTargetItem = -1; g_grDlgId = 0; g_grClickAttempt = -1; g_grClickAt = 0; g_grDblPhase = 0;
@@ -2746,6 +2788,7 @@ void StartGkick(const char *target, const char *reason)
 	g_gkickTarget = target;
 	g_gkickReason = reason ? reason : "";
 	g_gkickPhase = 1;
+	PauseHarvestsForDialog("?gkick");
 	g_gkickPage = 0;
 	g_gkickStartTime = GetTickCount();
 	g_grTargetItem = -1; g_grDlgId = 0; g_grClickAttempt = -1; g_grClickAt = 0; g_grDblPhase = 0;
@@ -3956,6 +3999,8 @@ static void SendGrRoleSecondClick()
 
 void ProcessZoneScan()
 {
+	if(g_harvestPausedForDlg && !g_groleActive && !g_grankActive && !g_gkickActive)
+		ResumeHarvestsAfterDialog("oto");
 	if(g_wrArmedAt != 0 && !g_wrPosted && !g_zwKillListSent && GetTickCount() - g_wrArmedAt > 15000)
 	{
 		g_wrPosted = true;
