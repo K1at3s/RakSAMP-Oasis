@@ -190,7 +190,11 @@ static char  g_snipGroupName[96] = {0}; // hedef grubun adi
 static int   g_snipZones[64];           // grubun saldiri sirasi zone listesi
 static int   g_snipZoneCount = 0;
 static int   g_snipZoneIdx = 0;         // siradaki zone (son saldirilan = idx-1)
-static bool  g_ztkAskNext = false;      // saldiri bitti, ?yes bekleniyor
+static bool  g_ztkAskNext = false;
+static bool  g_ztkPreAsked = false;
+static bool  g_ztkYesPending = false;      // saldiri bitti, ?yes bekleniyor
+static bool  g_znipHeldForWar = false;
+static DWORD g_znipHoldAt = 0;
 static bool  g_ztkAttackPending = false; // /gz gonderildi, won/lost sonucu bekleniyor
 static int   g_ztkOutcome = 0;            // 0=bilinmiyor, 1=kazanildi, 2=kaybedildi
 static bool  g_ztkTargetWar = false;      // hedef zonede dusman savasi suruyor (mesaj bazli takip)
@@ -3284,8 +3288,23 @@ static int ParseAttackCooldownMin(const char *szInfo)
 // Sniper teleport: ?zgo ile ayni (/pos + varis payi + durum sifirlama).
 // Tum sniper isinlanmalari buradan gecer: ayni zone'e cift /pos ve dusus
 // sirasinda atilan /gzinfo (eski zone okuma) engellenir.
+static void ZtkChainAdvance();
 static void ZtkGotoZone(int zid)
 {
+	if(g_snipZoneCount > 0 && zid >= 0 && zid < MAX_GANG_ZONES)
+	{
+		char szHave[80]; strncpy_s(szHave, sizeof(szHave), g_zoneOwnerName[zid], sizeof(szHave) - 1);
+		NormalizeGroupName(szHave);
+		char szNeed[80]; strncpy_s(szNeed, sizeof(szNeed), g_snipGroupName, sizeof(szNeed) - 1);
+		NormalizeGroupName(szNeed);
+		if(szNeed[0] && szHave[0] && _stricmp(szHave, szNeed) != 0
+			&& _stricmp(szHave, "Free") != 0 && _stricmp(szHave, "-") != 0)
+		{
+			Log("[ZSNIP] Zone #%d taze cachede zaten %s (beklenen %s) - isinlanmadan atlaniyor.", zid, szHave, szNeed);
+			ZtkChainAdvance();
+			return;
+		}
+	}
 	g_ztkZoneId = zid;
 	g_ztkWaitAnnounced = false;
 	g_ztkTargetWar = false;
@@ -3321,6 +3340,8 @@ static void ZtkChainAdvance()
 		g_snipZoneCount = 0;
 		g_snipZoneIdx = 0;
 		g_ztkAskNext = false;
+	g_ztkYesPending = false;
+	g_ztkPreAsked = false;
 		g_snipGroupName[0] = 0;
 		ResumeZoneScanAfterSnip();
 		g_bridgeSuppressEcho++;
@@ -3366,6 +3387,8 @@ static void ZtkVerifyComplete(const char *szInfo)
 	if(!szNeed[0] || (szHave[0] && !_stricmp(szHave, szNeed)))
 	{
 		Log("[ZSNIP] Zone #%d sahibi dogrulandi (%s), /gz gonderiliyor.", zid, g_zoneOwnerName[zid]);
+		g_ztkYesPending = false;
+		g_ztkPreAsked = false;
 		g_ztkAttackPending = true;
 		g_ztkWarSeen = false;
 		g_ztkAttackAt = GetTickCount();
@@ -3394,6 +3417,8 @@ static void ZtkVerifyComplete(const char *szInfo)
 		g_snipZoneCount = 0;
 		g_snipZoneIdx = 0;
 		g_ztkAskNext = false;
+	g_ztkYesPending = false;
+	g_ztkPreAsked = false;
 		g_snipGroupName[0] = 0;
 		ResumeZoneScanAfterSnip();
 		g_bridgeSuppressEcho++;
@@ -6817,7 +6842,19 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 				}
 				else if(g_ztkAskNext && g_snipZoneCount > 0 && g_snipZoneIdx < g_snipZoneCount)
 				{
+					if(g_inZoneWar)
+					{
+						g_ztkYesPending = true;
+						Log("[ZSNIP] ?yes savas bitimine ertelendi.");
+						g_bridgeSuppressEcho++;
+						sendChat((char *)LM("!Tamam, savas bitince gecilecek.", "!OK, moving after the war."));
+						return;
+					}
 					g_ztkAskNext = false;
+	g_ztkYesPending = false;
+	g_ztkPreAsked = false;
+					g_ztkYesPending = false;
+					g_ztkPreAsked = false;
 					int iZone = g_snipZones[g_snipZoneIdx];
 					ZtkGotoZone(iZone);
 					PauseZoneScanForSnip();
@@ -6862,6 +6899,8 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 				else
 				{
 					g_ztkAskNext = false;
+	g_ztkYesPending = false;
+	g_ztkPreAsked = false;
 					g_snipZoneCount = 0;
 					g_snipZoneIdx = 0;
 					g_snipGroupName[0] = 0;
@@ -9214,6 +9253,24 @@ void ProcessZoneWarAutoJoin()
 		else
 			g_gztLastRem = -1;
 	}
+	// ?zsnip ?yes on-sorusu: savas bitmeden (son 15sn) sor ki cevap hazir gelsin.
+	if(g_ztkActive && !g_ztkAskNext && !g_ztkPreAsked
+		&& g_snipZoneCount > 0 && g_snipZoneIdx + 1 < g_snipZoneCount)
+	{
+		int iRemQ = -1;
+		if(g_warTimerTick != 0 && g_warRemainingSec > 0 && dwNow - g_warTimerTick < ZONE_WAR_TOTAL_MS)
+			iRemQ = g_warRemainingSec - (int)((dwNow - g_warTimerTick) / 1000);
+		else if(g_zoneWarStartTick != 0 && dwNow - g_zoneWarStartTick < ZONE_WAR_TOTAL_MS)
+			iRemQ = (int)((ZONE_WAR_TOTAL_MS - (dwNow - g_zoneWarStartTick)) / 1000);
+		if(iRemQ >= 1 && iRemQ <= 15)
+		{
+			g_ztkPreAsked = true;
+			g_ztkAskNext = true;
+			Log("[ZSNIP] Savas bitmeden ?yes soruluyor (%ds kaldi).", iRemQ);
+			g_bridgeSuppressEcho++;
+			sendChat((char *)LM("!Diger zone'a da saldirayim mi? (?yes)", "!Attack the next zone too? (?yes)"));
+		}
+	}
 
 	// ?pl: Stats-post gecikmeli cevabi beklerken zaman asimi. Once taze Stats-post
 	// dener (genelde ~1 sn icinde gelir); gelmezse cache'ten cevapla (fps yoksa "--").
@@ -9301,6 +9358,12 @@ void ProcessZoneWarAutoJoin()
 				Log("[KILLLIST] GZ bitimine 00:03 kala giriliyor, kill/death/assist/DMG textdraw'lari toplanacak.");
 			if(g_zwNoGzEntry) { Log("[KILLLIST] 00:03 girisi atlandi (/gz once reddedildi)."); }
 			else { g_zwLastGzAt = GetTickCount(); sendServerCommand((char *)"/gz"); }
+			if(!g_znipHeldForWar && (g_ztkActive || g_snipInterrupt || g_snipPermPending))
+			{
+				g_znipHeldForWar = true;
+				g_znipHoldAt = GetTickCount();
+				Log("[ZSNIP] Sniper bizim savas icin duraklatildi (kill-list girisi).");
+			}
 		}
 	}
 
@@ -9455,6 +9518,8 @@ void OnGmembersFinalize()
 		g_ztkOutcome = 0;
 		g_ztkTargetWar = false;
 		g_ztkAskNext = false;
+	g_ztkYesPending = false;
+	g_ztkPreAsked = false;
 		g_snipGroupName[0] = 0;
 		g_snipZoneCount = 0;
 		g_snipZoneIdx = 0;
@@ -9568,6 +9633,19 @@ static bool IsSniperTargetZone(int zid)
 void ProcessZtkTick()
 {
 	ProcessAlogAstatsQueue();
+	if(g_znipHeldForWar)
+	{
+		if(!g_inZoneWar && !g_zwKillListStay)
+		{
+			DWORD dwHeld = GetTickCount() - g_znipHoldAt;
+			if(g_ztkAttackAt != 0) g_ztkAttackAt += dwHeld;
+			if(g_ztkVerifyAt != 0) g_ztkVerifyAt += dwHeld;
+			if(g_ztkTeleportAt != 0) g_ztkTeleportAt += dwHeld;
+			g_znipHeldForWar = false;
+			Log("[ZSNIP] Savas bitti, sniper kaldirildigi yerden devam.");
+		}
+		return;
+	}
 	if(!g_ztkActive) return;
 
 	// Faz 2: /gz gonderildi, kendi savasimizin sonucu bekleniyor (won/lost game text
@@ -9590,6 +9668,8 @@ void ProcessZtkTick()
 			g_snipZoneCount = 0;
 			g_snipZoneIdx = 0;
 			g_ztkAskNext = false;
+	g_ztkYesPending = false;
+	g_ztkPreAsked = false;
 			g_snipGroupName[0] = 0;
 			ResumeZoneScanAfterSnip();
 			return;
@@ -9611,17 +9691,34 @@ void ProcessZtkTick()
 		if(g_snipZoneCount > 0 && g_snipZoneIdx + 1 < g_snipZoneCount)
 		{
 			g_snipZoneIdx++;
-			g_ztkAskNext = true;
-			Log("[ZSNIP] ?yes ile zone #%d'e devam edilecek.", g_snipZones[g_snipZoneIdx]);
-			g_bridgeSuppressEcho++;
-			sendChat((char *)LM("!Diger zone'a da saldirayim mi? (?yes)",
-				"!Attack the next zone too? (?yes)"));
+			if(g_ztkYesPending)
+			{
+				g_ztkYesPending = false;
+				g_ztkAskNext = false;
+	g_ztkYesPending = false;
+	g_ztkPreAsked = false;
+				g_ztkPreAsked = false;
+				int iZoneY = g_snipZones[g_snipZoneIdx];
+				ZtkGotoZone(iZoneY);
+				PauseZoneScanForSnip();
+				g_ztkActive = true;
+				Log("[ZSNIP] Onceden verilen ?yes uygulaniyor: zone #%d.", iZoneY);
+			}
+			else if(!g_ztkAskNext)
+			{
+				g_ztkAskNext = true;
+				Log("[ZSNIP] ?yes soruluyor.");
+				g_bridgeSuppressEcho++;
+				sendChat((char *)LM("!Diger zone 'a da saldirayim mi? (?yes)", "!Attack the next zone too? (?yes)"));
+			}
 		}
-		else
+	else
 		{
 			g_snipZoneCount = 0;
 			g_snipZoneIdx = 0;
 			g_ztkAskNext = false;
+	g_ztkYesPending = false;
+	g_ztkPreAsked = false;
 			g_snipGroupName[0] = 0;
 			g_bridgeSuppressEcho++;
 						ResumeZoneScanAfterSnip();
