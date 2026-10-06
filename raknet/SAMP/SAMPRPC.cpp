@@ -1265,7 +1265,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                 // (GUVENLIK notu: buraya yalnizca aday tiklama sonrasi gelen rol diyalogu
                 // ile girilir - baslikta uye adi olmaz, kontrol gerekmez.)
                 // Rol secimi: Member / Co-Leader / Leader / Owner (LIST, tek sutun)
-                int roleRow = -1, roleItem = -1;
+                int roleRow = -1, roleItem = -1, roleSubRow = -1, roleSubItem = -1;
                 const char *pL = szInfo;
                 int row = 0;
                 int iHeaderRows = (sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST_HEADERS) ? 1 : 0;
@@ -1285,12 +1285,20 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                         } szClean[c]=0;
                         char szLow[512]={0};
                         for(int i=0; szClean[i] && i<500; i++) szLow[i]=((szClean[i]>='A'&&szClean[i]<='Z')?szClean[i]+32:szClean[i]);
-                        if(roleLow[0] && strstr(szLow, roleLow)){ roleRow = row; roleItem = dataRow; }
+                        if(roleLow[0] && roleRow < 0){
+                            char *pS = szClean;
+                            while(*pS==' '||*pS=='\t'||*pS=='\r') pS++;
+                            char rTok[64]={0}; int ri=0;
+                            while(pS[ri] && pS[ri]!=' ' && pS[ri]!='\t' && pS[ri]!='\r' && ri<63){ char cc=pS[ri]; rTok[ri]=(cc>='A'&&cc<='Z')?cc+32:cc; ri++; } rTok[ri]=0;
+                            if(rTok[0] && strncmp(rTok, roleLow, strlen(roleLow))==0){ roleRow = row; roleItem = dataRow; }
+                            else if(roleSubRow < 0 && strstr(szLow, roleLow)){ roleSubRow = row; roleSubItem = dataRow; }
+                        }
                     }
                     row++;
                     if(!pE) break;
                     pL = pE + 1;
                 }
+                if(roleRow < 0){ roleRow = roleSubRow; roleItem = roleSubItem; }
                 RakNet::BitStream bs;
                 bs.Write((uint16_t)wDialogID);
                 if(roleRow >= 0){
