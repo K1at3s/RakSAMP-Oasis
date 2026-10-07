@@ -7849,6 +7849,33 @@ static bool OasisKillListDialog(const char *szTitle, const char *szInfo)
 		}
 	}
 	if(nRows == 0) return true;
+	// Sonuc dialogu kazanani YAZMIYOR. "ZONE WAR: X defeated Y" chat'i gonderimden
+	// ~20ms SONRA geliyor (37.148 vs 37.143) -> eski kod varsayilan true ile
+	// "Won" basiyordu (bot gC'ydi, 21-37 kaybetti, log 'KAYBETTI' diyordu).
+	// Kazanani skordan + kendi tagimizden coz (sol=kirmizi, sag=mavi).
+	if(iSA != iSB)
+	{
+		char szMyTag[64] = "";
+		if(!g_myGroupName.empty())
+			for(int gi = 0; gi < g_groupColorCount; gi++)
+			{
+				char szDb[80]; strncpy_s(szDb, sizeof(szDb), g_groupColors[gi].szName, sizeof(szDb) - 1);
+				NormalizeGroupName(szDb);
+				if(!_stricmp(szDb, g_myGroupName.c_str())) { strncpy_s(szMyTag, g_groupColors[gi].szTag, 63); break; }
+			}
+		bool bRight = false, bKnown = false;
+		if(szMyTag[0] && szTagB[0]) { bRight = !_stricmp(szTagB, szMyTag); bKnown = true; }
+		else if(szMyTag[0] && szTagA[0]) { bRight = false; bKnown = true; }
+		else if(g_zwWeAreBlueKnown) { bRight = g_zwWeAreBlue; bKnown = true; }
+		if(bKnown)
+		{
+			g_zwWeWon = bRight ? (iSB > iSA) : (iSA > iSB);
+			g_zwWeAreBlue = bRight; g_zwWeAreBlueKnown = true;
+			Log("[KILLLIST] Sonuc skordan cozuldu: %s %d - %d %s (biz=%s) -> %s",
+				szTagA, iSA, iSB, szTagB, bRight ? "sag/mavi" : "sol/kirmizi", g_zwWeWon ? "KAZANDIK" : "KAYBETTIK");
+		}
+	}
+
 	char szHeader[64] = "", szBox[3072] = "", szTot[128] = "";
 	sprintf_s(szHeader, sizeof(szHeader), "%-16s %4s %4s %4s %6s", "Name", "K", "A", "D", "DMG");
 	sprintf_s(szTot, sizeof(szTot), "Total            %4d %4d %4d %6.0f", iTotK, 0, iTotD, fTotDmg);
