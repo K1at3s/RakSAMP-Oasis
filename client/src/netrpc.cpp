@@ -1443,6 +1443,33 @@ static void NormalizeGroupName(char *sz)
 	while(pW > sz && (pW[-1] == ' ')) { pW--; *pW = 0; }
 }
 
+// Savas mesaji tarafi bizim mi? Once TAM isim, sonra DB'deki tag'imiz.
+// Onceki kontrol alt dize (substring) eslesmesiydi; baska bir grup adi
+// icinde gecese (orn. 'Criminals' vs 'Criminals Empire') yanlis pozitif
+// verip bizim olmayan savasi bizim saniyordu.
+static bool ZwSideIsUs(const char *szSide)
+{
+	if(!szSide || !szSide[0] || g_myGroupName.empty()) return false;
+	char szS[96] = "", szMy[96] = "";
+	strncpy_s(szS, sizeof(szS), szSide, sizeof(szS) - 1);
+	strncpy_s(szMy, sizeof(szMy), g_myGroupName.c_str(), sizeof(szMy) - 1);
+	NormalizeGroupName(szS); NormalizeGroupName(szMy);
+	if(szMy[0] && !_stricmp(szS, szMy)) return true;
+	char szMyTag[64] = ""; // DB'deki grup adimizin tag'i (orn. 'gangsters Criminals' -> 'gC')
+	for(int gi = 0; gi < g_groupColorCount; gi++)
+	{
+		char szDb[96] = "";
+		strncpy_s(szDb, sizeof(szDb), g_groupColors[gi].szName, sizeof(szDb) - 1);
+		NormalizeGroupName(szDb);
+		if(szDb[0] && !_stricmp(szDb, szMy)) { strncpy_s(szMyTag, g_groupColors[gi].szTag, sizeof(szMyTag) - 1); break; }
+	}
+	if(!szMyTag[0]) return false;
+	char szT[96] = "";
+	strncpy_s(szT, sizeof(szT), szMyTag, sizeof(szT) - 1);
+	NormalizeGroupName(szT);
+	return !_stricmp(szS, szT);
+}
+
 static void LoadGroupColors()
 {
 	// Kullanici: text dosyasina kayit YOK - DB tek kaynak. (LoadGroupsFromDb
@@ -4909,7 +4936,7 @@ void ClientMessage(RPCParameters *rpcParams)
 				if(pE && (size_t)(pE - pR) < sizeof(g_wrScore)) { memcpy(g_wrScore, pR, (size_t)(pE - pR)); g_wrScore[pE - pR] = 0; }
 				const char *pDash = pE ? strstr(pE, " - ") : NULL;
 				if(pDash) { strncpy_s(g_wrZone, sizeof(g_wrZone), pDash + 3, _TRUNCATE); char *pZ = g_wrZone + strlen(g_wrZone); while(pZ > g_wrZone && (pZ[-1] == ' ' || pZ[-1] == '\r' || pZ[-1] == '\n' || pZ[-1] == '. ')) pZ--; *pZ = 0; }
-				bool bOurs = !g_myGroupName.empty() && (strstr(pZoneMsg, g_myGroupName.c_str()) != NULL || (g_wrWin[0] && _stricmp(g_wrWin, g_myGroupName.c_str()) == 0) || (g_wrLose[0] && _stricmp(g_wrLose, g_myGroupName.c_str()) == 0));
+				bool bOurs = ZwSideIsUs(g_wrWin) || ZwSideIsUs(g_wrLose);
 				if(g_wrWin[0] && g_wrScore[0] && !g_wrPosted && bOurs)
 				{
 					g_wrArmedAt = GetTickCount();
@@ -4943,8 +4970,7 @@ void ClientMessage(RPCParameters *rpcParams)
 			strncpy_s(szRight, sizeof(szRight), pR, sizeof(szRight) - 1);
 			for(char *q = szRight; *q; q++) if(*q == '\r' || *q == '\n') { *q = 0; break; }
 			NormalizeGroupName(szLeft); NormalizeGroupName(szRight);
-			bNamedOurWar = (_stricmp(g_myGroupName.c_str(), szLeft) == 0
-						|| _stricmp(g_myGroupName.c_str(), szRight) == 0);
+			bNamedOurWar = ZwSideIsUs(szLeft) || ZwSideIsUs(szRight);
 			Log("[ZONEWAR] Duyuru: '%s' vs '%s' - bizim sava?: %s", szLeft, szRight,
 				bNamedOurWar ? "EVET" : "HAYIR");
 			if(!bNamedOurWar)
@@ -5315,6 +5341,20 @@ void ClientMessage(RPCParameters *rpcParams)
 		// Kullanici: wins/loses her grup icin tetiklenirse botun savasi karisir.
 		// Sadece botun grubunun adi mesaja dahilse isle (takes over dahil).
 		bool bOasisEnd = (pAction && (!strcmp(pAction, "defeated") || !strcmp(pAction, "results")));
+		// Kesin eslesme: sadece ISMIMIZLE eslesen tarafi iceren sonuc bize ait.
+		// 'Results [nM 0 - 0 gC]' satiri TAG icerir, g_wrWin/g_wrLose bos olabilir.
+		if(bOasisEnd && !g_myGroupName.empty())
+		{
+			char szL[32] = "", szR[32] = "";
+			bool bUs = ZwSideIsUs(g_wrWin) || ZwSideIsUs(g_wrLose);
+			if(!bUs)
+			{
+				if(sscanf(g_wrScore, "[%31s %*d - %*d %31s", szL, szR) == 2)
+					bUs = ZwSideIsUs(szL) || ZwSideIsUs(szR);
+			}
+			if(bUs) Log("[ZONEWAR] Sonuc bize ait: %s / %s.", g_wrWin[0] ? g_wrWin : szL, g_wrLose[0] ? g_wrLose : szR);
+			else { Log("[ZONEWAR] Sonuc bizim degil (bize %s), yoksayildi.", g_myGroupName.c_str()); pAction = NULL; }
+		}
 		if(pAction && !bJoinNotice)
 		{
 			if((!g_myGroupName.empty() && strstr(pZoneMsg, g_myGroupName.c_str()) == NULL) || (!bOasisEnd && g_myGroupName.empty()))
