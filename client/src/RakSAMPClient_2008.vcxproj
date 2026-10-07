@@ -82,10 +82,10 @@
       <OutputFile>./../bin/RakSAMPClient.exe</OutputFile>
       <AdditionalLibraryDirectories>sqlite3/;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <IgnoreAllDefaultLibraries>false</IgnoreAllDefaultLibraries>
-      <GenerateDebugInformation>false</GenerateDebugInformation>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
       <AssemblyDebug />
-      <ProgramDatabaseFile />
-      <GenerateMapFile>false</GenerateMapFile>
+      <ProgramDatabaseFile>./../bin/RakSAMPClient.pdb</ProgramDatabaseFile>
+      <GenerateMapFile>true</GenerateMapFile>
       <MapExports>false</MapExports>
       <SubSystem>Windows</SubSystem>
       <OptimizeReferences>true</OptimizeReferences>

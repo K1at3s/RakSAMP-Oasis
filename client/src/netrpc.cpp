@@ -4895,7 +4895,8 @@ void ClientMessage(RPCParameters *rpcParams)
 			g_anyWarStartTick = 0;
 			g_anyWarDesc[0] = 0;
 		}
-		{ // Sonuc taraflari/skoru: sadece "bizim savasimiz mi?" filtresi icin tutulur.			if(!strncmp(pZoneMsg, "ZONE WAR:", 9) && strstr(pZoneMsg, " defeated ") != NULL)
+		{ // Sonuc taraflari/skoru: sadece "bizim savasimiz mi?" filtresi icin tutulur.
+			if(!strncmp(pZoneMsg, "ZONE WAR:", 9) && strstr(pZoneMsg, " defeated ") != NULL)
 			{
 				const char *pD = strstr(pZoneMsg, " defeated ");
 				const char *pW = pZoneMsg + 9;
