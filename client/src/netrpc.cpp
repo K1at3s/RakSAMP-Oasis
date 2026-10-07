@@ -7740,7 +7740,9 @@ DWORD WINAPI DialogBoxThread(PVOID)
 static bool OasisKillListDialog(const char *szTitle, const char *szInfo);
 static bool WarResultDialogTry(const char *szTitle, const char *szInfo, int iDlgId, int iStyle)
 {
-	if(GetTickCount() - g_lastWarEndTick > 90000) return false;
+	// Savas bitisinden 90 sn gecmis olabilir ama biz 09:03 kontrol penceresindeyiz
+	// (savas bitmis olabilir) -> o durumda da sonuc diyalogu kabul edilir.
+	if(GetTickCount() - g_lastWarEndTick > 90000 && !(g_zwCheckJoinSent && !g_zwKillListSent)) return false;
 	if(iStyle != DIALOG_STYLE_LIST && iStyle != DIALOG_STYLE_TABLIST && iStyle != DIALOG_STYLE_TABLIST_HEADERS) return false;
 	if(!(strstr(szTitle, "War") || strstr(szTitle, "Result") || strstr(szTitle, "Score") || strstr(szTitle, "Kill") || strstr(szTitle, "Winner") || strstr(szTitle, "MVP") || strstr(szTitle, "GZ"))) return false;
 	Log("[WARRESULT-DATA] '%s': %.800s", szTitle, szInfo ? szInfo : "");
@@ -9460,6 +9462,21 @@ void ProcessZoneWarAutoJoin()
 		}
 		else if(g_zoneWarStartTick != 0)
 			iLeft = (int)((ZONE_WAR_TOTAL_MS - (dwNow - g_zoneWarStartTick)) / 1000);
+
+		// ASAMA 1 - 09:03 kontrol girisi: savas hala suruyor mu diye 3 sn kalip
+		// /fr ile don. Bu 3 sn icinde sonuc diyalogu gelirse (savas erken bitmis
+		// olabilir) WarResultDialogTry yakalayip Discord'a gonderir.
+		// Sonra 00:03'te asama 2 (kill-list) gelir.
+		if(!g_zwCheckJoinSent && iLeft >= 0 && iLeft <= 543 && !g_zwNoGzEntry
+			&& !g_zwKillListStay && GetTickCount() - g_zwLastGzAt >= 3000)
+		{
+			g_zwCheckJoinSent = true;
+			g_zwReturnPending = true;
+			g_zwReturnAt = dwNow + 3000;
+			g_zwLastGzAt = dwNow;
+			Log("[KILLLIST] 09:03 kontrol girisi: savas aktif mi bakiliyor (3 sn).");
+			sendServerCommand((char *)"/gz");
+		}
 
 		// 00:03 kill-list girisi: son 3 saniyede GZ'ye gir, iceride kal.
 		bool bEnterNow = false;
