@@ -97,6 +97,19 @@ static int g_zwMineK = 0, g_zwMineA = 0, g_zwMineD = 0, g_zwMineDmg = 0;
 static int g_zwEnemyK = 0, g_zwEnemyA = 0, g_zwEnemyD = 0, g_zwEnemyDmg = 0;
 static bool g_zwWeWon = true; // savas sonucu: biz kazandik mi (war-end blogu kurar)
 static char g_zwFirstBlood[160] = {0}; // GZ ilk kill: "isim (Weapon: X) (Distance: Ym)"
+// Kill feed CMSG'i savas sirasinda gelmiyor: bot savas SONU (00:03 kala) GZ'ye
+// girince gelen kill son kill'dir ama eski kod onu "ilk kan" saniyordu
+// (19:57 logu: EEroww = nM 37-21 gC war'inin son kill'i, ilk kan degil).
+// Ilk dakika disindaki kill feed reddedilir -> yanlis isim yerine bos.
+#define ZW_FB_WINDOW_MS 90000
+static bool ZwFirstBloodAllowed()
+{
+	if(!g_inZoneWar || g_zwFirstBlood[0]) return false;
+	if(!g_zoneWarStartTick) return false;
+	return (GetTickCount() - g_zoneWarStartTick) <= ZW_FB_WINDOW_MS;
+}
+
+
 
 // Top Weapons: RPC 55 (DeathMessage - sagdaki kill feed) savas boyunca toplanir.
 // "ZONE WAR: X vs Y" duyurusundaki konum takimimizi belirler (sol=kirmizi, sag=mavi);
@@ -4710,10 +4723,12 @@ void ClientMessage(RPCParameters *rpcParams)
 	if(strstr(szNonColorEmbeddedMsg, "MUTED") && !HasPlayerTag(szNonColorEmbeddedMsg))
 		TriggerMuteReconnect(szNonColorEmbeddedMsg, "chat");
 
+
 	// First Blood: GZ kill feedi "X(pid) has killed Y(pid) (Weapon: Z) (Distance: Nm)"
-	// (Most Wanted formati "* X killed Y" — * önekli olanlar degil). Savas basinda
-	// bot 3 sn GZ'ye girer; o penceredeki ilk kill = first blood.
-	if(g_inZoneWar && !g_zwFirstBlood[0] && szNonColorEmbeddedMsg[0] != '*')
+	// (Most Wanted formati "* X killed Y" — * önekli olanlar degil).
+	// Yalnizca savas BASINDAKI ilk dakikadaki kill feed first blood sayilir
+	// (ZwFirstBloodAllowed); son GZ girisindeki killlar son killdir.
+	if(ZwFirstBloodAllowed() && szNonColorEmbeddedMsg[0] != '*')
 	{
 		const char *pK = strstr(szNonColorEmbeddedMsg, " has killed ");
 		if(pK && strstr(pK, "(Weapon:"))
@@ -4737,7 +4752,7 @@ void ClientMessage(RPCParameters *rpcParams)
 		}
 	}
 	// Oasis kill feed: "* Rainy(22) killed lesonit(23) with Sawn-Off Shotgun (Distance: 11.12m / HP: 167.00)"
-	if(g_inZoneWar && !g_zwFirstBlood[0] && szNonColorEmbeddedMsg[0] == '*' && strstr(szNonColorEmbeddedMsg, " killed ") && strstr(szNonColorEmbeddedMsg, " with ") && strstr(szNonColorEmbeddedMsg, "(Distance:"))
+	if(ZwFirstBloodAllowed() && szNonColorEmbeddedMsg[0] == '*' && strstr(szNonColorEmbeddedMsg, " killed ") && strstr(szNonColorEmbeddedMsg, " with ") && strstr(szNonColorEmbeddedMsg, "(Distance:"))
 	{
 		const char *pK = strstr(szNonColorEmbeddedMsg, " killed ");
 		char szKiller[64] = {0};
@@ -4748,7 +4763,7 @@ void ClientMessage(RPCParameters *rpcParams)
 		const char *pD = pW ? strstr(pW, "(Distance:") : NULL;
 		if(pW && pD){ const char *pS = pW + 6; while(*pS == ' ') pS++; size_t n = (size_t)(pD - pS); while(n > 0 && pS[n-1] == ' ') n--; if(n > 47) n = 47; memcpy(szWpn, pS, n); szWpn[n] = 0; }
 		char szDist[16] = {0};
-		if(pD){ const char *pS = pD + 10; while(*pS == ' ') pS++; size_t n = 0; while(n < 15 && pS[n] >= '0' && pS[n] <= '9') { szDist[n] = pS[n]; n++; } szDist[n] = 0; }
+		if(pD){ const char *pS = pD + 10; while(*pS == ' ') pS++; size_t n = 0; while(n < 15 && pS[n] && pS[n] != 'm' && pS[n] != ' ') { szDist[n] = pS[n]; n++; } szDist[n] = 0; }
 		if(szKiller[0])
 		{
 			sprintf_s(g_zwFirstBlood, sizeof(g_zwFirstBlood), "%s (Weapon: %s) (Distance: %sm)", szKiller, szWpn, szDist);
@@ -7776,6 +7791,18 @@ static bool OasisKillListDialog(const char *szTitle, const char *szInfo)
 			size_t nN = (size_t)(pOp2 - pRow);
 			if(nN > 63) nN = 63;
 			memcpy(szName, pRow, nN); szName[nN] = 0;
+			StripColorCodes(szName); // "{FF1414}1- pseudo" -> "1- pseudo"
+			char *pN = szName;
+			while(*pN == ' ') pN++;
+			// Sira numarasi oneki ("1- ", "12. ", "3) ") at
+			if(*pN >= '0' && *pN <= '9')
+			{
+				char *pR = pN;
+				while(*pR >= '0' && *pR <= '9') pR++;
+				while(*pR == ' ' || *pR == '-' || *pR == '.' || *pR == ')' || *pR == ':') pR++;
+				if(pR > pN) memmove(pN, pR, strlen(pR) + 1);
+			}
+			nN = strlen(szName);
 			while(nN > 0 && szName[nN-1] == ' ') szName[--nN] = 0;
 		}
 		if(!szName[0]) continue;
