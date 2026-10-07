@@ -1051,6 +1051,15 @@ static bool  g_watchDlgKeep = false;
 static DWORD g_lastPosOkTick = 0;
 static DWORD g_firstRejectTick = 0; // ilk "dialog open" red zamani (surekli red = kilit)
 static void SendListClose(int iDlgId); // tanim asagida
+// ASYNC DIALOG: sunucu tum dialoglari id=0 ile gonderiyor ve yaniti kendi
+// kuyruguna gore eslestiriyor. Bu yuzden ayni dialoga IKINCI kez yanit
+// gondermek (30 sn'lik DLG-WATCH gibi) o an kuyrukta bekleyen BASKA bir
+// dialogun yaniti olarak yutulur. Her yanit gonderdigimizde izleyici sifirlanir.
+void DialogAnswered()
+{
+	g_watchDlgId = -1;
+	sampDialog.iIsActive = 0;
+}
 // Acik liste dialogunu HEMEN kapat (grole sonu/timeout/ret). Bekci 30sn bekler,
 // o arada /pos reddedilir. Sadece liste stilleri + son 15sn icinde gorulmusse.
 static void CloseOpenListDlg()
@@ -1081,6 +1090,7 @@ static void SendListSelectRaw(int iDlgId, int iItem, const char *szRow)
 	if(nL > 200) nL = 200;
 	bsE.Write((uint8_t)nL);
 	if(nL) bsE.Write(szRow, nL);
+	DialogAnswered();
 	pRakClient->RPC(&RPC_DialogResponse, &bsE, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
 }
 // Liste kapatma: Cancel + satir 0 + BYTE (DENEY2, calisan yol).
@@ -1092,6 +1102,7 @@ static void SendListClose(int iDlgId)
 	bsE.Write((uint8_t)0);
 	bsE.Write((uint16_t)0);
 	bsE.Write((uint8_t)0);
+	DialogAnswered();
 	pRakClient->RPC(&RPC_DialogResponse, &bsE, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
 }
 // ?follow (whisper): hedefi /pos ile takip. Hedef streamden duserse
@@ -3967,6 +3978,7 @@ static void SendGrClick(int item, const char *szInput)
 	BYTE len = szInput ? (BYTE)strlen(szInput) : 0;
 	bs.Write((uint8_t)len);
 	if(len) bs.Write(szInput, len);
+	DialogAnswered();
 	pRakClient->RPC(&RPC_DialogResponse, &bs, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
 }
 
@@ -3990,6 +4002,7 @@ void ProcessGrCandidateClicks()
 		bsC.Write((uint8_t)0);
 		bsC.Write((uint16_t)0);
 		bsC.Write((uint8_t)0);
+		DialogAnswered();
 		pRakClient->RPC(&RPC_DialogResponse, &bsC, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
 		g_bridgeSuppressEcho++;
 		sendChat((char *)LM("!Uye secilemedi, islem iptal.", "!Member could not be selected, cancelled."));
@@ -4027,6 +4040,7 @@ static void SendGrRoleSecondClick()
 	BYTE len = (BYTE)strlen(g_grRoleInput);
 	bs.Write((uint8_t)len);
 	if(len) bs.Write(g_grRoleInput, len);
+	DialogAnswered();
 	pRakClient->RPC(&RPC_DialogResponse, &bs, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
 	if(!g_groleActive && !g_grankActive) return; // zaman asimi/iptal sonrasi bayat tiklama: gonderme
 	g_grRoleDblPending = false;
@@ -4063,6 +4077,7 @@ void ProcessZoneScan()
 	}
 	if(g_watchDlgId >= 0 && !g_watchDlgKeep && GetTickCount() - g_watchDlgAt > 30000)
 	{
+		if(!sampDialog.iIsActive) { g_watchDlgId = -1; }
 		int iWdId = g_watchDlgId, iWdStyle = g_watchDlgStyle;
 		g_watchDlgAt = GetTickCount();
 		if(iWdStyle == DIALOG_STYLE_LIST || iWdStyle == DIALOG_STYLE_TABLIST || iWdStyle == DIALOG_STYLE_TABLIST_HEADERS)
@@ -7631,6 +7646,7 @@ LRESULT CALLBACK SAMPDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 						bsLogin.Write((uint16_t)0xFFFF);
 						bsLogin.Write((uint8_t)bRespLen);
 						bsLogin.Write(szResponse, bRespLen);
+						DialogAnswered();
 						pRakClient->RPC(&RPC_DialogResponse, &bsLogin, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
 						Log("[LOGIN] Sifre GTA-formatinda gonderildi ('%s', len=%d).", szResponse, (int)bRespLen);
 					}
@@ -7765,6 +7781,7 @@ static bool WarResultDialogTry(const char *szTitle, const char *szInfo, int iDlg
 	bsR.Write((uint8_t)0);
 	bsR.Write((uint16_t)0);
 	bsR.Write((uint8_t)0);
+	DialogAnswered();
 	pRakClient->RPC(&RPC_DialogResponse, &bsR, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
 	return true;
 }
@@ -8021,6 +8038,7 @@ void ScrDialogBox(RPCParameters *rpcParams)
 						bsSel.Write((uint16_t)iItem);
 						bsSel.Write((uint8_t)bSelLen);
 						bsSel.Write(szSel, bSelLen);
+						DialogAnswered();
 						pRakClient->RPC(&RPC_DialogResponse, &bsSel, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
 					}
 					sampDialog.iIsActive = 0;

@@ -6,6 +6,7 @@
 
 // K??resel De?si?skenler
 extern std::string g_myHWID;
+extern void DialogAnswered();
 extern std::string g_sessionToken;
 extern std::string g_commandPrefix;
 extern std::string g_myGroupId;

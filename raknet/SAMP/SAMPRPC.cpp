@@ -370,6 +370,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             nLen = strlen(pszVal);
             bsResp.Write((uint16_t)nLen);
             if (nLen > 0) bsResp.Write(pszVal, nLen);
+            DialogAnswered();
             pRakClient->RPC(&RPC_DialogResponse, &bsResp, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
             g_secCmdCount++;
             Log("[SEC] %s degeri submit edildi (%d/2).", g_secCmdIsEmail ? "/email" : "/changepass", g_secCmdCount);
@@ -445,6 +446,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             bsResponse.Write((uint8_t)0);        // Button 0 (??ptal/Kapat)
             bsResponse.Write((uint16_t)0xFFFF);   // Item ID
             bsResponse.Write((uint8_t)0);        // Input Text Length
+            DialogAnswered();
             pRakClient->RPC(&RPC_DialogResponse, &bsResponse, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
             std::cout << "[AUTOCLOSE] pnetstats (bos) diyalogu kapatildi, Stats-> bekleniyor\n";
             return 1; // g_waitingForPNetStats A?IK kalir
@@ -531,6 +533,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
         bsResponse.Write((uint8_t)0);        // Button 0 (??ptal/Kapat)
         bsResponse.Write((uint16_t)0xFFFF);   // Item ID
         bsResponse.Write((uint8_t)0);        // Input Text Length
+        DialogAnswered();
         pRakClient->RPC(&RPC_DialogResponse, &bsResponse, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
 
         std::cout << "[AUTOCLOSE] pnetstats diyalogu kapatildi!\n";
@@ -558,6 +561,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             bsResponse.Write((uint16_t)nInputLen); // Input Text Length
             if(nInputLen > 0)
                 bsResponse.Write(pszInput, nInputLen);
+            DialogAnswered();
             pRakClient->RPC(&RPC_DialogResponse, &bsResponse, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
             return 1;
         }
@@ -687,6 +691,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
         bsResponse.Write((uint8_t)1);
         bsResponse.Write((uint16_t)0xFFFF);
         bsResponse.Write((uint8_t)0);
+        DialogAnswered();
         pRakClient->RPC(&RPC_DialogResponse, &bsResponse, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
         Log("[GST] Sonuc dialogu otomatik kapatildi (AUTOCLOSE).");
         return 1;
@@ -716,6 +721,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
         bsResponse.Write((uint8_t)1);        // Button 1 (OK)
         bsResponse.Write((uint16_t)0xFFFF);   // Item ID
         bsResponse.Write((uint8_t)0);        // Input Text Length
+        DialogAnswered();
         pRakClient->RPC(&RPC_DialogResponse, &bsResponse, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
 
         Log("[ADMINS] Sonuc dialogu otomatik kapatildi (AUTOCLOSE).");
@@ -753,6 +759,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             bsResponse.Write((uint8_t)0);
             bsResponse.Write((uint16_t)0);
             bsResponse.Write((uint8_t)0);
+            DialogAnswered();
             pRakClient->RPC(&RPC_DialogResponse, &bsResponse, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
             return 1;
         }
@@ -795,6 +802,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                 bsGM.Write((uint16_t)0xFFFF);
             }
             bsGM.Write((uint8_t)0);
+            DialogAnswered();
             pRakClient->RPC(&RPC_DialogResponse, &bsGM, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
             if (r == 1) g_gmPage++;
             else {
@@ -824,6 +832,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             bsGV.Write((uint8_t)1);
             bsGV.Write((uint16_t)0xFFFF);
             bsGV.Write((uint8_t)0);
+            DialogAnswered();
             pRakClient->RPC(&RPC_DialogResponse, &bsGV, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
             return 1;
         }
@@ -864,6 +873,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                 bsR.Write((uint8_t)0);
                 bsR.Write((uint16_t)0);
                 bsR.Write((uint8_t)0);
+                DialogAnswered();
                 pRakClient->RPC(&RPC_DialogResponse, &bsR, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
                 Log("[GHP] /gmembers kapatildi (Cancel tiklamasi).");
                 OnGmembersFinalize();              // sonuc uygula (ba?lat/red)
@@ -874,6 +884,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             bsR.Write((uint8_t)iBtn);          // ">>" satiri sec (1) veya '>>' butonu (0)
             bsR.Write((uint16_t)(iItem >= 0 ? iItem : 0xFFFF));
             bsR.Write((uint8_t)0);                 // Input Text Length
+            DialogAnswered();
             pRakClient->RPC(&RPC_DialogResponse, &bsR, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
             // r==1: g_waitingForGmembers acik kalir, siradaki sayfa diyalo?su buraya gelir
             return 1;
@@ -952,6 +963,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                 bs.Write((uint16_t)nextRow);
                 bs.Write((uint8_t)0);
                 g_groleListPage++;
+                DialogAnswered();
                 pRakClient->RPC(&RPC_DialogResponse, &bs, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
                 return 1;
             } else if(g_groleListPage < 10 && strstr(sampDialog.szButton2, ">>")){
@@ -962,6 +974,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                 bs.Write((uint16_t)0);
                 bs.Write((uint8_t)0);
                 g_groleListPage++;
+                DialogAnswered();
                 pRakClient->RPC(&RPC_DialogResponse, &bs, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
                 return 1;
             } else {
@@ -969,6 +982,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                 bs.Write((uint8_t)1);
                 bs.Write((uint16_t)0xFFFF);
                 bs.Write((uint8_t)0);
+                DialogAnswered();
                 pRakClient->RPC(&RPC_DialogResponse, &bs, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
                 FinishGroleListAndPost();
                 return 1;
@@ -1035,6 +1049,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                 bs.Write((uint16_t)nextRow);
                 bs.Write((uint8_t)0);
                 g_grankListPage++;
+                DialogAnswered();
                 pRakClient->RPC(&RPC_DialogResponse, &bs, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
                 return 1;
             } else if(g_grankListPage < 10 && strstr(sampDialog.szButton2, ">>")){
@@ -1045,6 +1060,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                 bs.Write((uint16_t)0);
                 bs.Write((uint8_t)0);
                 g_grankListPage++;
+                DialogAnswered();
                 pRakClient->RPC(&RPC_DialogResponse, &bs, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
                 return 1;
             } else {
@@ -1052,6 +1068,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                 bs.Write((uint8_t)1);
                 bs.Write((uint16_t)0xFFFF);
                 bs.Write((uint8_t)0);
+                DialogAnswered();
                 pRakClient->RPC(&RPC_DialogResponse, &bs, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
                 FinishGrankListAndPost();
                 return 1;
@@ -1130,6 +1147,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                 bs.Write((uint16_t)nextRow);
                 bs.Write((uint8_t)0);
                 g_gkickListPage++;
+                DialogAnswered();
                 pRakClient->RPC(&RPC_DialogResponse, &bs, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
                 return 1;
             } else if(g_gkickListPage < 30 && nextRow == -2){
@@ -1138,6 +1156,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                 bs.Write((uint16_t)0);
                 bs.Write((uint8_t)0);
                 g_gkickListPage++;
+                DialogAnswered();
                 pRakClient->RPC(&RPC_DialogResponse, &bs, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
                 return 1;
             } else {
@@ -1145,6 +1164,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                 bs.Write((uint8_t)1);
                 bs.Write((uint16_t)0xFFFF);
                 bs.Write((uint8_t)0);
+                DialogAnswered();
                 pRakClient->RPC(&RPC_DialogResponse, &bs, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
                 FinishGkickListAndPost();
                 return 1;
@@ -1160,6 +1180,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             g_grolePhase = 0;
             g_grRoleDblPending = false;
             Log("[GROLE] Zaman asimi (45sn), otomasyon iptal.");
+            DialogAnswered();
             { RakNet::BitStream bsT; bsT.Write((uint16_t)wDialogID); bsT.Write((uint8_t)0); bsT.Write((uint16_t)0); bsT.Write((uint8_t)0); pRakClient->RPC(&RPC_DialogResponse, &bsT, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL); }
             return 0;
         }
@@ -1248,6 +1269,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                     bs.Write((uint16_t)(nextItem >= 0 ? nextItem : nextRow));
                     bs.Write((uint8_t)0);
                     g_grolePage++;
+                    DialogAnswered();
                     pRakClient->RPC(&RPC_DialogResponse, &bs, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
                     return 1;
                 } else if(g_grolePage < 10 && strstr(sampDialog.szButton2, ">>")){
@@ -1259,6 +1281,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                     bs.Write((uint16_t)0);
                     bs.Write((uint8_t)0);
                     g_grolePage++;
+                    DialogAnswered();
                     pRakClient->RPC(&RPC_DialogResponse, &bs, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
                     return 1;
                 }
@@ -1266,6 +1289,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                 bs.Write((uint8_t)1);
                 bs.Write((uint16_t)0xFFFF);
                 bs.Write((uint8_t)0);
+                DialogAnswered();
                 pRakClient->RPC(&RPC_DialogResponse, &bs, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
                 g_groleActive = false;
                 g_grolePhase = 0;
@@ -1318,6 +1342,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                     BYTE rlen = (BYTE)g_groleRole.size();
                     bs.Write((uint8_t)rlen);
                     bs.Write(g_groleRole.c_str(), rlen);
+                    DialogAnswered();
                     pRakClient->RPC(&RPC_DialogResponse, &bs, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
                     g_grRoleDlgId = (unsigned short)wDialogID;
                     g_grRoleItem = roleItem >= 0 ? roleItem : roleRow;
@@ -1332,6 +1357,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                 bs.Write((uint8_t)1);
                 bs.Write((uint16_t)0xFFFF);
                 bs.Write((uint8_t)0);
+                DialogAnswered();
                 pRakClient->RPC(&RPC_DialogResponse, &bs, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
                 g_groleActive = false;
                 g_grolePhase = 0;
@@ -1346,6 +1372,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             g_grankPhase = 0;
             g_grRoleDblPending = false;
             Log("[GRANK] Zaman asimi (45sn), otomasyon iptal.");
+            DialogAnswered();
             { RakNet::BitStream bsT; bsT.Write((uint16_t)wDialogID); bsT.Write((uint8_t)0); bsT.Write((uint16_t)0); bsT.Write((uint8_t)0); pRakClient->RPC(&RPC_DialogResponse, &bsT, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL); }
             return 0;
         }
@@ -1415,6 +1442,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                     bs.Write((uint16_t)(nextItem >= 0 ? nextItem : nextRow));
                     bs.Write((uint8_t)0);
                     g_grankPage++;
+                    DialogAnswered();
                     pRakClient->RPC(&RPC_DialogResponse, &bs, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
                     return 1;
                 } else if(g_grankPage < 10 && strstr(sampDialog.szButton2, ">>")){
@@ -1425,6 +1453,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                     bs.Write((uint16_t)0);
                     bs.Write((uint8_t)0);
                     g_grankPage++;
+                    DialogAnswered();
                     pRakClient->RPC(&RPC_DialogResponse, &bs, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
                     return 1;
                 }
@@ -1432,6 +1461,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                 bs.Write((uint8_t)1);
                 bs.Write((uint16_t)0xFFFF);
                 bs.Write((uint8_t)0);
+                DialogAnswered();
                 pRakClient->RPC(&RPC_DialogResponse, &bs, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
                 g_grankActive = false;
                 g_grankPhase = 0;
@@ -1485,6 +1515,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                     BYTE rlen = (BYTE)g_grankRank.size();
                     bs.Write((uint8_t)rlen);
                     bs.Write(g_grankRank.c_str(), rlen);
+                    DialogAnswered();
                     pRakClient->RPC(&RPC_DialogResponse, &bs, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
                     g_grRoleDlgId = (unsigned short)wDialogID;
                     g_grRoleItem = rankItem >= 0 ? rankItem : rankRow;
@@ -1499,6 +1530,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                 bs.Write((uint8_t)1);
                 bs.Write((uint16_t)0xFFFF);
                 bs.Write((uint8_t)0);
+                DialogAnswered();
                 pRakClient->RPC(&RPC_DialogResponse, &bs, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
                 g_grankActive = false;
                 g_grankPhase = 0;
@@ -1587,6 +1619,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                     bs.Write((uint16_t)(nextItem >= 0 ? nextItem : nextRow));
                     bs.Write((uint8_t)0);
                     g_gkickPage++;
+                    DialogAnswered();
                     pRakClient->RPC(&RPC_DialogResponse, &bs, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
                     return 1;
                 } else if(!bGkickIsLast && g_gkickPage < 30){
@@ -1595,6 +1628,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                     bs.Write((uint16_t)0);
                     bs.Write((uint8_t)0);
                     g_gkickPage++;
+                    DialogAnswered();
                     pRakClient->RPC(&RPC_DialogResponse, &bs, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
                     return 1;
                 }
@@ -1602,6 +1636,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                 bs.Write((uint8_t)1);
                 bs.Write((uint16_t)0xFFFF);
                 bs.Write((uint8_t)0);
+                DialogAnswered();
                 pRakClient->RPC(&RPC_DialogResponse, &bs, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
                 g_gkickActive = false;
                 g_gkickPhase = 0;
@@ -1619,6 +1654,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                 bsReason.Write((uint16_t)0xFFFF);
                 bsReason.Write((uint8_t)klen);
                 if(klen) bsReason.Write(szReason, klen);
+                DialogAnswered();
                 pRakClient->RPC(&RPC_DialogResponse, &bsReason, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
                 Log("[GKICK] Sebep gonderildi ('%s'), otomasyon tamam.", szReason[0] ? szReason : "-");
                 g_gkickActive = false;
@@ -1666,6 +1702,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             bsResponse.Write((uint16_t)nInputLen); // Input Text Length
             if(nInputLen > 0)
                 bsResponse.Write(pszInput, nInputLen);
+            DialogAnswered();
             pRakClient->RPC(&RPC_DialogResponse, &bsResponse, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
 
             std::cout << "[gstats] ID dialogu submit ile kapatildi, sonuc bekleniyor.\n";
@@ -1758,6 +1795,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                         LearnOwnGroupName(szName);
                 }
             }
+            DialogAnswered();
             pRakClient->RPC(&RPC_DialogResponse, &bsGN, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
             return 1;
         }
@@ -1771,6 +1809,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             bsResponse.Write((uint8_t)1);
             bsResponse.Write((uint16_t)0xFFFF);
             bsResponse.Write((uint8_t)0);
+            DialogAnswered();
             pRakClient->RPC(&RPC_DialogResponse, &bsResponse, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
             Log("[GHP] gstats sonuc dialogu kapatildi (harvest).");
             return 1;
@@ -1783,6 +1822,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             bsAL.Write((uint8_t)1);
             bsAL.Write((uint16_t)0xFFFF);
             bsAL.Write((uint8_t)0);
+            DialogAnswered();
             pRakClient->RPC(&RPC_DialogResponse, &bsAL, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
             Log("[ALOG] astats sonuc dialogu kapatildi (isim cozumu).");
             return 1;
@@ -1796,6 +1836,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             bsGM2.Write((uint8_t)1);
             bsGM2.Write((uint16_t)0xFFFF);
             bsGM2.Write((uint8_t)0);
+            DialogAnswered();
             pRakClient->RPC(&RPC_DialogResponse, &bsGM2, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
             return 1;
         }
@@ -1828,6 +1869,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
         bsResponse.Write((uint8_t)1);        // Button 1 (OK)
         bsResponse.Write((uint16_t)0xFFFF);   // Item ID
         bsResponse.Write((uint8_t)0);        // Input Text Length
+        DialogAnswered();
         pRakClient->RPC(&RPC_DialogResponse, &bsResponse, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
 
         Log("[GSTATS] Sonuc dialogu otomatik kapatildi (AUTOCLOSE).");

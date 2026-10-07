@@ -53,6 +53,7 @@ struct stSAMPDialog
 	char szInfo[257];
 };
 extern struct stSAMPDialog sampDialog;
+extern void DialogAnswered();
 
 extern bool iGettingNewName;
 
