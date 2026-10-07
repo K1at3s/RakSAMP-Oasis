@@ -4575,6 +4575,27 @@ void ConnectionRejected(RPCParameters *rpcParams)
 // Sava-s ba-slangýcýnda kýsa GZ giri-si: kendi takým rengimizi --srenmek i-gin /gz2,
 // birka-g saniye i-geride kal (skorboard textdraw'larýnda kendi adýmýzýn rengi = takým rengi),
 // sonra /fr ile freeroam'a geri d-n. /pos bu modda -galý-smaz; -gýký-s /fr ile yapýlýr.
+// Savas bitis sinyali (defeated/results/won/lost) gelir gelmez: bot GZ icinde
+// DEGILSE /gz at ve iceride kal. Sonuc diyalogu + textdraw'lar SADECE GZ'deyken
+// gelir; savas basinda 3 sn girip /fr ile ciktigimiz icin 00:03 tetigi
+// gelmeden biten savalarda hicbir sey gonderilmiyordu.
+static bool ZwWarEndEnterGz(const char *szWhy)
+{
+	if(g_zwKillListStay || g_zwAutoJoinSent || g_zwKillListSent) return false;
+	if(g_zwNoGzEntry) { Log("[KILLLIST] Bitis girisi atlandi (/gz once reddedildi)."); return false; }
+	if(GetTickCount() - g_zwLastGzAt < 3000) return false; // /gz anti-spam
+	g_zwAutoJoinSent = true;
+	g_zwKillListStay = true;   // GZ'de kal: sonuc gelince finalize, sonra /fr
+	g_zwCaptureStart = GetTickCount();
+	g_zwFinalizeAt = 0;
+	g_zwReturnPending = true;
+	g_zwReturnAt = GetTickCount() + KILL_LIST_CAPTURE_WINDOW_MS;
+	g_zwLastGzAt = GetTickCount();
+	Log("[KILLLIST] Savas bitti (%s), GZ'de degilmis: /gz atilip sonuc bekleniyor.", szWhy);
+	sendServerCommand((char *)"/gz");
+	return true;
+}
+
 static void ZwJoinCaptureReturn()
 {
 	g_zwReturnPending = true;
@@ -5328,7 +5349,7 @@ void ClientMessage(RPCParameters *rpcParams)
 					// Kill list toplanacaksa GZ'de KAL (textdraw'lar bitis duyurusundan
 					// sonra gelir); finalize edilince /fr ile donulur. Kill list yoksa
 					// kisa giris donusu hemen yapilir.
-if(g_zwCapturingKillList && !g_zwKillListSent)
+if(!ZwWarEndEnterGz(pAction) && g_zwCapturingKillList && !g_zwKillListSent)
 				{
 					// Bitis textdraw'larini bekle; g_zwReturnPending true kalir,
 					// finalize sonrasi d-nüs (ProcessZoneWarAutoJoin) /fr g?nderir.
@@ -8173,7 +8194,8 @@ void ScrGameText(RPCParameters *rpcParams)
 		g_zwCheckJoinSent = false;
 		g_zwAutoJoinSent = false;
 		g_zwReturnPending = false;
-		g_zwKillListStay = false;
+
+		if(g_zwKillListStay) { g_zwKillListStay = false; sendServerCommand((char *)"/fr"); Log("[KILLLIST] /gz reddedildi, /fr ile donuluyor."); }		g_zwKillListStay = false;
 		g_zwCapturingKillList = false;
 		g_zwKillListSent = false;
 		g_zwWarZone[0] = 0;
@@ -8201,7 +8223,7 @@ void ScrGameText(RPCParameters *rpcParams)
 			// Chat yoluyla ayni: kill list yakalayici aciksa bitis textdraw'lari
 			// icin finalize kur; yoksa /fr ile freeroam'a don. Aksi halde yakalayici
 			// acik kaliyor ve ?zf surekli capturing etiketi basiyordu (gametext lost vakasi).
-			if(g_zwCapturingKillList && !g_zwKillListSent)
+			if(!ZwWarEndEnterGz("won/lost") && g_zwCapturingKillList && !g_zwKillListSent)
 			{
 				g_zwFinalizeAt = GetTickCount() + 3000;
 				Log("[KILLLIST] Gametext: savas bitti, GZ'de kalinip sonuc textdraw'lari bekleniyor...");
@@ -8238,7 +8260,7 @@ void ScrGameText(RPCParameters *rpcParams)
 			// Chat yoluyla ayni: kill list yakalayici aciksa bitis textdraw'lari
 			// icin finalize kur; yoksa /fr ile freeroam'a don. Aksi halde yakalayici
 			// acik kaliyor ve ?zf surekli capturing etiketi basiyordu (gametext lost vakasi).
-			if(g_zwCapturingKillList && !g_zwKillListSent)
+			if(!ZwWarEndEnterGz("won/lost") && g_zwCapturingKillList && !g_zwKillListSent)
 			{
 				g_zwFinalizeAt = GetTickCount() + 3000;
 				Log("[KILLLIST] Gametext: savas bitti, GZ'de kalinip sonuc textdraw'lari bekleniyor...");
