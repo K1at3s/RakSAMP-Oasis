@@ -4041,7 +4041,9 @@ static void SendGrRoleSecondClick()
 void ProcessZoneScan()
 {
 	if(g_harvestPausedForDlg && !g_groleActive && !g_grankActive && !g_gkickActive)
-		ResumeHarvestsAfterDialog("oto");	if(g_firstRejectTick != 0 && GetTickCount() - g_firstRejectTick > 2*60*1000)
+		ResumeHarvestsAfterDialog("oto");
+
+	if(g_firstRejectTick != 0 && GetTickCount() - g_firstRejectTick > 2*60*1000)
 	{
 		Log("[DLG-WATCH] 2dkdir surekli red, yeniden baglaniliyor.");
 		g_firstRejectTick = 0;
