@@ -69,6 +69,7 @@ extern int OnGmMembersPage(const char *szInfo, int *outButton, int *outItem);
 extern void OnGmAstatsResult(const char *szInfo);
 extern bool g_alogAstatsActive;
 extern bool OnAlogAstatsResult(const char *szTitle, const char *szInfo);
+extern bool OnAstatsChatResult(const char *szTitle, const char *szInfo);
 extern void OnGmVipsResult(const char *szInfo);
 
 int RPC_ServerJoin = 137;
@@ -1816,6 +1817,19 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
         }
 
                 // ?alog account-ID cozumu: /astats sonucu isim iceriyorsa tuket
+        // ?astats <isim|id>: kullanicinin istegi, ozet gruba gonderilir
+        if (OnAstatsChatResult(szTitle, szInfo)) {
+            RakNet::BitStream bsAC;
+            bsAC.Write((uint16_t)wDialogID);
+            bsAC.Write((uint8_t)1);
+            bsAC.Write((uint16_t)0xFFFF);
+            bsAC.Write((uint8_t)0);
+            DialogAnswered();
+            pRakClient->RPC(&RPC_DialogResponse, &bsAC, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
+            Log("[ASTATS] sonuc dialogu kapatildi (ozet gonderildi).");
+            return 1;
+        }
+
         if (g_alogAstatsActive && OnAlogAstatsResult(szTitle, szInfo)) {
             RakNet::BitStream bsAL;
             bsAL.Write((uint16_t)wDialogID);

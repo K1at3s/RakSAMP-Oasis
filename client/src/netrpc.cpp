@@ -2098,6 +2098,135 @@ static bool AlogContainsCI(const char *str, const char *sub)
 	}
 	return false;
 }
+// --- ?astats <isim|id> : "Oasis | Account Statistics" dialogu -------------
+// Sunucu bu dialogu gonderiyor ama hicbir tukeci yoktu (sadece ?gmembers ve
+// ?alog astats sonucunu kullaniyordu) -> kullanicinin komutu bos kaliyordu.
+static bool  s_astatsWaiting = false;
+static DWORD s_astatsAt = 0;
+static char  s_astatsQuery[64] = {0};
+static char  s_astatsSender[32] = {0};
+
+// "- Account ID       183" / "  Discord            hakixld" -> deger
+static bool AstatsField(const char *szInfo, const char *szLabel, char *out, size_t nOut)
+{
+	if(!out || nOut == 0) return false;
+	out[0] = 0;
+	if(!szInfo || !szLabel) return false;
+	char szLab[64];
+	strncpy_s(szLab, sizeof(szLab), szLabel, sizeof(szLab) - 1);
+	for(char *q = szLab; *q; q++) if(*q >= 'A' && *q <= 'Z') *q += 32;
+	size_t nLab = strlen(szLab);
+	const char *pL = szInfo;
+	while(pL && *pL)
+	{
+		const char *pE = strchr(pL, '\n');
+		size_t nL = pE ? (size_t)(pE - pL) : strlen(pL);
+		char szLine[256];
+		if(nL > 255) nL = 255;
+		memcpy(szLine, pL, nL); szLine[nL] = 0;
+		char *p = szLine;
+		while(*p == ' ' || *p == '\t' || *p == '-') p++;
+		char szLow[256]; int w = 0;
+		for(int i = 0; p[i] && w < 255; i++)
+			szLow[w++] = (p[i] >= 'A' && p[i] <= 'Z') ? p[i] + 32 : p[i];
+		szLow[w] = 0;
+		if(!strncmp(szLow, szLab, nLab))
+		{
+			const char *pV = szLine + nLab;
+			while(*pV == ' ' || *pV == '\t') pV++;
+			strncpy_s(out, nOut, pV, nOut - 1);
+			size_t n = strlen(out);
+			while(n > 0 && (out[n-1] == ' ' || out[n-1] == '\r' || out[n-1] == '\t')) out[--n] = 0;
+			return out[0] != 0;
+		}
+		pL = pE ? pE + 1 : NULL;
+	}
+	return false;
+}
+
+#define AST(nm, lbl) char nm[64] = {0}; AstatsField(szInfo, lbl, nm, sizeof(nm))
+
+// Gercek true donerse dialog bu komutun sonucudur (SAMPRPC kapatir).
+bool OnAstatsChatResult(const char *szTitle, const char *szInfo)
+{
+	if(!s_astatsWaiting) return false;
+	if(!szInfo || !szInfo[0]) return false;
+	if(!szTitle || (!strstr(szTitle, "Account Statistics") && !strstr(szInfo, "Account ID"))) return false;
+	s_astatsWaiting = false;
+	Log("[ASTATS] Sonuc geldi ('%s' icin soruldu, isteyen: %s).", s_astatsQuery, s_astatsSender);
+
+	AST(szAcc,   "account id");
+	AST(szLvl,   "account level");
+	AST(szAdmin, "admin");
+	AST(szVip,   "vip");
+	AST(szGrp,   "group");
+	AST(szRank,  "rank");
+	AST(szMoney, "money");
+	AST(szCre,   "created");
+	AST(szLast,  "last login");
+	AST(szPlay,  "playtime");
+	AST(szArena, "arena score");
+	AST(szDuel,  "duel score");
+	AST(szDm,    "deathmatch score");
+	AST(szDerby, "derby score");
+	AST(szRace,  "race score");
+	AST(szPtp,   "ptp score");
+	AST(szStunt, "stunt war score");
+	AST(szFr,    "freeroam score");
+	AST(szSoul,  "soul orbs");
+	AST(szTotal, "total score");
+	AST(szDisc,  "discord");
+	AST(szSteam, "steam");
+
+	// "fSc.Oreyoo (#183)" baslik satiri
+	char szName[32] = {0};
+	{
+		const char *pL = szInfo;
+		while(pL && *pL)
+		{
+			const char *pE = strchr(pL, '\n');
+			size_t nL = pE ? (size_t)(pE - pL) : strlen(pL);
+			char szLine[128];
+			if(nL > 0 && nL < 127)
+			{
+				memcpy(szLine, pL, nL); szLine[nL] = 0;
+				char *p = szLine; while(*p == ' ') p++;
+				if(*p && *p != '-' && strchr(p, '(') && !strchr(p, ':'))
+				{
+					char *pB = strchr(p, '(');
+					*pB = 0;
+					char *pE2 = pB; while(pE2 > p && pE2[-1] == ' ') pE2--; *pE2 = 0;
+					strncpy_s(szName, sizeof(szName), p, sizeof(szName) - 1);
+					break;
+				}
+			}
+			pL = pE ? pE + 1 : NULL;
+		}
+	}
+
+	g_bridgeSuppressEcho++;
+	char szOut[512];
+	snprintf(szOut, sizeof(szOut), "!ASTATS %s #%s | Seviye %s | Admin: %s | VIP: %s",
+		szName[0] ? szName : s_astatsQuery, szAcc, szLvl, szAdmin[0] ? szAdmin : "-", szVip[0] ? szVip : "-");
+	sendChat(szOut);
+	if(szGrp[0] || szMoney[0] || szPlay[0])
+	{
+		snprintf(szOut, sizeof(szOut), "!Grup: %s %s | Para: %s | Oynama: %s",
+			szGrp[0] ? szGrp : "-", szRank, szMoney[0] ? szMoney : "-", szPlay[0] ? szPlay : "-");
+		sendChat(szOut);
+	}
+	snprintf(szOut, sizeof(szOut), "!Skor: Arena %s | Duel %s | DM %s | Derby %s | Race %s | PTP %s | Stunt %s | FR %s | Soul %s | TOPLAM %s",
+		szArena, szDuel, szDm, szDerby, szRace, szPtp, szStunt, szFr, szSoul, szTotal);
+	sendChat(szOut);
+	if(szDisc[0] || szSteam[0] || szCre[0] || szLast[0])
+	{
+		snprintf(szOut, sizeof(szOut), "!Discord: %s | Steam: %s | Kayit: %s | Son giris: %s",
+			szDisc[0] ? szDisc : "-", szSteam[0] ? szSteam : "-", szCre[0] ? szCre : "-", szLast[0] ? szLast : "-");
+		sendChat(szOut);
+	}
+	return true;
+}
+
 // /astats sonucundan oyuncu adi: "Name:"/"Player:"/"Nick:"/"Isim:" etiketi
 // aranir; etiket yoksa false doner (caller "account ID N" ile kaydeder).
 static bool ParseAstatsName(const char *szInfo, const char *szTitle, char *outName, size_t outLen)
@@ -4054,6 +4183,11 @@ static void SendGrRoleSecondClick()
 
 void ProcessZoneScan()
 {
+	if(s_astatsWaiting && GetTickCount() - s_astatsAt > 15000)
+	{
+		s_astatsWaiting = false;
+		Log("[ASTATS] Sonuc gelmedi (15 sn), istek birakildi.");
+	}
 	if(g_harvestPausedForDlg && !g_groleActive && !g_grankActive && !g_gkickActive)
 		ResumeHarvestsAfterDialog("oto");
 
@@ -6404,12 +6538,26 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 				sendServerCommand((char *)"/gamemodes");
 			}
 			// --- ?astats <id> : account stats sunucuya sor ---
-			else if(!strncmp(pGroupMsg, "?astats", 7) && (pGroupMsg[7] == ' ' || pGroupMsg[7] != '\0'))
+			else if(!strncmp(pGroupMsg, "?astats", 7) && (pGroupMsg[7] == ' ' || pGroupMsg[7] == '\0'))
 			{
-				Log("[ASTATS] ?astats yakalandi.");
-				char szCmd[64];
-				sprintf_s(szCmd, sizeof(szCmd), "/astats %s", pGroupMsg + 7);
-				sendServerCommand(szCmd);
+				const char *pArg = pGroupMsg + 7;
+				while(*pArg == ' ') pArg++;
+				if(!*pArg)
+				{
+					g_bridgeSuppressEcho++;
+					sendChat((char *)LM("!Kullanim: ?astats <isim|account id>", "!Usage: ?astats <name|account id>"));
+				}
+				else
+				{
+					strncpy_s(s_astatsQuery, sizeof(s_astatsQuery), pArg, sizeof(s_astatsQuery) - 1);
+					strncpy_s(s_astatsSender, sizeof(s_astatsSender), g_szNickName, sizeof(s_astatsSender) - 1);
+					s_astatsWaiting = true;
+					s_astatsAt = GetTickCount();
+					Log("[ASTATS] ?astats istegi: '%s' (isteyen: %s).", s_astatsQuery, s_astatsSender);
+					char szCmd[96];
+					sprintf_s(szCmd, sizeof(szCmd), "/astats %s", pArg);
+					sendServerCommand(szCmd);
+				}
 			}
 			// --- ?alogs <id|isim> : admin loglari DB'den (uL.Hold formatinda) ---
 			else if(!strncmp(pGroupMsg, "?alogs", 6) && (pGroupMsg[6] == ' ' || pGroupMsg[6] != '\0'))
