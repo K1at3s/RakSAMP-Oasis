@@ -5,6 +5,7 @@ const { queueCommand } = require('../../utils/commandOutbox');
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('ginv')
+        .setNameLocalizations({ tr: 'davet', 'en-US': 'ginv' })
         .setDescription('Gruba oyuncu davet et (/ginvite id)')
         .setDescriptionLocalizations({ tr: 'Gruba oyuncu davet et (/ginvite id)', 'en-US': 'Invite a player to the group (/ginvite id)' })
         .addIntegerOption(o => o.setName('id').setDescription('Oyuncu ID').setRequired(true)),
