@@ -2124,6 +2124,7 @@ static bool AstatsField(const char *szInfo, const char *szLabel, char *out, size
 		char szLine[256];
 		if(nL > 255) nL = 255;
 		memcpy(szLine, pL, nL); szLine[nL] = 0;
+		StripColorCodes(szLine); // {AAAAAA}- Account ID -> - Account ID
 		char *p = szLine;
 		while(*p == ' ' || *p == '\t' || *p == '-') p++;
 		char szLow[256]; int w = 0;
@@ -2192,6 +2193,7 @@ bool OnAstatsChatResult(const char *szTitle, const char *szInfo)
 			if(nL > 0 && nL < 127)
 			{
 				memcpy(szLine, pL, nL); szLine[nL] = 0;
+				StripColorCodes(szLine); // {AAAAAA}- Account ID -> - Account ID
 				char *p = szLine; while(*p == ' ') p++;
 				if(*p && *p != '-' && strchr(p, '(') && !strchr(p, ':'))
 				{
