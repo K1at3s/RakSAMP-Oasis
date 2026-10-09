@@ -2223,21 +2223,25 @@ bool OnAstatsChatResult(const char *szTitle, const char *szInfo)
 
 	g_bridgeSuppressEcho++;
 	char szOut[512];
-	snprintf(szOut, sizeof(szOut), "!ASTATS %s #%s | Seviye %s | Admin: %s | VIP: %s",
+	snprintf(szOut, sizeof(szOut), LM("!ASTATS %s #%s | Seviye %s | Admin: %s | VIP: %s",
+			 "!ASTATS %s #%s | Level %s | Admin: %s | VIP: %s"),
 		szName[0] ? szName : s_astatsQuery, szAcc, szLvl, szAdmin[0] ? szAdmin : "-", szVip[0] ? szVip : "-");
 	sendChat(szOut);
 	if(szGrp[0] || szMoney[0] || szPlay[0])
 	{
-		snprintf(szOut, sizeof(szOut), "!Grup: %s %s | Para: %s | Oynama: %s",
+		snprintf(szOut, sizeof(szOut), LM("!Grup: %s %s | Para: %s | Oynama: %s",
+				 "!Group: %s %s | Money: %s | Playtime: %s"),
 			szGrp[0] ? szGrp : "-", szRank, szMoney[0] ? szMoney : "-", szPlay[0] ? szPlay : "-");
 		sendChat(szOut);
 	}
-	snprintf(szOut, sizeof(szOut), "!Skor: Arena %s | Duel %s | DM %s | Derby %s | Race %s | PTP %s | Stunt %s | FR %s | Soul %s | TOPLAM %s",
+	snprintf(szOut, sizeof(szOut), LM("!Skor: Arena %s | Duel %s | DM %s | Derby %s | Race %s | PTP %s | Stunt %s | FR %s | Soul %s | TOPLAM %s",
+			 "!Score: Arena %s | Duel %s | DM %s | Derby %s | Race %s | PTP %s | Stunt %s | FR %s | Soul %s | TOTAL %s"),
 		szArena, szDuel, szDm, szDerby, szRace, szPtp, szStunt, szFr, szSoul, szTotal);
 	sendChat(szOut);
 	if(szDisc[0] || szSteam[0] || szCre[0] || szLast[0])
 	{
-		snprintf(szOut, sizeof(szOut), "!Discord: %s | Steam: %s | Kayit: %s | Son giris: %s",
+		snprintf(szOut, sizeof(szOut), LM("!Discord: %s | Steam: %s | Kayit: %s | Son giris: %s",
+				 "!Discord: %s | Steam: %s | Registered: %s | Last login: %s"),
 			szDisc[0] ? szDisc : "-", szSteam[0] ? szSteam : "-", szCre[0] ? szCre : "-", szLast[0] ? szLast : "-");
 		sendChat(szOut);
 	}
