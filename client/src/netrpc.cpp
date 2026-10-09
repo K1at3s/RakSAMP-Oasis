@@ -2133,11 +2133,23 @@ static bool AstatsField(const char *szInfo, const char *szLabel, char *out, size
 		szLow[w] = 0;
 		if(!strncmp(szLow, szLab, nLab))
 		{
-			const char *pV = szLine + nLab;
-			while(*pV == ' ' || *pV == '\t') pV++;
-			strncpy_s(out, nOut, pV, nOut - 1);
+			// Sunucu sutunlari SEKME ile ayiriyor: "- Account ID   \t\t 1".
+			// Deger = etiketten sonraki son bos olmayan sekme blogu.
+			// (Duz metin gelirse secme yok; bastaki "is " atilir.)
+			const char *pV = p + nLab;      // ONCEDEN szLine + nLab idi: '- ' oneki
+			const char *pBest = NULL;       // yuzunden 2 karakter geride kaliniyordu.
+			for(const char *q = pV; *q; )
+			{
+				if(*q == '\t') { while(*q == '\t') q++; if(*q) pBest = q; continue; }
+				q++;
+			}
+			const char *pS = pBest ? pBest : pV;
+			while(*pS == ' ' || *pS == '\t') pS++;
+			if(!_strnicmp(pS, "is ", 3)) pS += 3; // "- Admin is  ... Owner"
+			while(*pS == ' ' || *pS == '\t') pS++;
+			strncpy_s(out, nOut, pS, nOut - 1);
 			size_t n = strlen(out);
-			while(n > 0 && (out[n-1] == ' ' || out[n-1] == '\r' || out[n-1] == '\t')) out[--n] = 0;
+			while(n > 0 && (out[n-1] == ' ' || out[n-1] == '\t' || out[n-1] == '\r')) out[--n] = 0;
 			return out[0] != 0;
 		}
 		pL = pE ? pE + 1 : NULL;
@@ -2156,6 +2168,7 @@ bool OnAstatsChatResult(const char *szTitle, const char *szInfo)
 	s_astatsWaiting = false;
 	g_waitingForGStats = false;   // astats kendi makinesini kullandi, gstats beklemesin
 	g_gstatsAutoSubmit = false;
+	Log("[ASTATS-RAW] %.500s", szInfo);
 	Log("[ASTATS] Sonuc geldi ('%s' icin soruldu, isteyen: %s).", s_astatsQuery, s_astatsSender);
 
 	AST(szAcc,   "account id");
