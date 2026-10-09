@@ -5,17 +5,32 @@ const { Collection } = require('discord.js');
 const commands = new Collection();
 const commandsDir = path.join(__dirname, '..', 'commands');
 
-// commands/ klasorundeki tum komutlari yukle
+// commands/ ve commands/<Kategori>/ altindaki tum komutlari yukle
+// (help komutu kategori listesini bu klasorlerden okuyor)
+function listCategories() {
+    if (!fs.existsSync(commandsDir)) return [];
+    return fs.readdirSync(commandsDir, { withFileTypes: true })
+        .filter(d => d.isDirectory())
+        .map(d => d.name)
+        .sort();
+}
+
 function loadCommands() {
     commands.clear();
+    // kokte duz .js (geriye uyumluluk) + kategori klasorleri
     const files = fs.readdirSync(commandsDir).filter(f => f.endsWith('.js'));
     for (const file of files) {
         const cmd = require(path.join(commandsDir, file));
-        if (cmd && cmd.data) {
-            commands.set(cmd.data.name, cmd);
+        if (cmd && cmd.data) commands.set(cmd.data.name, cmd);
+    }
+    for (const cat of listCategories()) {
+        const catDir = path.join(commandsDir, cat);
+        for (const file of fs.readdirSync(catDir).filter(f => f.endsWith('.js'))) {
+            const cmd = require(path.join(catDir, file));
+            if (cmd && cmd.data) commands.set(cmd.data.name, cmd);
         }
     }
-    console.log(`✅ ${commands.size} komut yuklendi.`);
+    console.log(`✅ ${commands.size} komut yuklendi (${listCategories().length} kategori).`);
     return commands;
 }
 
@@ -51,4 +66,4 @@ async function handleInteraction(interaction) {
     }
 }
 
-module.exports = { loadCommands, registerCommands, registerForGuild, handleInteraction, commands };
+module.exports = { loadCommands, registerCommands, registerForGuild, handleInteraction, commands, listCategories, commandsDir };

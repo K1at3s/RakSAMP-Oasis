@@ -6131,20 +6131,18 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 			else
 				pCmdSenderName = g_szNickName;
 
-			// --- ?help : komut listesini oyunda goster (Discord'a gitmez) ---
+			// --- ?help : komut listesini oyunda ATMAZ, Discord'a yonlendirir ---
 			if(!strncmp(pGroupMsg, "?help", 5) && (pGroupMsg[5] == '\0' || pGroupMsg[5] == ' '))
 			{
-				Log("[HELP] ?help yakalandi, komut listesi gonderiliyor.");
+				Log("[HELP] ?help yakalandi, Discord'a yonlendiriliyor.");
 				g_bridgeSuppressEcho++;
-				sendChat((char *)LM("!Komutlar: ?w ?ping ?pl [id] ?gst ?az ?gzt ?gz ?gz2 ?za ?zattack ?zlist ?zwho ?zscan ?zf ?zgo ?grole <isim> <memb|co> ?grank <isim> <rank> ?ginv <id>", "!Commands: ?w ?ping ?pl [id] ?gst ?az ?gzt ?gz ?gz2 ?za ?zattack ?zlist ?zwho ?zscan ?zf ?zgo ?grole <name> <memb|co> ?grank <name> <rank> ?ginv <id>"));
+				sendChat((char *)LM(
+					"!Komutlara Discord uzerinden ulasabilirsiniz: /yardim yazin.",
+					"You can reach the commands from Discord: type /help."));
 				g_bridgeSuppressEcho++;
-				sendChat((char *)LM("!Ayarlar: ?greet ?welcomemsg ?gm <mesaj> ?discordchat", "!Settings: ?greet ?welcomemsg ?gm <message> ?discordchat"));
-				g_bridgeSuppressEcho++;
-				sendChat((char *)LM("!Bilgi: ?info ?disc ?test ?m ?astats <id> ?alogs <id>", "!Info: ?info ?disc ?test ?m ?astats <id> ?alogs <id>"));
-				g_bridgeSuppressEcho++;
-				sendChat((char *)LM("!Discord'a mesaj: !<mesaj> yaz", "!Send Discord message: !<message>"));
-				g_bridgeSuppressEcho++;
-				sendChat((char *)LM("!Nasil: ?help", "!How: ?help"));
+				sendChat((char *)LM(
+					"!Oyun ici: ?w ?ping ?pl ?gzt ?zscan ?zgo ?za ?astats <id> ?alogs <id>",
+					"In-game: ?w ?ping ?pl ?gzt ?zscan ?zgo ?za ?astats <id> ?alogs <id>"));
 			}
 			// --- ?test : baglanti kontrolu, bot cevap verir ---
 			else if(!strncmp(pGroupMsg, "?test", 5) && (pGroupMsg[5] == '\0' || pGroupMsg[5] == ' '))
