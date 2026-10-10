@@ -1051,6 +1051,27 @@ static bool  g_watchDlgKeep = false;
 static DWORD g_lastPosOkTick = 0;
 static DWORD g_firstRejectTick = 0; // ilk "dialog open" red zamani (surekli red = kilit)
 static void SendListClose(int iDlgId); // tanim asagida
+// GZ'nin liste dialogu ACIKKEN /fr reddediliyor: "You cannot perform this action
+// with a dialog open". Once dialogu kapatmadan /fr atilirsa bot GZ'de mahsur
+// kaliyor (21:25:53 olayinda oldu). Sira: once dialogu kapat, sonra /fr.
+static void ZwForceCloseDlg()
+{
+	if(g_watchDlgId < 0) return;
+	if(g_watchDlgStyle == DIALOG_STYLE_LIST || g_watchDlgStyle == DIALOG_STYLE_TABLIST || g_watchDlgStyle == DIALOG_STYLE_TABLIST_HEADERS)
+		SendListClose(g_watchDlgId);
+	else
+		sendDialogResponse((WORD)g_watchDlgId, 1, 0xFFFF, (char *)"");
+	Log("[DLG] /fr oncesi acik dialog kapatildi (id=%d style=%d).", g_watchDlgId, g_watchDlgStyle);
+	g_watchDlgId = -1;
+	sampDialog.iIsActive = 0;
+}
+static int    g_zwFrRetry = 0;      // /fr reddedilirse kac kez tekrar deneyecek
+static DWORD g_zwFrRetryAt = 0;
+static void ZwFrOut()
+{
+	ZwForceCloseDlg();
+	ZwFrOut();
+}
 // ASYNC DIALOG: sunucu tum dialoglari id=0 ile gonderiyor ve yaniti kendi
 // kuyruguna gore eslestiriyor. Bu yuzden ayni dialoga IKINCI kez yanit
 // gondermek (30 sn'lik DLG-WATCH gibi) o an kuyrukta bekleyen BASKA bir
@@ -1226,7 +1247,7 @@ void ProcessFrRetry()
 	{
 		g_frSentOnce = true;
 		Log("[SPAWN] Spawn menusu gelmedi/zaman asimi, tek seferlik /fr gonderimi.");
-		sendServerCommand((char *)"/fr");
+		ZwFrOut();
 	}
 }
 
@@ -3962,7 +3983,7 @@ static void GangZoneScanNext()
 		if(!bScanContinues)
 		{
 			Sleep(2000);
-			sendServerCommand((char *)"/fr");
+			ZwFrOut();
 			Log("[ZF:SCAN] Tarama bitti, /fr.");
 		}
 		return;
@@ -4204,6 +4225,13 @@ static void SendGrRoleSecondClick()
 
 void ProcessZoneScan()
 {
+	if(g_zwFrRetry > 0 && GetTickCount() >= g_zwFrRetryAt)
+	{
+		g_zwFrRetry--;
+		g_zwFrRetryAt = GetTickCount() + 2000;
+		Log("[ZONEWAR] /fr tekrar deniyor (%d kaldi).", g_zwFrRetry);
+		ZwFrOut();
+	}
 	if(s_astatsWaiting && GetTickCount() - s_astatsAt > 20000)
 	{
 		s_astatsWaiting = false;
@@ -5054,7 +5082,13 @@ void ClientMessage(RPCParameters *rpcParams)
 			g_anyWarActive = true;
 		}
 		if(strstr(pZoneMsg, "Your position has been set") != NULL) { g_lastPosOkTick = GetTickCount(); g_firstRejectTick = 0; }
-		if(strstr(pZoneMsg, "dialog open") != NULL && (g_zoneScanIdx >= 0 || g_followActive || g_zgoActive || g_ztkActive || g_ghpActive || g_waitingForGroups || g_waitingForGStats) && g_firstRejectTick == 0)
+		if(strstr(pZoneMsg, "You cannot perform this action with a dialog open") != NULL && g_zwFrRetry < 3)
+	{
+		g_zwFrRetry = 3;
+		g_zwFrRetryAt = GetTickCount() + 1200;
+		Log("[ZONEWAR] /fr reddedildi (acik dialog), %d kez tekrar denenecek.", g_zwFrRetry);
+	}
+	if(strstr(pZoneMsg, "dialog open") != NULL && (g_zoneScanIdx >= 0 || g_followActive || g_zgoActive || g_ztkActive || g_ghpActive || g_waitingForGroups || g_waitingForGStats) && g_firstRejectTick == 0)
 		{
 			g_firstRejectTick = GetTickCount();
 			Log("[DLG-WATCH] Surekli red basladi, 5dk surerse reconnect.");
@@ -5543,7 +5577,7 @@ if(!ZwWarEndEnterGz(pAction) && g_zwCapturingKillList && !g_zwKillListSent)
 				{
 					g_zwReturnPending = false;
 					Log("[ZONEWAR] Savas bitti, /fr ile freeroam'a donuluyor.");
-					sendServerCommand((char *)"/fr");
+					ZwFrOut();
 				}
 
 				// NOT: g_zwKillListSent burada AYARLANMAZ — g_zwFinalizeAt=+3sn
@@ -7638,7 +7672,7 @@ void SpawnConfirmed(RPCParameters *rpcParams)
 	// /pos ile GONDERILMEZ — sadece /fr, sonrasinda normal akis devam eder.
 	Log("[SPAWN] Sunucu spawn onayi (RPC_Spawn) alindi, /fr (freeroam) tekrar gonderiliyor.");
 	Log("[SPAWN] Kendi oyuncu adim: '%s' (XML nickname: '%s')", playerInfo[g_myPlayerID].szPlayerName, g_szNickName);
-	sendServerCommand((char *)"/fr");
+	ZwFrOut();
 
 	// Reconnect + spawn: tarama aktifse KALDIGI ZONEDEN DEVAM (o zone'a yeniden
 	// teleport + /gzinfo). Scan state'i (queue/idx) hafizada korunur. Mute-bayragi
@@ -8244,7 +8278,7 @@ void ScrDialogBox(RPCParameters *rpcParams)
 					if(bIsSpawnMenu)
 					{
 						Log("[SPAWN] UIF spawn menusu cevaplandi, /fr gonderiliyor.");
-						sendServerCommand((char *)"/fr");
+						ZwFrOut();
 					}
 					else
 						Log("[SPAWN] Oasis Mode menusu cevaplandi (/fr yok).");
@@ -8421,7 +8455,7 @@ void ScrGameText(RPCParameters *rpcParams)
 		g_zwAutoJoinSent = false;
 		g_zwReturnPending = false;
 
-		if(g_zwKillListStay) { g_zwKillListStay = false; sendServerCommand((char *)"/fr"); Log("[KILLLIST] /gz reddedildi, /fr ile donuluyor."); }		g_zwKillListStay = false;
+		if(g_zwKillListStay) { g_zwKillListStay = false; ZwFrOut(); Log("[KILLLIST] /gz reddedildi, /fr ile donuluyor."); }		g_zwKillListStay = false;
 		g_zwCapturingKillList = false;
 		g_zwKillListSent = false;
 		g_zwWarZone[0] = 0;
@@ -8458,7 +8492,7 @@ void ScrGameText(RPCParameters *rpcParams)
 			{
 				g_zwReturnPending = false;
 				Log("[ZONEWAR] Gametext: savas bitti, /fr ile freeroam'a donuluyor.");
-				sendServerCommand((char *)"/fr");
+				ZwFrOut();
 			}
 		}
 	}
@@ -8495,7 +8529,7 @@ void ScrGameText(RPCParameters *rpcParams)
 			{
 				g_zwReturnPending = false;
 				Log("[ZONEWAR] Gametext: savas bitti, /fr ile freeroam'a donuluyor.");
-				sendServerCommand((char *)"/fr");
+				ZwFrOut();
 			}
 		}
 	}
@@ -9120,7 +9154,7 @@ void FinalizeKillList()
 		{
 			g_zwReturnPending = false;
 			Log("[KILLLIST] GZ'de kalindi, /fr ile freeroam'a donuluyor.");
-			sendServerCommand((char *)"/fr");
+			ZwFrOut();
 		}
 		return;
 	}
@@ -9468,7 +9502,7 @@ void FinalizeKillList()
 	{
 		g_zwReturnPending = false;
 		Log("[KILLLIST] Kill list tamam, /fr ile freeroam'a donuluyor.");
-		sendServerCommand((char *)"/fr");
+		ZwFrOut();
 	}
 }
 
@@ -9663,7 +9697,7 @@ void ProcessZoneWarAutoJoin()
 		{
 			g_zwReturnPending = false;
 			Log("[ZONEWAR] Kisa GZ giris bitti, /fr ile freeroam'a donuluyor.");
-			sendServerCommand((char *)"/fr");
+			ZwFrOut();
 		}
 	}
 
