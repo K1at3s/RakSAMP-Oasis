@@ -1069,8 +1069,11 @@ static int    g_zwFrRetry = 0;      // /fr reddedilirse kac kez tekrar deneyecek
 static DWORD g_zwFrRetryAt = 0;
 static void ZwFrOut()
 {
-	ZwForceCloseDlg();
-	ZwFrOut();
+	// Spawn/login menuleri (g_watchDlgKeep) ve GZ sonu toplama (g_zwKillListStay)
+	// aktifken dialogu ZORLA kapatma; sadece tutulmayan taze listeyi kapat.
+	if(g_zwKillListStay) ZwForceCloseDlg();
+	else CloseOpenListDlg();
+	sendServerCommand((char *)"/fr");
 }
 // ASYNC DIALOG: sunucu tum dialoglari id=0 ile gonderiyor ve yaniti kendi
 // kuyruguna gore eslestiriyor. Bu yuzden ayni dialoga IKINCI kez yanit
