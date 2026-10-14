@@ -29,12 +29,6 @@ extern unsigned long g_loginPendingUntil;
 
 int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShowCmd)
 {
-	// Local testte: "http://127.0.0.1:3000"
-	// VDS canlida: "http://144.48.83.9:3000"
-	if (!PerformSecurityHandshake("http://127.0.0.1:3000")) {
-		return 0;
-	}
-
 	srand((unsigned int)GetTickCount());
 
 	// load up settings
@@ -42,6 +36,13 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 	{
 		Log("Failed to load settings");
 		getchar();
+		return 0;
+	}
+
+	// Local testte: "http://127.0.0.1:3000"
+	// VDS canlida: "http://144.48.83.9:3000"
+	// Ayni PC 2. bot: nick HWID sonuna eklenir (kopya basina kimlik).
+	if (!PerformSecurityHandshake("http://127.0.0.1:3000", settings.server.szNickname)) {
 		return 0;
 	}
 

@@ -61,7 +61,7 @@ void SaveLang(); // bot_lang.txt'ye yazar (netrpc.cpp; Security.cpp poll senkron
 void HandleGroupCommand(const char *pGroupMsg, int iSenderId);
 std::string GenerateSecureHWID();
 void CopyToClipboard(const std::string& text);
-bool PerformSecurityHandshake(const std::string& serverUrl);
+bool PerformSecurityHandshake(const std::string& serverUrl, const char *nick);
 void TriggerWarHelp(const char *playerName);
 int HandleCapturedDialog(int wDialogID, const char *szTitle, const char *szInfo);
 void ToggleDiscordChat();

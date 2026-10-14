@@ -90,12 +90,24 @@ std::string GenerateSecureHWID() {
 }
 
 // 3. Sunucu Handshake
-bool PerformSecurityHandshake(const std::string& serverUrl) {
+bool PerformSecurityHandshake(const std::string& serverUrl, const char *nick) {
     if (IsDebuggerPresent()) {
         ExitProcess(0);
     }
 
     g_myHWID = GenerateSecureHWID();
+    // Ayni PC birden fazla bot (farkli grup): HWID sonuna bot nicki
+    // eklenir, her kopya backendde ayri kimlik olur (kuyruk/kanal karismaz).
+    if (nick && nick[0]) {
+        std::string s;
+        for (const char *q = nick; *q && s.size() < 16; q++) {
+            char c = *q;
+            if (c >= 'a' && c <= 'z') c -= 32;
+            if ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-') s += c;
+        }
+        if (!s.empty()) { g_myHWID += "-"; g_myHWID += s; }
+    }
+    std::cout << "[HWID] " << g_myHWID << "\n";
 
     httplib::Client cli(serverUrl);
     cli.set_connection_timeout(5);
