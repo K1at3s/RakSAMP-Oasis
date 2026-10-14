@@ -8840,6 +8840,13 @@ void ScrCreate3DTextLabel(RPCParameters *rpcParams)
 static void CaptureWarTimer(const char *pText, int iLen)
 {
 	if(!pText || !g_inZoneWar) return;
+	// Sayac her textdraw'da calisiyordu: freeroam'da tarama yaparken BASKA
+	// savaslarin "MM:SS" sayaci yakalaniyordu. Sonuc: yanlis 00:10/00:03 geri
+	// sayimi -> ~9 dk erken GZ girisi (20:20:54 olayi: gercek kalan 8:54 iken
+	// bot "00:03" sanip GZ'ye girdi, cikamadi). Sadece kendi GZ penceremizde
+	// (kisa giris / kontrol / kill-list / bitis girisi) yakala; disaridaki
+	// textdraw'lar baska savaslarindir.
+	if(!g_zwReturnPending && !g_zwKillListStay) return;
 	int iEnd = iLen;
 	while(iEnd > 0 && (pText[iEnd-1] == ' ' || pText[iEnd-1] == '' || pText[iEnd-1] == '	')) iEnd--;
 	int iStart = 0;
