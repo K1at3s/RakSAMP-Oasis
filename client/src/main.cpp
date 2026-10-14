@@ -134,6 +134,24 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
 			iConnectionRequested = 1;
 		}
+		// INTERNET KESINTISI: baglanti kurulamazsa (DNS cozulemedi / paket disari
+		// cikamadi) hicbir yanit paketi gelmez; ne ATTEMPT_FAILED ne baska sinyal.
+		// iConnectionRequested=1 takili kalir, ana dongu sonsuza kadar bekler.
+		// 60 sn baglanti yoksa bayraklari sifirla, yeniden dene.
+		{
+			static DWORD s_dwNoConnSince = 0;
+			if(!iAreWeConnected)
+			{
+				if(s_dwNoConnSince == 0) s_dwNoConnSince = GetTickCount();
+				else if(GetTickCount() - s_dwNoConnSince > 60000)
+				{
+					s_dwNoConnSince = GetTickCount();
+					Log("[NET] 60 sn baglanti kurulamadi (internet kesik olabilir), yeniden deneniyor.");
+					iConnectionRequested = 0;
+				}
+			}
+			else s_dwNoConnSince = 0;
+		}
 
 		if (iAreWeConnected && iGameInited)
 		{
