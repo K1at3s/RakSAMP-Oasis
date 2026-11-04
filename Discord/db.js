@@ -232,6 +232,14 @@ async function init() {
         vip_count INT NULL,
         updated_at DATETIME NULL
     )`);
+    await p.execute(`CREATE TABLE IF NOT EXISTS war_result_receipts (
+        hwid VARCHAR(64) NOT NULL,
+        war_id VARCHAR(128) NOT NULL,
+        state VARCHAR(16) NOT NULL,
+        channel_id VARCHAR(255) NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (hwid, war_id)
+)`);
     return p;
 }
 

@@ -1,0 +1,147 @@
+[
+  {
+    "name": "oasis-native-single-box-context-and-dedup",
+    "events": [
+      {
+        "type": "setup"
+      },
+      {
+        "type": "zone_dialog",
+        "title": "Oasis Group Zone War [TestGroup (3) vs EnemyGroup (0)]",
+        "text": "Player K/D Damage\n1. ReplayBot(1)\t3/0\t100"
+      },
+      {
+        "type": "expect",
+        "results": 0
+      },
+      {
+        "type": "message",
+        "text": "ZONE WAR: Started at Verdant Bluffs - TestGroup vs. EnemyGroup."
+      },
+      {
+        "type": "expect",
+        "war": true
+      },
+      {
+        "type": "advance",
+        "ms": 20000
+      },
+      {
+        "type": "zone_dialog",
+        "title": "Oasis Group Zone War [Other (3) vs EnemyGroup (0)]",
+        "text": "Player K/D Damage\n1. ReplayBot(1)\t3/0\t100"
+      },
+      {
+        "type": "expect",
+        "results": 0
+      },
+      {
+        "type": "zone_dialog",
+        "title": "Oasis Group Zone War [TestGroup (3) vs EnemyGroup (0)]",
+        "text": "Player K/D Damage\n1. ReplayBot(1)\t3/0\t100"
+      },
+      {
+        "type": "expect",
+        "results": 1
+      },
+      {
+        "type": "expect_result",
+        "won": 1,
+        "redName": "TestGroup",
+        "blueName": "EnemyGroup"
+      },
+      {
+        "type": "zone_dialog",
+        "title": "Oasis Group Zone War [TestGroup (3) vs EnemyGroup (0)]",
+        "text": "Player K/D Damage\n1. ReplayBot(1)\t3/0\t100"
+      },
+      {
+        "type": "expect",
+        "results": 1
+      },
+      {
+        "type": "disconnect"
+      },
+      {
+        "type": "expect",
+        "war": false,
+        "queued": 0
+      }
+    ]
+  },
+  {
+    "name": "oasis-swapped-result-loss",
+    "events": [
+      {
+        "type": "setup"
+      },
+      {
+        "type": "message",
+        "text": "ZONE WAR: Started at Verdant Bluffs - TestGroup vs. EnemyGroup."
+      },
+      {
+        "type": "advance",
+        "ms": 20000
+      },
+      {
+        "type": "zone_dialog",
+        "title": "Oasis Group Zone War [EnemyGroup (5) vs TestGroup (2)]",
+        "text": "Player K/D Damage\n1. ReplayBot(1)\t3/0\t100"
+      },
+      {
+        "type": "expect",
+        "results": 1
+      },
+      {
+        "type": "expect_result",
+        "won": 0,
+        "redName": "EnemyGroup",
+        "blueName": "TestGroup"
+      }
+    ]
+  },
+  {
+    "name": "oasis-tie-requires-confirmed-outcome",
+    "events": [
+      {
+        "type": "setup"
+      },
+      {
+        "type": "message",
+        "text": "ZONE WAR: Started at Verdant Bluffs - TestGroup vs. EnemyGroup."
+      },
+      {
+        "type": "advance",
+        "ms": 20000
+      },
+      {
+        "type": "zone_dialog",
+        "title": "Oasis Group Zone War [TestGroup (2) vs EnemyGroup (2)]",
+        "text": "Player K/D Damage\n1. ReplayBot(1)\t3/0\t100"
+      },
+      {
+        "type": "expect",
+        "results": 0
+      },
+      {
+        "type": "game_text",
+        "text": "Your group lost the zone war"
+      },
+      {
+        "type": "zone_dialog",
+        "title": "Oasis Group Zone War [TestGroup (2) vs EnemyGroup (2)]",
+        "text": "Player K/D Damage\n1. ReplayBot(1)\t3/0\t100"
+      },
+      {
+        "type": "expect",
+        "results": 1
+      },
+      {
+        "type": "expect_result",
+        "won": 0,
+        "redName": "TestGroup",
+        "blueName": "EnemyGroup"
+      }
+    ]
+  }
+]

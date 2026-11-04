@@ -1,3 +1,6 @@
+const { validateKillListContext } = require('./utils/killListContext');
+const { createWarResultDelivery } = require('./utils/warResultDelivery');
+const { sendWarResult } = require('./utils/discordNotifier');
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -647,13 +650,16 @@ app.get('/api/gmembers/known', async (req, res) => {
 });
 
 app.post('/api/killlist', async (req, res) => {
+    const warResultDelivery = createWarResultDelivery(db.execute);
     const body = req.body || {};
-    const guild = await resolveGuildForRakSAMP(body);
+    const guild = body.hwid ? await guildUtils.getGuildByHwid(body.hwid) : null;
 
     if (!guild) {
         return res.json({ success: false, message: "Bağlı Discord sunucusu bulunamadı." });
     }
-    const isTr = guild.lang === 'tr';
+    const mismatch = validateKillListContext(body, guild.groupName);
+    if(mismatch) return res.status(409).json({success:false,message:mismatch});
+    const isTr = body.lang === 'tr' || (body.lang !== 'en' && guild.lang === 'tr');
 
     const won = Number(body.won) === 1;
     const redName = String(body.redName || 'Kırmızı').trim();
@@ -709,7 +715,10 @@ const mvpDmg = Number(body.mvpDmg) || 0;
         .setTimestamp()
         .addFields(fields);
 
-    const channelId = await sendToGuildChannel(guild, 'zoneWarChannelId', { embed });
+    const marker = 'RakSAMP war: ' + crypto.createHash('sha256').update(JSON.stringify([body.hwid,body.warId])).digest('hex').slice(0,32);
+    const delivered = await warResultDelivery.deliver(body.hwid,body.warId,allowSend => sendWarResult(guild,embed,marker,allowSend));
+    if(!delivered.success) return res.status(503).json(delivered);
+    const channelId=delivered.channelId;
     console.log(`⚔️ KILLLIST (guild=${guild.guildId}, kanal=${channelId || 'null'}, dil=${guild.lang}): ${won ? 'WIN' : 'LOSE'} ${redName} vs ${blueName} (${redKills}-${blueKills})`);
     return res.json({ success: true, channelId });
 });
@@ -1015,7 +1024,7 @@ app.post('/api/welcome/toggle', async (req, res) => {
         lic = await License.create({ hwid, isApproved: false });
     }
 
-    lic.welcomeEnabled = !lic.welcomeEnabled;
+    lic.welcomeEnabled = typeof body.enabled === 'boolean' ? body.enabled : !lic.welcomeEnabled;
     await lic.save();
 
     console.log(`👋 WELCOME TOGGLE (hwid=${hwid}): ${lic.welcomeEnabled ? 'AÇILDI' : 'KAPANDI'}`);

@@ -1,19 +1,19 @@
 {
-  "name": "raksamp-vds-server",
-  "version": "1.0.0",
-  "description": "RakSAMP VDS Server and Discord Bot Integration",
-  "main": "server.js",
-  "scripts": {
-    "start": "node server.js",
-    "dev": "bun --watch server.js",
-    "test": "bun db.selftest.js",
-    "test:node": "node db.selftest.js"
-  },
-  "dependencies": {
-    "discord.js": "^14.14.1",
-    "express": "^4.19.2",
-    "googleapis": "^178.0.0",
-    "mysql2": "^3.23.3",
-    "socket.io": "^4.7.5"
-  }
+    "name":  "raksamp-vds-server",
+    "version":  "1.0.0",
+    "description":  "RakSAMP VDS Server and Discord Bot Integration",
+    "main":  "server.js",
+    "scripts":  {
+                    "start":  "node server.js",
+                    "dev":  "bun --watch server.js",
+                    "test":  "bun db.selftest.js \u0026\u0026 bun hwidMigration.selftest.js \u0026\u0026 bun warResultDelivery.selftest.js && bun oasisKilllist.selftest.js",
+                    "test:node":  "node db.selftest.js \u0026\u0026 node hwidMigration.selftest.js \u0026\u0026 node warResultDelivery.selftest.js && node oasisKilllist.selftest.js"
+                },
+    "dependencies":  {
+                         "discord.js":  "^14.14.1",
+                         "express":  "^4.19.2",
+                         "googleapis":  "^178.0.0",
+                         "mysql2":  "^3.23.3",
+                         "socket.io":  "^4.7.5"
+                     }
 }

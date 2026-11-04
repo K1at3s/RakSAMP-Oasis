@@ -1,0 +1,297 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|Win32">
+      <Configuration>Debug</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32">
+      <Configuration>Release</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>18.0</VCProjectVersion>
+    <ProjectName>RuntimeReplayTests</ProjectName>
+    <ProjectGuid>{E5BB8C40-1F67-4CB6-953B-85E82FF1A966}</ProjectGuid>
+    <RootNamespace>RuntimeReplayTests</RootNamespace>
+    <Keyword>ManagedCProj</Keyword>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <PlatformToolset>v145</PlatformToolset>
+    <CharacterSet>MultiByte</CharacterSet>
+    <CLRSupport>false</CLRSupport>
+    <WholeProgramOptimization>false</WholeProgramOptimization>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <PlatformToolset>v145</PlatformToolset>
+    <CharacterSet>MultiByte</CharacterSet>
+    <CLRSupport>false</CLRSupport>
+    <WholeProgramOptimization>false</WholeProgramOptimization>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup>
+    <_ProjectFileVersion>18.0.11925.146</_ProjectFileVersion>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <OutDir>$(MSBuildThisFileDirectory)obj\runtime-replay\</OutDir>
+    <IntDir>$(MSBuildThisFileDirectory)obj\runtime-replay\</IntDir>
+    <LinkIncremental>false</LinkIncremental>
+    <GenerateManifest>false</GenerateManifest>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <OutDir>$(MSBuildThisFileDirectory)obj\runtime-replay\</OutDir>
+    <IntDir>$(MSBuildThisFileDirectory)obj\runtime-replay\</IntDir>
+    <LinkIncremental>false</LinkIncremental>
+    <GenerateManifest>false</GenerateManifest>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <ClCompile>
+      <Optimization>MaxSpeed</Optimization>
+      <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
+      <OmitFramePointers>true</OmitFramePointers>
+      <AdditionalIncludeDirectories>$(MSBuildThisFileDirectory)..\src\./;$(MSBuildThisFileDirectory)..\src\../../raknet/;$(MSBuildThisFileDirectory)..\src\../../raknet/SAMP/;$(MSBuildThisFileDirectory)..\src\sqlite3/;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>WIN32;NDEBUG;_CONSOLE;_CRT_SECURE_NO_WARNINGS;_CRT_SECURE_NO_DEPRECATE;RAKSAMP_CLIENT;%(PreprocessorDefinitions);WINDOWS_IGNORE_PACKING_MISMATCH;WIN32_LEAN_AND_MEAN;_WINSOCK_DEPRECATED_NO_WARNINGS</PreprocessorDefinitions>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <StructMemberAlignment>1Byte</StructMemberAlignment>
+      <BufferSecurityCheck>false</BufferSecurityCheck>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <PrecompiledHeader />
+      <WarningLevel>Level3</WarningLevel>
+      <DebugInformationFormat />
+      <AdditionalOptions>/source-charset:windows-1254 /execution-charset:windows-1254 %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ProjectReference>
+      <LinkLibraryDependencies>true</LinkLibraryDependencies>
+    </ProjectReference>
+    <Link>
+      <AdditionalDependencies>ws2_32.lib;comctl32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <OutputFile>$(OutDir)$(TargetName)$(TargetExt)</OutputFile>
+      <AdditionalLibraryDirectories>sqlite3/;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <IgnoreAllDefaultLibraries>false</IgnoreAllDefaultLibraries>
+      <GenerateDebugInformation>false</GenerateDebugInformation>
+      <AssemblyDebug />
+      <ProgramDatabaseFile />
+      <GenerateMapFile>false</GenerateMapFile>
+      <MapExports>false</MapExports>
+      <SubSystem>Console</SubSystem>
+      <OptimizeReferences>true</OptimizeReferences>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <RandomizedBaseAddress>false</RandomizedBaseAddress>
+      <DataExecutionPrevention />
+      <TargetMachine>MachineX86</TargetMachine>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <ClCompile>
+      <Optimization>MaxSpeed</Optimization>
+      <IntrinsicFunctions>false</IntrinsicFunctions>
+      <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
+      <OmitFramePointers>true</OmitFramePointers>
+      <AdditionalIncludeDirectories>$(MSBuildThisFileDirectory)..\src\./;$(MSBuildThisFileDirectory)..\src\../../raknet/;$(MSBuildThisFileDirectory)..\src\../../raknet/SAMP/;$(MSBuildThisFileDirectory)..\src\sqlite3/;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>WIN32;DEBUG;_CRT_SECURE_NO_WARNINGS;RAKSAMP_CLIENT;_RAKNET_THREADSAFE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <StructMemberAlignment>Default</StructMemberAlignment>
+      <BufferSecurityCheck>false</BufferSecurityCheck>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <PrecompiledHeader />
+      <WarningLevel>Level3</WarningLevel>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <AdditionalOptions>/source-charset:windows-1254 /execution-charset:windows-1254 %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <Link>
+      <AdditionalDependencies>ws2_32.lib;comctl32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <OutputFile>$(OutDir)$(TargetName)$(TargetExt)</OutputFile>
+      <AdditionalLibraryDirectories>sqlite3/;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AssemblyDebug />
+      <ProgramDatabaseFile />
+      <GenerateMapFile>true</GenerateMapFile>
+      <MapExports>true</MapExports>
+      <SubSystem>Console</SubSystem>
+      <OptimizeReferences>false</OptimizeReferences>
+      <EnableCOMDATFolding>false</EnableCOMDATFolding>
+      <RandomizedBaseAddress>false</RandomizedBaseAddress>
+      <DataExecutionPrevention />
+      <TargetMachine>MachineX86</TargetMachine>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\..\..\common\common.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\AsynchronousFileIO.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\BitStream.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\BitStream_NoTemplate.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\CheckSum.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\DataBlockEncryptor.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\DataCompressor.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\DS_ByteQueue.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\DS_HuffmanEncodingTree.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\DS_Table.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\EncodeClassName.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\GetTime.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\InternalPacketPool.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\LinuxStrings.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\NetworkIDGenerator.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\NetworkTypes.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\PluginInterface.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\RakClient.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\RakNetStatistics.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\RakNetworkFactory.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\RakPeer.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\rakserver.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\RakSleep.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\Rand.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\ReliabilityLayer.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\rijndael.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\RPCMap.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\SAMP\SAMPRPC.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\SAMP\samp_auth.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\SAMP\samp_netencr.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\SHA1.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\SimpleMutex.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\SocketLayer.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\StringCompressor.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\StringTable.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\SystemAddressList.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\TableSerializer.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\_findfirst.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\..\..\tinyxml\tinystr.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\..\..\tinyxml\tinyxml.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\..\..\tinyxml\tinyxmlerror.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\..\..\tinyxml\tinyxmlparser.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\cmds.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\console.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\localplayer.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\main.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\math_stuff.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\misc_funcs.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\netgame.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\netrpc.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\rcon.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\Security.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\window.cpp" />
+    <ClCompile Include="$(MSBuildThisFileDirectory)..\src\xmlsets.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\common\common.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\AsynchronousFileIO.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\AutopatcherPatchContext.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\AutopatcherRepositoryInterface.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\BigTypes.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\BitStream.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\BitStream_NoTemplate.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\CheckSum.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\ClientContextStruct.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\DataBlockEncryptor.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\DataCompressor.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\DS_BinarySearchTree.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\DS_BPlusTree.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\DS_ByteQueue.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\DS_Heap.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\DS_HuffmanEncodingTree.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\DS_HuffmanEncodingTreeFactory.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\DS_HuffmanEncodingTreeNode.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\DS_LinkedList.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\DS_List.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\DS_Map.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\DS_MemoryPool.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\DS_OrderedChannelHeap.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\DS_OrderedList.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\DS_Queue.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\DS_QueueLinkedList.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\DS_RangeList.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\DS_Table.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\DS_Tree.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\DS_WeightedGraph.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\Export.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\GetTime.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\InternalPacket.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\InternalPacketPool.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\LinuxStrings.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\MTUSize.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\multiplayer.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\NetworkIDGenerator.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\NetworkTypes.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\PacketEnumerations.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\PacketPool.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\PacketPriority.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\PluginInterface.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\RakAssert.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\RakClient.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\RakClientInterface.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\RakNetDefines.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\RakNetStatistics.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\RakNetworkFactory.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\rakpeer.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\rakpeerinterface.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\RakServer.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\rakserverinterface.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\RakSleep.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\Rand.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\ReliabilityLayer.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\Replica.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\ReplicaEnums.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\rijndael-boxes.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\rijndael.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\RouterInterface.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\RPCMap.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\RPCNode.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\RSACrypt.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\SAMP\SAMPRPC.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\SAMP\samp_auth.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\SAMP\samp_netencr.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\SAMP\SAMP_VER.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\SHA1.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\SimpleMutex.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\SingleProducerConsumer.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\SocketLayer.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\StringCompressor.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\StringTable.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\systemaddresslist.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\TableSerializer.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\ThreadPool.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\Types.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\raknet\_findfirst.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\tinyxml\tinystr.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\..\..\tinyxml\tinyxml.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\cmds.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\console.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\CVector.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\httplib.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\json.hpp" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\localplayer.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\main.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\math_stuff.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\misc_funcs.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\netgame.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\netrpc.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\rcon.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\resource.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\Security.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\window.h" />
+    <ClInclude Include="$(MSBuildThisFileDirectory)..\src\xmlsets.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="$(MSBuildThisFileDirectory)..\src\RakSAMPClient.rc" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+  <ItemGroup>
+    <ClCompile Include="$(MSBuildThisFileDirectory)runtime_replay_test.cpp" />
+  </ItemGroup>
+</Project>

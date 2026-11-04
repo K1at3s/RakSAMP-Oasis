@@ -3,6 +3,7 @@
 */
 
 #include "main.h"
+#include "ReplayHooks.h"
 #include "Security.h"
 #include <iostream>
 
@@ -349,7 +350,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
     // buraya deger yazilip submit edilir. Login/gstats inputlariyla karismasin.
     // -------------------------------------------------------------
     if (g_secCmdPending) {
-        if (GetTickCount() > g_secCmdAt) {
+        if (ClientTick() > g_secCmdAt) {
             g_secCmdPending = false;
             Log("[SEC] Input diyalogu beklerken zaman asimi.");
             return 0;
@@ -384,7 +385,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
     // 2. /pnetstats YAKALAMASI (?pl)
     // -------------------------------------------------------------
     if (g_waitingForPNetStats) {
-        if (GetTickCount() - g_pnetstatsReqTime > 15000) {
+        if (ClientTick() - g_pnetstatsReqTime > 15000) {
             g_waitingForPNetStats = false;
             return 0;
         }
@@ -399,17 +400,17 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
         if (g_plTargetId >= 0 && g_plTargetId < MAX_PLAYERS) {
             if (dLoss >= 0.0) {
                 g_playerCache[g_plTargetId].dLoss = dLoss;
-                g_playerCache[g_plTargetId].dwTime = GetTickCount();
+                g_playerCache[g_plTargetId].dwTime = ClientTick();
                 Log("[PNETSTATS] /stats'tan Loss cache'e yazildi: hedef %d, loss %g", g_plTargetId, dLoss);
             }
             if (dFps >= 0.0) {
                 g_playerCache[g_plTargetId].iFps = (int)dFps;
-                g_playerCache[g_plTargetId].dwTime = GetTickCount();
+                g_playerCache[g_plTargetId].dwTime = ClientTick();
                 Log("[PNETSTATS] /stats'tan FPS cache'e yazildi: hedef %d, fps %d", g_plTargetId, (int)dFps);
             }
             if (dPing >= 0.0) {
                 g_playerCache[g_plTargetId].iPing = (int)dPing;
-                g_playerCache[g_plTargetId].dwTime = GetTickCount();
+                g_playerCache[g_plTargetId].dwTime = ClientTick();
                 Log("[PNETSTATS] /stats'tan Ping cache'e yazildi: hedef %d, ping %d", g_plTargetId, (int)dPing);
             }
         }
@@ -545,7 +546,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
     // 3. /gstats YAKALAMASI (?gst - zone + aktif oyuncu sayisi)
     // -------------------------------------------------------------
     if (g_waitingForGst) {
-        if (g_gstReqTime != 0 && GetTickCount() - g_gstReqTime > 20000) {
+        if (g_gstReqTime != 0 && ClientTick() - g_gstReqTime > 20000) {
             g_waitingForGst = false;
             Log("[GST] Bekleme zaman asimi, flag sifirlandi.");
             return 0;
@@ -702,7 +703,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
     // 3b. /admins YAKALAMASI (Discord /admins slash komutu k?pr??s??)
     // -------------------------------------------------------------
     if (g_waitingForAdmins) {
-        if (g_adminsReqTime != 0 && GetTickCount() - g_adminsReqTime > 20000) {
+        if (g_adminsReqTime != 0 && ClientTick() - g_adminsReqTime > 20000) {
             g_waitingForAdmins = false;
             Log("[ADMINS] Bekleme zaman asimi, flag sifirlandi.");
             return 0;
@@ -735,7 +736,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
     // OnGroupsListCaptured parse edip /gstats <ID> zincirini ba?latir.
     // -------------------------------------------------------------
     if (g_waitingForGroups) {
-        if (g_groupsReqTime != 0 && GetTickCount() - g_groupsReqTime > 15000) {
+        if (g_groupsReqTime != 0 && ClientTick() - g_groupsReqTime > 15000) {
             g_waitingForGroups = false;
             Log("[GHP] /groups bekleme zaman asimi, flag sifirlandi.");
             return 0;
@@ -810,7 +811,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                 Log("[GM] Uye listesi tamam: %d uye. Faz 2: /gvips.", g_gmCount);
                 g_gmPhase = 2;
                 g_gmGvipsWaiting = true;
-                g_gmPhaseAt = GetTickCount();
+                g_gmPhaseAt = ClientTick();
                 { const char *szGvCmd = "/gvips"; RakNet::BitStream bsGvCmd; int gvLen = (int)strlen(szGvCmd); bsGvCmd.Write(gvLen); bsGvCmd.Write(szGvCmd, gvLen); pRakClient->RPC(&RPC_ServerCommand, &bsGvCmd, HIGH_PRIORITY, RELIABLE, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL); }
             }
             return 1;
@@ -844,7 +845,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
     // Bot + komutu atan kullanici Co-Leader mi diye /gmembers listesini parse eder.
     // -------------------------------------------------------------
     if (g_waitingForGmembers) {
-        if (g_gmembersReqTime != 0 && GetTickCount() - g_gmembersReqTime > 30000) {
+        if (g_gmembersReqTime != 0 && ClientTick() - g_gmembersReqTime > 30000) {
             g_waitingForGmembers = false;
             Log("[GHP] /gmembers bekleme zaman asimi, flag sifirlandi.");
             return 0;
@@ -897,7 +898,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
     // 3.7a /grole LIST FETCH (interaktif menu icin tum uyeleri topla)
     // -------------------------------------------------------------
     if (g_groleListActive) {
-        if (g_groleListStartTime != 0 && GetTickCount() - g_groleListStartTime > 20000) {
+        if (g_groleListStartTime != 0 && ClientTick() - g_groleListStartTime > 20000) {
             Log("[GROLE-LIST] Zaman asimi, %d uye ile gonderiliyor.", (int)g_groleListMembers.size());
             FinishGroleListAndPost();
             return 0;
@@ -992,7 +993,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
     }
     // 3.7b /grank LIST FETCH (uye listesi, rank secimi oncesi)
     if (g_grankListActive) {
-        if (g_grankListStartTime != 0 && GetTickCount() - g_grankListStartTime > 20000) {
+        if (g_grankListStartTime != 0 && ClientTick() - g_grankListStartTime > 20000) {
             Log("[GRANK-LIST] Zaman asimi, %d uye ile gonderiliyor.", (int)g_grankListMembers.size());
             FinishGrankListAndPost();
             return 0;
@@ -1082,7 +1083,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
     // 3.7c /gkick LIST FETCH (uye listesi, sebep modal oncesi)
     // -------------------------------------------------------------
     if (g_gkickListActive) {
-        if (g_gkickListStartTime != 0 && GetTickCount() - g_gkickListStartTime > 20000) {
+        if (g_gkickListStartTime != 0 && ClientTick() - g_gkickListStartTime > 20000) {
             Log("[GKICK-LIST] Zaman asimi, %d uye ile gonderiliyor.", (int)g_gkickListMembers.size());
             FinishGkickListAndPost();
             return 0;
@@ -1176,7 +1177,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
     // /grole komutu: sayfali uye listesi (25/sayfa) -> hedefi bul -> tikla -> rol listesi -> sec
     // -------------------------------------------------------------
     if (g_groleActive) {
-        if (g_groleStartTime != 0 && GetTickCount() - g_groleStartTime > 45000) {
+        if (g_groleStartTime != 0 && ClientTick() - g_groleStartTime > 45000) {
             g_groleActive = false;
             g_grolePhase = 0;
             g_grRoleDblPending = false;
@@ -1349,7 +1350,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                     g_grRoleItem = roleItem >= 0 ? roleItem : roleRow;
                     g_grRoleInput[0] = 0;
                     strncpy_s(g_grRoleInput, sizeof(g_grRoleInput), g_groleRole.c_str(), sizeof(g_grRoleInput) - 1);
-                    g_grRoleDblAt = GetTickCount() + 300;
+                    g_grRoleDblAt = ClientTick() + 300;
                     g_grRoleIsGrank = false;
                     g_grRoleDblPending = true;
                     return 1;
@@ -1368,7 +1369,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
     }
     // 3.8 /grank PAGINATED OTOMASYONU (uye listesi + rank secimi)
     if (g_grankActive) {
-        if (g_grankStartTime != 0 && GetTickCount() - g_grankStartTime > 45000) {
+        if (g_grankStartTime != 0 && ClientTick() - g_grankStartTime > 45000) {
             g_grankActive = false;
             g_grankPhase = 0;
             g_grRoleDblPending = false;
@@ -1522,7 +1523,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
                     g_grRoleItem = rankItem >= 0 ? rankItem : rankRow;
                     g_grRoleInput[0] = 0;
                     strncpy_s(g_grRoleInput, sizeof(g_grRoleInput), g_grankRank.c_str(), sizeof(g_grRoleInput) - 1);
-                    g_grRoleDblAt = GetTickCount() + 300;
+                    g_grRoleDblAt = ClientTick() + 300;
                     g_grRoleIsGrank = true;
                     g_grRoleDblPending = true;
                     return 1;
@@ -1544,7 +1545,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
     // 3.9 /gkick PAGINATED OTOMASYONU (uye listesinde ara + sebep gonder)
     // -------------------------------------------------------------
     if (g_gkickActive) {
-        if (g_gkickStartTime != 0 && GetTickCount() - g_gkickStartTime > 45000) {
+        if (g_gkickStartTime != 0 && ClientTick() - g_gkickStartTime > 45000) {
             g_gkickActive = false;
             g_gkickPhase = 0;
             Log("[GKICK] Zaman asimi (45sn), otomasyon iptal.");
@@ -1670,7 +1671,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
     // -------------------------------------------------------------
     if (g_waitingForGStats) {
         // 20 sn i?ginde sonu?g gelmezse bekleme flag'ini s??f??rla (tak??l?? kalmas??n)
-        if (g_gstatsReqTime != 0 && GetTickCount() - g_gstatsReqTime > 20000) {
+        if (g_gstatsReqTime != 0 && ClientTick() - g_gstatsReqTime > 20000) {
             g_waitingForGStats = false;
             g_gstatsSentFirst = false;
             std::cout << "[gstats] Bekleme zaman asimi, flag sifirlandi.\n";
@@ -1727,7 +1728,7 @@ int HandleCapturedDialog(int wDialogID, const char* szTitle, const char* szInfo)
             int iPhase = g_groupNamePhase;
             // Zaman asimi: 15 sn icinde dogru diyalog gelmezse bekleme flag'ini
             // sifirla; SyncZscanFromDb sonraki tick'te yeniden /stats dener.
-            if (g_groupNameReqTime != 0 && GetTickCount() - g_groupNameReqTime > 15000) {
+            if (g_groupNameReqTime != 0 && ClientTick() - g_groupNameReqTime > 15000) {
                 g_waitingForGroupName = false;
                 g_groupNamePhase = 0;
                 Log("[GSTATS] Grup adi beklemasi zaman asimina ugradi, yeniden denenecek.");

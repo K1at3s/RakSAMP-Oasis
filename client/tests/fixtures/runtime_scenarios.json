@@ -1,0 +1,271 @@
+[
+    {
+        "name":  "login-and-reconnect",
+        "events":  [
+                       {
+                           "type":  "setup"
+                       },
+                       {
+                           "type":  "dialog",
+                           "title":  "Oasis - Login",
+                           "text":  "Enter your password",
+                           "style":  3
+                       },
+                       {
+                           "type":  "expect",
+                           "login":  true
+                       },
+                       {
+                           "type":  "message",
+                           "text":  "You logged in to your account"
+                       },
+                       {
+                           "type":  "login_tick"
+                       },
+                       {
+                           "type":  "expect",
+                           "login":  false
+                       },
+                       {
+                           "type":  "command",
+                           "text":  "?gstats"
+                       },
+                       {
+                           "type":  "disconnect"
+                       },
+                       {
+                           "type":  "expect",
+                           "login":  false,
+                           "queued":  0,
+                           "group":  "",
+                           "war":  false
+                       }
+                   ]
+    },
+    {
+        "name":  "sniper-member-dialog-and-cancellation",
+        "events":  [
+                       {
+                           "type":  "setup"
+                       },
+                       {
+                           "type":  "zone",
+                           "id":  6
+                       },
+                       {
+                           "type":  "command",
+                           "text":  "?zsnip 5"
+                       },
+                       {
+                           "type":  "expect",
+                           "queued":  1
+                       },
+                       {
+                           "type":  "tick"
+                       },
+                       {
+                           "type":  "expect_command",
+                           "text":  "/gmembers"
+                       },
+                       {
+                           "type":  "dialog",
+                           "title":  "Oasis - Group Members",
+                           "text":  "Name\tRank\tRole\tLast Active\nReplayBot\tBoss\tCo-Leader\tNow",
+                           "style":  2
+                       },
+                       {
+                           "type":  "command",
+                           "text":  "?yes"
+                       },
+                       {
+                           "type":  "expect_command_prefix",
+                           "text":  "/pos "
+                       },
+                       {
+                           "type":  "command",
+                           "text":  "?gstats"
+                       },
+                       {
+                           "type":  "tick"
+                       },
+                       {
+                           "type":  "expect",
+                           "queued":  1
+                       },
+                       {
+                           "type":  "command",
+                           "text":  "?iptal"
+                       },
+                       {
+                           "type":  "expect",
+                           "queued":  0
+                       }
+                   ]
+    },
+    {
+        "name":  "war-notices-and-disconnect",
+        "events":  [
+                       {
+                           "type":  "setup"
+                       },
+                       {
+                           "type":  "message",
+                           "text":  "ZONE WAR: Other A vs Other B"
+                       },
+                       {
+                           "type":  "expect",
+                           "war":  false
+                       },
+                       {
+                           "type":  "message",
+                           "text":  "ZONE WAR: TestGroup vs EnemyGroup"
+                       },
+                       {
+                           "type":  "expect",
+                           "war":  true
+                       },
+                       {
+                           "type":  "message",
+                           "text":  "ZONE WAR: TestGroup wins against EnemyGroup"
+                       },
+                       {
+                           "type":  "disconnect"
+                       },
+                       {
+                           "type":  "expect",
+                           "war":  false,
+                           "queued":  0
+                       }
+                   ]
+    },
+    {
+        "name":  "backend-offline-does-not-exit",
+        "events":  [
+                       {
+                           "type":  "setup"
+                       },
+                       {
+                           "type":  "backend_tick"
+                       },
+                       {
+                           "type":  "expect",
+                           "connected":  true
+                       },
+                       {
+                           "type":  "command",
+                           "text":  "?durum"
+                       },
+                       {
+                           "type":  "expect_chat_contains",
+                           "text":  "backend=replay"
+                       }
+                   ]
+    },
+    {
+        "name":  "sniper-chain-after-confirmed-war-result",
+        "events":  [
+                       {
+                           "type":  "setup"
+                       },
+                       {
+                           "type":  "zone",
+                           "id":  6
+                       },
+                       {
+                           "type":  "zone",
+                           "id":  7,
+                           "base":  100
+                       },
+                       {
+                           "type":  "backend_response",
+                           "request":  "GET /api/groups",
+                           "body":  {
+                                        "success":  true,
+                                        "groups":  [
+                                                       {
+                                                           "name":  "EnemyGroup",
+                                                           "tag":  "EN",
+                                                           "zones":  [
+                                                                         5,
+                                                                         6
+                                                                     ]
+                                                       }
+                                                   ]
+                                    }
+                       },
+                       {
+                           "type":  "backend_tick"
+                       },
+                       {
+                           "type":  "command",
+                           "text":  "?zsnip EN"
+                       },
+                       {
+                           "type":  "tick"
+                       },
+                       {
+                           "type":  "dialog",
+                           "title":  "Oasis - Group Members",
+                           "text":  "Name\tRank\tRole\tLast Active\nReplayBot\tBoss\tCo-Leader\tNow",
+                           "style":  2
+                       },
+                       {
+                           "type":  "command",
+                           "text":  "?yes"
+                       },
+                       {
+                           "type":  "expect_command_prefix",
+                           "text":  "/pos 25.00 25.00"
+                       },
+                       {
+                           "type":  "advance",
+                           "ms":  6001
+                       },
+                       {
+                           "type":  "sniper_tick"
+                       },
+                       {
+                           "type":  "expect_command",
+                           "text":  "/gzinfo"
+                       },
+                       {
+                           "type":  "zone_dialog",
+                           "text":  "Zone Name: # 5\nThis zone is owned by group \"EnemyGroup\"."
+                       },
+                       {
+                           "type":  "expect_command",
+                           "text":  "/gz"
+                       },
+                       {
+                           "type":  "message",
+                           "text":  "ZONE WAR: TestGroup vs EnemyGroup"
+                       },
+                       {
+                           "type":  "sniper_tick"
+                       },
+                       {
+                           "type":  "game_text",
+                           "text":  "Your group won the zone war"
+                       },
+                       {
+                           "type":  "sniper_tick"
+                       },
+                       {
+                           "type":  "expect_chat_contains",
+                           "text":  "Attack the next zone"
+                       },
+                       {
+                           "type":  "command",
+                           "text":  "?yes"
+                       },
+                       {
+                           "type":  "expect_command_prefix",
+                           "text":  "/pos 125.00 125.00"
+                       },
+                       {
+                           "type":  "command",
+                           "text":  "?iptal"
+                       }
+                   ]
+    }
+]

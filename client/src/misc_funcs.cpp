@@ -3,6 +3,7 @@
 */
 
 #include "main.h"
+#include "ReplayHooks.h"
 #include "Security.h"
 
 extern PLAYER_SPAWN_INFO SpawnInfo;
@@ -14,13 +15,13 @@ extern HFONT hTeleportMenuFont;
 extern HANDLE hTeleportMenuThread;
 extern HWND hwndTeleportMenu;
 
-DWORD dwLastDisconnection = GetTickCount();
-DWORD dwLastFakeKill = GetTickCount();
-DWORD dwLastLag = GetTickCount();
-DWORD dwLastJoinFlood = GetTickCount();
-DWORD dwLastChatFlood = GetTickCount();
-DWORD dwLastClassFlood = GetTickCount();
-DWORD dwLastBulletFlood = GetTickCount();
+DWORD dwLastDisconnection = ClientTick();
+DWORD dwLastFakeKill = ClientTick();
+DWORD dwLastLag = ClientTick();
+DWORD dwLastJoinFlood = ClientTick();
+DWORD dwLastChatFlood = ClientTick();
+DWORD dwLastClassFlood = ClientTick();
+DWORD dwLastBulletFlood = ClientTick();
 
 int dd = 0;
 
@@ -69,7 +70,7 @@ void onFootUpdateFollow(PLAYERID followID)
 	SendAimSyncData(0, 0, followID);
 }
 
-DWORD inCarUpdateTick = GetTickCount();
+DWORD inCarUpdateTick = ClientTick();
 void inCarUpdateFollow(PLAYERID followID, VEHICLEID withVehicleID)
 {
 	if(playerInfo[g_myPlayerID].iAreWeInAVehicle)
@@ -81,7 +82,7 @@ void inCarUpdateFollow(PLAYERID followID, VEHICLEID withVehicleID)
 		SendAimSyncData(0, 0, followID);
 	}
 
-	if(inCarUpdateTick && inCarUpdateTick < (GetTickCount() - 10000))
+	if(inCarUpdateTick && inCarUpdateTick < (ClientTick() - 10000))
 	{
 		if(!playerInfo[g_myPlayerID].iAreWeInAVehicle)
 		{
@@ -93,7 +94,7 @@ void inCarUpdateFollow(PLAYERID followID, VEHICLEID withVehicleID)
 			inCarUpdateTick = 0;
 		}
 
-		inCarUpdateTick = GetTickCount();
+		inCarUpdateTick = ClientTick();
 	}
 	else
 	{
@@ -200,20 +201,20 @@ void sampSpawn()
 
 void sampSpam()
 {
-	if(GetTickCount() - dwLastDisconnection >= settings.uiSpamInterval)
+	if(ClientTick() - dwLastDisconnection >= settings.uiSpamInterval)
 	{
 		gen_random(g_szNickName, rand()%16+3);
 		iGettingNewName = true;
 		sampDisconnect(0);
 		resetPools(1, 1);
 
-		dwLastDisconnection = GetTickCount();
+		dwLastDisconnection = ClientTick();
 	}
 }
 
 void sampFakeKill()
 {
-	if(GetTickCount() - dwLastFakeKill >= settings.uiFakeKillInterval)
+	if(ClientTick() - dwLastFakeKill >= settings.uiFakeKillInterval)
 	{
 		int randkillerid = 0xFFFF + 1;
 		int randreason = rand() % 46;
@@ -232,13 +233,13 @@ void sampFakeKill()
 		if(randkillerid != 0xFFFF + 1)
 			SendWastedNotification(randreason, randkillerid);
 
-		dwLastFakeKill = GetTickCount();
+		dwLastFakeKill = ClientTick();
 	}
 }
 
 void sampLag()
 {
-	if(GetTickCount() - dwLastLag >= settings.uiLagInterval)
+	if(ClientTick() - dwLastLag >= settings.uiLagInterval)
 	{
 		RakNet::BitStream bsDeath;
 		bsDeath.Write(dd++);
@@ -249,13 +250,13 @@ void sampLag()
 		pRakClient->RPC(&RPC_RequestSpawn, &bsDeath, HIGH_PRIORITY, RELIABLE_SEQUENCED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
 		sendDialogResponse(sampDialog.wDialogID, 1, 1, "");
 
-		dwLastLag = GetTickCount();
+		dwLastLag = ClientTick();
 	}
 }
 
 void sampJoinFlood()
 {
-	if(GetTickCount() - dwLastJoinFlood >= settings.uiJoinFloodInterval)
+	if(ClientTick() - dwLastJoinFlood >= settings.uiJoinFloodInterval)
 	{
 		gen_random(g_szNickName, 16);
 		strcpy(playerInfo[g_myPlayerID].szPlayerName, g_szNickName);
@@ -286,20 +287,20 @@ void sampJoinFlood()
 
 		pRakClient->RPC(&RPC_ClientJoin, &bsSend, HIGH_PRIORITY, RELIABLE, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
 
-		dwLastJoinFlood = GetTickCount();
+		dwLastJoinFlood = ClientTick();
 	}
 }
 
 void sampChatFlood()
 {
-	if(GetTickCount() - dwLastChatFlood >= settings.uiChatFloodInterval)
+	if(ClientTick() - dwLastChatFlood >= settings.uiChatFloodInterval)
 	{
 		char szRandomMessage[60 + 1];
 		gen_random(szRandomMessage, 60);
 
 		sendChat(szRandomMessage);
 
-		dwLastChatFlood = GetTickCount();
+		dwLastChatFlood = ClientTick();
 	}
 }
 
@@ -307,7 +308,7 @@ void sampClassFlood()
 {
 	static int iClassID;
 
-	if(iAreWeConnected && iGameInited && GetTickCount() - dwLastClassFlood >= settings.uiClassFloodInterval)
+	if(iAreWeConnected && iGameInited && ClientTick() - dwLastClassFlood >= settings.uiClassFloodInterval)
 	{
 		sampRequestClass(iClassID);
 		sampSpawn();
@@ -317,12 +318,13 @@ void sampClassFlood()
 		if(iClassID >= iSpawnsAvailable)
 			iClassID = 0;
 
-		dwLastClassFlood = GetTickCount();
+		dwLastClassFlood = ClientTick();
 	}
 }
 
 void sendServerCommand(char *szCommand)
 {
+    if(ClientReplay().enabled) { ClientReplay().commands.push_back(szCommand ? szCommand : ""); return; }
 	if (!strnicmp(szCommand+1, "rcon", 4))
 	{
 		RakNet::BitStream bsSend;
@@ -439,10 +441,12 @@ void SmartToCp1254(const char *in, char *out, int outSz)
 	strncpy_s(out, outSz, in, outSz - 1);
 }
 
+void ResetChatOutQueue() { g_chatOutCount = 0; g_lastChatOutTick = 0; }
+
 void ProcessChatOutQueue()
 {
 	if(g_chatOutCount == 0) return;
-	DWORD dwNow = GetTickCount();
+	DWORD dwNow = ClientTick();
 	if(dwNow - g_lastChatOutTick < CHAT_OUT_INTERVAL_MS) return;
 
 	// En eski mesaj? g?nder; geri kalanlari sola kaydir.
@@ -474,6 +478,7 @@ void sendChat(char *szMessage)
 
 	// G?nderim artik kuyruktan (5 sn arayla ProcessChatOutQueue). Tasarsa en yenisi
 	// dusurulur - anlik acil cevaplar ?ncelikli olmaz, bot flood yapmaz.
+	if(ClientReplay().enabled) { ClientReplay().chats.push_back(szMessage ? szMessage : ""); return; }
 	if(!szMessage || !szMessage[0]) return;
 	if(g_chatOutCount < CHAT_OUT_QUEUE_MAX)
 	{
@@ -712,7 +717,7 @@ void processBulletFlood()
 
 	if (settings.bulletFlood && m_bLagCompensation)
 	{
-		if(GetTickCount() - dwLastBulletFlood >= settings.uiBulletFloodInterval)
+		if(ClientTick() - dwLastBulletFlood >= settings.uiBulletFloodInterval)
 		{
 			if ( !(targetid >= 0 && targetid < MAX_PLAYERS && targetid != g_myPlayerID && playerInfo[targetid].iIsConnected && (playerInfo[targetid].iIsStreamedIn || playerInfo[targetid].iGotMarkersPos)) )
 				goto find_another_target;
@@ -760,7 +765,7 @@ void processBulletFlood()
 
 			targetid++;
 
-			dwLastBulletFlood = GetTickCount();
+			dwLastBulletFlood = ClientTick();
 		}
 	}
 

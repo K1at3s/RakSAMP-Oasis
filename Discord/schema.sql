@@ -111,3 +111,11 @@ CREATE TABLE IF NOT EXISTS roster_messages (
 );
 
 -- ProxySQL için önerilen tek sorgu kuralı: tümü raksamp DB'sine yönlenir.
+CREATE TABLE IF NOT EXISTS war_result_receipts (
+        hwid VARCHAR(64) NOT NULL,
+        war_id VARCHAR(128) NOT NULL,
+        state VARCHAR(16) NOT NULL,
+        channel_id VARCHAR(255) NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (hwid, war_id)
+);

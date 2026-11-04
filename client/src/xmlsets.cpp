@@ -3,6 +3,8 @@
 */
 
 #include "main.h"
+#include "SettingsArguments.h"
+#include "RuntimeOptions.h"
 
 struct stSettings settings;
 TiXmlDocument xmlSettings;
@@ -19,6 +21,26 @@ int LoadSettings()
 	TiXmlElement* rakSAMPElement = xmlSettings.FirstChildElement("RakSAMPClient");
 	if(rakSAMPElement)
 	{
+        if(TiXmlElement *automation = rakSAMPElement->FirstChildElement("automation")) {
+            RuntimeOptions &o = ClientOptions();
+            const char *base = automation->Attribute("backend_url");
+            if(base && !ValidBackendUrl(base)) { Log("[CONFIG] Invalid backend_url"); return 0; }
+            if(base) { o.backendUrl = base; while(o.backendUrl.size() > 8 && o.backendUrl.back() == '/') o.backendUrl.pop_back(); }
+            struct Option { const char *name; unsigned int *value; unsigned int low, high; } values[] = {
+                {"connect_timeout_ms", &o.connectTimeoutMs, 100, 30000}, {"read_timeout_ms", &o.readTimeoutMs, 100, 30000},
+                {"write_timeout_ms", &o.writeTimeoutMs, 100, 30000}, {"total_timeout_ms", &o.totalTimeoutMs, 100, 60000},
+                {"poll_interval_ms", &o.pollIntervalMs, 500, 60000}, {"db_sync_interval_ms", &o.dbSyncIntervalMs, 5000, 3600000},
+                {"scan_period_ms", &o.scanPeriodMs, 30000, 86400000}, {"scan_sample_ms", &o.scanSampleMs, 1000, 60000},
+                {"scan_teleport_ms", &o.scanTeleportMs, 1000, 60000}, {"scan_gap_ms", &o.scanGapMs, 500, 60000},
+                {"reconnect_ms", &o.reconnectMs, 1000, 60000}, {"operation_timeout_ms", &o.operationTimeoutMs, 10000, 3600000},
+                {"queue_timeout_ms", &o.queueTimeoutMs, 5000, 3600000}, {"result_retry_ms", &o.resultRetryMs, 1000, 300000},
+                {"war_notice_1", &o.warNotice1, 1, 59}, {"war_notice_2", &o.warNotice2, 1, 59}, {"war_notice_3", &o.warNotice3, 1, 59}
+            };
+            for(const Option &value : values) if(const char *raw = automation->Attribute(value.name)) {
+                if(!RuntimeInteger(raw, value.low, value.high, *value.value)) { Log("[CONFIG] Invalid %s", value.name); return 0; }
+            }
+            if(o.warNotice1 <= o.warNotice2 || o.warNotice2 <= o.warNotice3) { Log("[CONFIG] Countdown thresholds must decrease"); return 0; }
+        }
 		// get console
 		rakSAMPElement->QueryIntAttribute("console", (int *)&settings.iConsole);
 
@@ -78,22 +100,17 @@ int LoadSettings()
 			char *pszAddr = (char *)serverElement->GetText();
 			if(pszAddr)
 			{
-				int iPort;
-				char *pszAddrBak = pszAddr;
-
-				while(*pszAddrBak)
-				{
-					if(*pszAddrBak == ':')
-					{
-						*pszAddrBak = 0;
-						pszAddrBak++;
-						iPort = atoi(pszAddrBak);
-					}
-					pszAddrBak++;
-				}
-
-				strcpy(settings.server.szAddr, pszAddr);
-				settings.server.iPort = iPort;
+				// Parse a copy: TinyXML owns GetText(), and invalid ports must not connect.
+                const std::string endpoint(pszAddr);
+                const size_t colon = endpoint.rfind(':');
+                int port = 0;
+                if(colon == std::string::npos || colon == 0 ||
+                   !ParseServerPort(endpoint.substr(colon + 1), port)) {
+                    Log("Invalid server address/port in RakSAMPClient.xml (expected host:1-65535)");
+                    return 0;
+                }
+                CopySettingsArgument(settings.server.szAddr, endpoint.substr(0, colon));
+                settings.server.iPort = port;
 				strcpy(settings.server.szNickname, (char *)serverElement->Attribute("nickname"));
 				strcpy(settings.server.szPassword, (char *)serverElement->Attribute("password"));
 			}
@@ -208,36 +225,7 @@ int LoadSettings()
 
 	xmlSettings.Clear();
 
-	PCHAR szCmdLine = GetCommandLineA();
-	CHAR szPort[20];
-
-	while(*szCmdLine)
-	{
-		if(*szCmdLine == '-' || *szCmdLine == '/')
-		{
-			szCmdLine++;
-			switch(*szCmdLine)
-			{
-				case 'h':
-					szCmdLine++;
-					SetStringFromCommandLine(szCmdLine, settings.server.szAddr);
-					break;
-				case 'p':
-					szCmdLine++;
-					SetStringFromCommandLine(szCmdLine, szPort); settings.server.iPort = atoi(szPort);
-					break;
-				case 'n':
-					szCmdLine++;
-					SetStringFromCommandLine(szCmdLine, settings.server.szNickname);
-					break;
-				case 'z':
-					szCmdLine++;
-					SetStringFromCommandLine(szCmdLine, settings.server.szPassword);
-					break;
-			}
-		}
-		szCmdLine++;
-	}
+	ApplyServerArguments(GetCommandLineA(), settings.server);
 
 	return 1;
 }

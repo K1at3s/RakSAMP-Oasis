@@ -3,6 +3,9 @@
 */
 
 #include "main.h"
+#include "ReplayHooks.h"
+#include "NetworkPayload.h"
+#include "Security.h"
 
 extern int iFollowingPassenger, iFollowingDriver;
 extern int iDrunkLevel, iMoney, iLocalPlayerSkin;
@@ -14,12 +17,16 @@ int iPassengerNotificationSent = 0, iDriverNotificationSent = 0;
 
 void Packet_AUTH_KEY(Packet *p, RakClientInterface *pRakClient)
 {
+	if(!p || !p->data || p->length == 0) return;
+	if(p->length < 2 || p->data[1] > p->length - 2) return;
+	std::string incomingKey((char*)p->data + 2, p->data[1]);
+	if(!incomingKey.empty() && incomingKey.back() == 0) incomingKey.pop_back();
 	char* auth_key;
 	bool found_key = false;
 
 	for(int x = 0; x < 512; x++)
 	{
-		if(!strcmp(((char*)p->data + 2), AuthKeyTable[x][0]))
+		if(incomingKey == AuthKeyTable[x][0])
 		{
 			auth_key = AuthKeyTable[x][1];
 			found_key = true;
@@ -32,7 +39,7 @@ void Packet_AUTH_KEY(Packet *p, RakClientInterface *pRakClient)
 		BYTE byteAuthKeyLen;
 
 		byteAuthKeyLen = (BYTE)strlen(auth_key);
-		
+
 		bsKey.Write((BYTE)ID_AUTH_KEY);
 		bsKey.Write((BYTE)byteAuthKeyLen);
 		bsKey.Write(auth_key, byteAuthKeyLen);
@@ -43,27 +50,23 @@ void Packet_AUTH_KEY(Packet *p, RakClientInterface *pRakClient)
 	}
 	else
 	{
-		Log("Unknown AUTH_IN! (%s)", ((char*)p->data + 2));
+		Log("Unknown AUTH_IN! (%s)", incomingKey.c_str());
 	}
 }
 
 void Packet_ConnectionSucceeded(Packet *p, RakClientInterface *pRakClient)
 {
+	if(!p || !p->data || p->length == 0) return;
 	RakNet::BitStream bsSuccAuth((unsigned char *)p->data, p->length, false);
 	PLAYERID myPlayerID;
 	unsigned int uiChallenge;
 
-	bsSuccAuth.IgnoreBits(8); // ID_CONNECTION_REQUEST_ACCEPTED
-	bsSuccAuth.IgnoreBits(32); // binaryAddress
-	bsSuccAuth.IgnoreBits(16); // port
-
-	bsSuccAuth.Read(myPlayerID);
+	if(!ReadAcceptedConnection(bsSuccAuth, myPlayerID, uiChallenge, MAX_PLAYERS)) return;
 
 	g_myPlayerID = myPlayerID;
 	playerInfo[myPlayerID].iIsConnected = 1;
 	strcpy(playerInfo[myPlayerID].szPlayerName, g_szNickName);
 
-	bsSuccAuth.Read(uiChallenge);
 
 	settings.uiChallange = uiChallenge;
 
@@ -100,6 +103,7 @@ void Packet_ConnectionSucceeded(Packet *p, RakClientInterface *pRakClient)
 
 void Packet_PlayerSync(Packet *p, RakClientInterface *pRakClient)
 {
+	if(!p || !p->data || p->length == 0) return;
 	RakNet::BitStream bsPlayerSync((unsigned char *)p->data, p->length, false);
 	PLAYERID playerId;
 
@@ -109,10 +113,84 @@ void Packet_PlayerSync(Packet *p, RakClientInterface *pRakClient)
 	bool bHasSurfInfo, bAnimation;
 
 	bsPlayerSync.IgnoreBits(8);
-	bsPlayerSync.Read(playerId);
+	if(!bsPlayerSync.Read(playerId)) return;
 
 	if(playerId < 0 || playerId >= MAX_PLAYERS) return;
 
+	// clear last data
+	ONFOOT_SYNC_DATA sync = {};
+
+	// LEFT/RIGHT KEYS
+	if(!bsPlayerSync.Read(bHasLR)) return;
+	if(bHasLR && !bsPlayerSync.Read(sync.lrAnalog)) return;
+
+	// UP/DOWN KEYS
+	if(!bsPlayerSync.Read(bHasUD)) return;
+	if(bHasUD && !bsPlayerSync.Read(sync.udAnalog)) return;
+
+	// GENERAL KEYS
+	if(!bsPlayerSync.Read(sync.wKeys)) return;
+
+	// VECTOR POS
+	if(!bsPlayerSync.Read(sync.vecPos[0])) return;
+	if(!bsPlayerSync.Read(sync.vecPos[1])) return;
+	if(!bsPlayerSync.Read(sync.vecPos[2])) return;
+
+	// ROTATION
+	if(!bsPlayerSync.ReadNormQuat(
+		sync.fQuaternion[0],
+		sync.fQuaternion[1],
+		sync.fQuaternion[2],
+		sync.fQuaternion[3])) return;
+	
+
+	// HEALTH/ARMOUR (COMPRESSED INTO 1 BYTE)
+	BYTE byteHealthArmour;
+	BYTE byteHealth, byteArmour;
+	BYTE byteArmTemp=0,byteHlTemp=0;
+
+	if(!bsPlayerSync.Read(byteHealthArmour)) return;
+	byteArmTemp = (byteHealthArmour & 0x0F);
+	byteHlTemp = (byteHealthArmour >> 4);
+
+	if(byteArmTemp == 0xF) byteArmour = 100;
+	else if(byteArmTemp == 0) byteArmour = 0;
+	else byteArmour = byteArmTemp * 7;
+
+	if(byteHlTemp == 0xF) byteHealth = 100;
+	else if(byteHlTemp == 0) byteHealth = 0;
+	else byteHealth = byteHlTemp * 7;
+
+	sync.byteHealth = byteHealth;
+	sync.byteArmour = byteArmour;
+
+	// CURRENT WEAPON
+	if(!bsPlayerSync.Read(sync.byteCurrentWeapon)) return;
+
+	// Special Action
+	if(!bsPlayerSync.Read(sync.byteSpecialAction)) return;
+
+	// READ MOVESPEED VECTORS
+	if(!bsPlayerSync.ReadVector(
+		sync.vecMoveSpeed[0],
+		sync.vecMoveSpeed[1],
+		sync.vecMoveSpeed[2])) return;
+
+	if(!bsPlayerSync.Read(bHasSurfInfo)) return;
+	if(bHasSurfInfo)
+	{
+		if(!bsPlayerSync.Read(sync.wSurfInfo)) return;
+		if(!bsPlayerSync.Read(sync.vecSurfOffsets[0])) return;
+		if(!bsPlayerSync.Read(sync.vecSurfOffsets[1])) return;
+		if(!bsPlayerSync.Read(sync.vecSurfOffsets[2])) return;
+	}
+	else
+		sync.wSurfInfo = -1;
+
+	if(!bsPlayerSync.Read(bAnimation)) return;
+	if(bAnimation)
+		if(!bsPlayerSync.Read(sync.iCurrentAnimationID)) return;
+	playerInfo[playerId].onfootData = sync;
 	// Followed passenger exit
 	if(settings.runMode == RUNMODE_FOLLOWPLAYER && playerId == getPlayerIDFromPlayerName(settings.szFollowingPlayerName))
 	{
@@ -135,119 +213,50 @@ void Packet_PlayerSync(Packet *p, RakClientInterface *pRakClient)
 	playerInfo[playerId].incarData.VehicleID = -1;
 
 
-	// clear last data
-	memset(&playerInfo[playerId].onfootData, 0, sizeof(ONFOOT_SYNC_DATA));
 
-	// LEFT/RIGHT KEYS
-	bsPlayerSync.Read(bHasLR);
-	if(bHasLR) bsPlayerSync.Read(playerInfo[playerId].onfootData.lrAnalog);
-
-	// UP/DOWN KEYS
-	bsPlayerSync.Read(bHasUD);
-	if(bHasUD) bsPlayerSync.Read(playerInfo[playerId].onfootData.udAnalog);
-
-	// GENERAL KEYS
-	bsPlayerSync.Read(playerInfo[playerId].onfootData.wKeys);
-
-	// VECTOR POS
-	bsPlayerSync.Read(playerInfo[playerId].onfootData.vecPos[0]);
-	bsPlayerSync.Read(playerInfo[playerId].onfootData.vecPos[1]);
-	bsPlayerSync.Read(playerInfo[playerId].onfootData.vecPos[2]);
-
-	// ROTATION
-	bsPlayerSync.ReadNormQuat(
-		playerInfo[playerId].onfootData.fQuaternion[0],
-		playerInfo[playerId].onfootData.fQuaternion[1],
-		playerInfo[playerId].onfootData.fQuaternion[2],
-		playerInfo[playerId].onfootData.fQuaternion[3]);
-	
-
-	// HEALTH/ARMOUR (COMPRESSED INTO 1 BYTE)
-	BYTE byteHealthArmour;
-	BYTE byteHealth, byteArmour;
-	BYTE byteArmTemp=0,byteHlTemp=0;
-
-	bsPlayerSync.Read(byteHealthArmour);
-	byteArmTemp = (byteHealthArmour & 0x0F);
-	byteHlTemp = (byteHealthArmour >> 4);
-
-	if(byteArmTemp == 0xF) byteArmour = 100;
-	else if(byteArmTemp == 0) byteArmour = 0;
-	else byteArmour = byteArmTemp * 7;
-
-	if(byteHlTemp == 0xF) byteHealth = 100;
-	else if(byteHlTemp == 0) byteHealth = 0;
-	else byteHealth = byteHlTemp * 7;
-
-	playerInfo[playerId].onfootData.byteHealth = byteHealth;
-	playerInfo[playerId].onfootData.byteArmour = byteArmour;
-
-	// CURRENT WEAPON
-	bsPlayerSync.Read(playerInfo[playerId].onfootData.byteCurrentWeapon);
-
-	// Special Action
-	bsPlayerSync.Read(playerInfo[playerId].onfootData.byteSpecialAction);
-
-	// READ MOVESPEED VECTORS
-	bsPlayerSync.ReadVector(
-		playerInfo[playerId].onfootData.vecMoveSpeed[0],
-		playerInfo[playerId].onfootData.vecMoveSpeed[1],
-		playerInfo[playerId].onfootData.vecMoveSpeed[2]);
-
-	bsPlayerSync.Read(bHasSurfInfo);
-	if(bHasSurfInfo)
-	{
-		bsPlayerSync.Read(playerInfo[playerId].onfootData.wSurfInfo);
-		bsPlayerSync.Read(playerInfo[playerId].onfootData.vecSurfOffsets[0]);
-		bsPlayerSync.Read(playerInfo[playerId].onfootData.vecSurfOffsets[1]);
-		bsPlayerSync.Read(playerInfo[playerId].onfootData.vecSurfOffsets[2]);
-	}
-	else
-		playerInfo[playerId].onfootData.wSurfInfo = -1;
-
-	bsPlayerSync.Read(bAnimation);
-	if(bAnimation)
-		bsPlayerSync.Read(playerInfo[playerId].onfootData.iCurrentAnimationID);
 }
 
 //----------------------------------------------------
 
 void Packet_UnoccupiedSync(Packet *p, RakClientInterface *pRakClient)
 {
+	if(!p || !p->data || p->length == 0) return;
 	RakNet::BitStream bsUnocSync((unsigned char *)p->data, p->length, false);
 	PLAYERID playerId;
 
 	//Log("\n%s\n", DumpMem((unsigned char *)p->data + bsUnocSync.GetReadOffset() / 8, p->length));
 
 	bsUnocSync.IgnoreBits(8);
-	bsUnocSync.Read(playerId);
+	if(!bsUnocSync.Read(playerId)) return;
 
 	if(playerId < 0 || playerId >= MAX_PLAYERS) return;
 
-	memset(&playerInfo[playerId].unocData, 0, sizeof(UNOCCUPIED_SYNC_DATA));
-
-	bsUnocSync.Read((char *)&playerInfo[playerId].unocData, sizeof(UNOCCUPIED_SYNC_DATA));
+	UNOCCUPIED_SYNC_DATA sync = {};
+	if(!bsUnocSync.Read((char*)&sync, sizeof(sync))) return;
+	playerInfo[playerId].unocData = sync;
 }
 
 void Packet_AimSync(Packet *p, RakClientInterface *pRakClient)
-{  
+{
+	if(!p || !p->data || p->length == 0) return;
 	RakNet::BitStream bsAimSync((unsigned char *)p->data, p->length, false);
 	PLAYERID playerId;
 
 	//Log("Packet_AimSync:\n%s\n", DumpMem((unsigned char *)p->data, p->length));
 
 	bsAimSync.IgnoreBits(8);
-	bsAimSync.Read(playerId);
+	if(!bsAimSync.Read(playerId)) return;
 
 	if(playerId < 0 || playerId >= MAX_PLAYERS) return;
 
-	memset(&playerInfo[playerId].aimData, 0, sizeof(AIM_SYNC_DATA));
-
-	bsAimSync.Read((PCHAR)&playerInfo[playerId].aimData, sizeof(AIM_SYNC_DATA));
+	AIM_SYNC_DATA sync = {};
+	if(!bsAimSync.Read((char*)&sync, sizeof(sync))) return;
+	playerInfo[playerId].aimData = sync;
 }
 
 void Packet_VehicleSync(Packet *p, RakClientInterface *pRakClient)
 {
+	if(!p || !p->data || p->length == 0) return;
 	RakNet::BitStream bsSync((unsigned char *)p->data, p->length, false);
 	PLAYERID playerId;
 
@@ -259,70 +268,55 @@ void Packet_VehicleSync(Packet *p, RakClientInterface *pRakClient)
 	//Log("Packet_VehicleSync: %d \n%s\n", p->length, DumpMem((unsigned char *)p->data, p->length));
 
 	bsSync.IgnoreBits(8);
-	bsSync.Read(playerId);
-	bsSync.Read(VehicleID);
+	if(!bsSync.Read(playerId)) return;
+	if(!bsSync.Read(VehicleID)) return;
 
 	if(playerId < 0 || playerId >= MAX_PLAYERS) return;
 	if(VehicleID < 0 || VehicleID >= MAX_VEHICLES) return;
 
-	// Follower passenger enter
-	playerInfo[playerId].incarData.VehicleID = VehicleID;
-	if(settings.runMode == RUNMODE_FOLLOWPLAYER && playerId == getPlayerIDFromPlayerName(settings.szFollowingPlayerName))
-	{
-		if(!iPassengerNotificationSent)
-		{
-			SendEnterVehicleNotification(VehicleID, 1);
-			iPassengerNotificationSent = 1;
-		}
-		
-		SendPassengerFullSyncData(VehicleID);
-		iFollowingPassenger = 1;
-		return;
-	}
-
-
 	// clear last data
-	memset(&playerInfo[playerId].incarData, 0, sizeof(INCAR_SYNC_DATA));
+	INCAR_SYNC_DATA sync = {};
+	sync.VehicleID = VehicleID;
 
 	// LEFT/RIGHT KEYS
-	bsSync.Read(playerInfo[playerId].incarData.lrAnalog);
+	if(!bsSync.Read(sync.lrAnalog)) return;
 
 	// UP/DOWN KEYS
-	bsSync.Read(playerInfo[playerId].incarData.udAnalog);
+	if(!bsSync.Read(sync.udAnalog)) return;
 
 	// GENERAL KEYS
-	bsSync.Read(playerInfo[playerId].incarData.wKeys);
+	if(!bsSync.Read(sync.wKeys)) return;
 
 	// ROLL / DIRECTION
 	// ROTATION
-	bsSync.ReadNormQuat(
-		playerInfo[playerId].incarData.fQuaternion[0],
-		playerInfo[playerId].incarData.fQuaternion[1],
-		playerInfo[playerId].incarData.fQuaternion[2],
-		playerInfo[playerId].incarData.fQuaternion[3]);
+	if(!bsSync.ReadNormQuat(
+		sync.fQuaternion[0],
+		sync.fQuaternion[1],
+		sync.fQuaternion[2],
+		sync.fQuaternion[3])) return;
 
 	// POSITION
-	bsSync.Read(playerInfo[playerId].incarData.vecPos[0]);
-	bsSync.Read(playerInfo[playerId].incarData.vecPos[1]);
-	bsSync.Read(playerInfo[playerId].incarData.vecPos[2]);
+	if(!bsSync.Read(sync.vecPos[0])) return;
+	if(!bsSync.Read(sync.vecPos[1])) return;
+	if(!bsSync.Read(sync.vecPos[2])) return;
 
 	// SPEED
-	bsSync.ReadVector(
-		playerInfo[playerId].incarData.vecMoveSpeed[0],
-		playerInfo[playerId].incarData.vecMoveSpeed[1],
-		playerInfo[playerId].incarData.vecMoveSpeed[2]);
+	if(!bsSync.ReadVector(
+		sync.vecMoveSpeed[0],
+		sync.vecMoveSpeed[1],
+		sync.vecMoveSpeed[2])) return;
 
 	// VEHICLE HEALTH
 	WORD wTempVehicleHealth;
-	bsSync.Read(wTempVehicleHealth);
-	playerInfo[playerId].incarData.fCarHealth = (float)wTempVehicleHealth;
+	if(!bsSync.Read(wTempVehicleHealth)) return;
+	sync.fCarHealth = (float)wTempVehicleHealth;
 
 	// HEALTH/ARMOUR (COMPRESSED INTO 1 BYTE)
 	BYTE byteHealthArmour;
 	BYTE bytePlayerHealth, bytePlayerArmour;
 	BYTE byteArmTemp=0,byteHlTemp=0;
 
-	bsSync.Read(byteHealthArmour);
+	if(!bsSync.Read(byteHealthArmour)) return;
 	byteArmTemp = (byteHealthArmour & 0x0F);
 	byteHlTemp = (byteHealthArmour >> 4);
 
@@ -334,52 +328,71 @@ void Packet_VehicleSync(Packet *p, RakClientInterface *pRakClient)
 	else if(byteHlTemp == 0) bytePlayerHealth = 0;
 	else bytePlayerHealth = byteHlTemp * 7;
 
-	playerInfo[playerId].incarData.bytePlayerHealth = bytePlayerHealth;
-	playerInfo[playerId].incarData.bytePlayerArmour = bytePlayerArmour;
+	sync.bytePlayerHealth = bytePlayerHealth;
+	sync.bytePlayerArmour = bytePlayerArmour;
 
 	// CURRENT WEAPON
-	bsSync.Read(playerInfo[playerId].incarData.byteCurrentWeapon);
+	if(!bsSync.Read(sync.byteCurrentWeapon)) return;
 
 	// SIREN
-	bsSync.ReadCompressed(bSiren);
+	if(!bsSync.ReadCompressed(bSiren)) return;
 	if(bSiren)
-		playerInfo[playerId].incarData.byteSirenOn = 1;
+		sync.byteSirenOn = 1;
 
 	// LANDING GEAR
-	bsSync.ReadCompressed(bLandingGear);
+	if(!bsSync.ReadCompressed(bLandingGear)) return;
 	if(bLandingGear)
-		playerInfo[playerId].incarData.byteLandingGearState = 1;
+		sync.byteLandingGearState = 1;
 
 	// HYDRA THRUST ANGLE AND TRAILER ID
-	bsSync.ReadCompressed(bHydra);
-	bsSync.ReadCompressed(bTrailer);
+	if(!bsSync.ReadCompressed(bHydra)) return;
+	if(!bsSync.ReadCompressed(bTrailer)) return;
 
 	DWORD dwTrailerID_or_ThrustAngle;
-	bsSync.Read(dwTrailerID_or_ThrustAngle);
-	playerInfo[playerId].incarData.TrailerID_or_ThrustAngle = (WORD)dwTrailerID_or_ThrustAngle;
+	if(!bsSync.Read(dwTrailerID_or_ThrustAngle)) return;
+	sync.TrailerID_or_ThrustAngle = (WORD)dwTrailerID_or_ThrustAngle;
 
 	// TRAIN SPECIAL
 	WORD wSpeed;
-	bsSync.ReadCompressed(bTrain);
+	if(!bsSync.ReadCompressed(bTrain)) return;
 	if(bTrain)
 	{
-		bsSync.Read(wSpeed);
-		playerInfo[playerId].incarData.fTrainSpeed = (float)wSpeed;
+		if(!bsSync.Read(wSpeed)) return;
+		sync.fTrainSpeed = (float)wSpeed;
 	}
+	playerInfo[playerId].incarData = sync;
+	// Follower passenger enter
+	playerInfo[playerId].incarData.VehicleID = VehicleID;
+	if(settings.runMode == RUNMODE_FOLLOWPLAYER && playerId == getPlayerIDFromPlayerName(settings.szFollowingPlayerName))
+	{
+		if(!iPassengerNotificationSent)
+		{
+			SendEnterVehicleNotification(VehicleID, 1);
+			iPassengerNotificationSent = 1;
+		}
+
+		SendPassengerFullSyncData(VehicleID);
+		iFollowingPassenger = 1;
+		return;
+	}
+
+
+
 }
 
 void Packet_PassengerSync(Packet *p, RakClientInterface *pRakClient)
 {
+	if(!p || !p->data || p->length == 0) return;
 	RakNet::BitStream bsPassengerSync((unsigned char *)p->data, p->length, false);
 	PLAYERID	playerId;
 	PASSENGER_SYNC_DATA psSync;
 
 	bsPassengerSync.IgnoreBits(8);
-	bsPassengerSync.Read(playerId);
+	if(!bsPassengerSync.Read(playerId)) return;
 
 	if(playerId < 0 || playerId >= MAX_PLAYERS) return;
 
-	bsPassengerSync.Read((PCHAR)&psSync,sizeof(PASSENGER_SYNC_DATA));
+	if(!bsPassengerSync.Read((PCHAR)&psSync,sizeof(PASSENGER_SYNC_DATA)) || psSync.VehicleID >= MAX_VEHICLES) return;
 
 	// Followed wants to drive the vehicle
 	playerInfo[playerId].passengerData.VehicleID = psSync.VehicleID;
@@ -406,18 +419,20 @@ void Packet_PassengerSync(Packet *p, RakClientInterface *pRakClient)
 
 void Packet_TrailerSync(Packet *p, RakClientInterface *pRakClient)
 {
+	if(!p || !p->data || p->length == 0) return;
 	RakNet::BitStream bsSpectatorSync((unsigned char *)p->data, p->length, false);
 
 	PLAYERID playerId;
 	//TRAILER_SYNC_DATA trSync;
 
 	bsSpectatorSync.IgnoreBits(8);
-	bsSpectatorSync.Read(playerId);
+	if(!bsSpectatorSync.Read(playerId)) return;
 	//bsSpectatorSync.Read((PCHAR)&trSync, sizeof(TRAILER_SYNC_DATA));
 }
 
 void Packet_MarkersSync(Packet *p, RakClientInterface *pRakClient)
 {
+	if(!p || !p->data || p->length == 0) return;
 	RakNet::BitStream bsMarkersSync((unsigned char *)p->data, p->length, false);
 
 	int i, iNumberOfPlayers;
@@ -426,26 +441,26 @@ void Packet_MarkersSync(Packet *p, RakClientInterface *pRakClient)
 	bool bIsPlayerActive;
 
 	bsMarkersSync.IgnoreBits(8);
-	bsMarkersSync.Read(iNumberOfPlayers);
+	if(!bsMarkersSync.Read(iNumberOfPlayers)) return;
 
 	if(iNumberOfPlayers < 0 || iNumberOfPlayers > MAX_PLAYERS) return;
 
 	for(i = 0; i < iNumberOfPlayers; i++)
 	{
-		bsMarkersSync.Read(playerID);
+		if(!bsMarkersSync.Read(playerID)) return;
 
 		if(playerID < 0 || playerID >= MAX_PLAYERS) return;
 
-		bsMarkersSync.ReadCompressed(bIsPlayerActive);
+		if(!bsMarkersSync.ReadCompressed(bIsPlayerActive)) return;
 		if(bIsPlayerActive == 0)
 		{
 			playerInfo[playerID].iGotMarkersPos = 0;
 			continue;
 		}
 
-		bsMarkersSync.Read(sPosX);
-		bsMarkersSync.Read(sPosY);
-		bsMarkersSync.Read(sPosZ);
+		if(!bsMarkersSync.Read(sPosX)) return;
+		if(!bsMarkersSync.Read(sPosY)) return;
+		if(!bsMarkersSync.Read(sPosZ)) return;
 
 		playerInfo[playerID].iGotMarkersPos = 1;
 		playerInfo[playerID].onfootData.vecPos[0] = (float)sPosX;
@@ -458,6 +473,7 @@ void Packet_MarkersSync(Packet *p, RakClientInterface *pRakClient)
 
 void Packet_BulletSync(Packet *p, RakClientInterface *pRakClient)
 {
+	if(!p || !p->data || p->length == 0) return;
 	RakNet::BitStream bsBulletSync((unsigned char *)p->data, p->length, false);
 
 	if(m_bLagCompensation)
@@ -465,13 +481,13 @@ void Packet_BulletSync(Packet *p, RakClientInterface *pRakClient)
 		PLAYERID PlayerID;
 
 		bsBulletSync.IgnoreBits(8);
-		bsBulletSync.Read(PlayerID);
+		if(!bsBulletSync.Read(PlayerID)) return;
 
 		if(PlayerID < 0 || PlayerID >= MAX_PLAYERS) return;
 
-		memset(&playerInfo[PlayerID].bulletData, 0, sizeof(BULLET_SYNC_DATA));
-
-		bsBulletSync.Read((PCHAR)&playerInfo[PlayerID].bulletData, sizeof(BULLET_SYNC_DATA));
+		BULLET_SYNC_DATA sync = {};
+		if(!bsBulletSync.Read((char*)&sync, sizeof(sync))) return;
+		playerInfo[PlayerID].bulletData = sync;
 
 		PLAYERID copyingID = getPlayerIDFromPlayerName(settings.szFollowingPlayerName);
 
@@ -485,12 +501,18 @@ void Packet_BulletSync(Packet *p, RakClientInterface *pRakClient)
 
 void resetPools(int iRestart, DWORD dwTimeReconnect)
 {
+	InvalidateBackendResponses();
+	ResetAutomationSession();
+	ResetChatOutQueue();
+	iGameInited = 0;
 	memset(playerInfo, 0, sizeof(stPlayerInfo));
 	memset(vehiclePool, 0, sizeof(stVehiclePool));
 
 	if(iRestart)
 	{
 		iAreWeConnected = 0;
+		iPassengerNotificationSent = iDriverNotificationSent = 0;
+		iFollowingPassenger = iFollowingDriver = 0;
 		iConnectionRequested = 0;
 		iSpawned = 0;
 		iMoney = 0;
@@ -502,7 +524,7 @@ void resetPools(int iRestart, DWORD dwTimeReconnect)
 		settings.fPlayerHealth = 100.0f;
 		settings.fPlayerArmour = 0.0f;
 
-		Sleep(dwTimeReconnect);
+		// Reconnect delay is serviced by the main loop; keep pumping network/backend.
 	}
 }
 
@@ -512,9 +534,9 @@ void UpdatePlayerScoresAndPings(int iWait, int iMS, RakClientInterface *pRakClie
 
 	if(iWait)
 	{
-		if ((GetTickCount() - dwLastUpdateTick) > (DWORD)iMS)
+		if ((ClientTick() - dwLastUpdateTick) > (DWORD)iMS)
 		{
-			dwLastUpdateTick = GetTickCount();
+			dwLastUpdateTick = ClientTick();
 			RakNet::BitStream bsParams;
 			pRakClient->RPC(&RPC_UpdateScoresPingsIPs, &bsParams, HIGH_PRIORITY, RELIABLE, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
 		}
@@ -533,6 +555,7 @@ void UpdateNetwork(RakClientInterface *pRakClient)
 
 	while(pkt = pRakClient->Receive())
 	{
+		if(!pkt->data || pkt->length == 0) { pRakClient->DeallocatePacket(pkt); continue; }
 		if ( ( unsigned char ) pkt->data[ 0 ] == ID_TIMESTAMP )
 		{
 			if ( pkt->length > sizeof( unsigned char ) + sizeof( unsigned int ) )
@@ -560,7 +583,7 @@ void UpdateNetwork(RakClientInterface *pRakClient)
 					Log("[RAKSAMP] You are banned. Reconnecting in %d seconds.", iReconnectTime / 1000);
 					resetPools(1, iReconnectTime);
 				}
-				break;			
+				break;
 			case ID_CONNECTION_ATTEMPT_FAILED:
 				if (pRakClient == ::pRakClient)
 				{

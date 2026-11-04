@@ -25,9 +25,41 @@ async function sendToGuildChannel(guild, field, { embed, content, files } = {}) 
         else if (content) await channel.send(content);
         return channelId;
     } catch (e) {
+        // Silinmis kanal (Unknown Channel 10003/404): kaydi temizle ki her
+        // gonderimde patlamasin; /setchannel veya /kurulum ile yeniden atanir.
+        if (e && (e.code === 10003 || e.status === 404)) {
+            try {
+                const { Guild } = require('../models');
+                const upd = {};
+                upd[field] = null;
+                if (guild && guild.guildId) await Guild.findOneAndUpdate({ guildId: guild.guildId }, upd);
+                console.log(`🧹 ${field} temizlendi (kanal silinmis id=${channelId}, guild=${guild ? guild.guildId : '?'}). /setchannel ile yeniden ata.`);
+            } catch (err2) {
+                console.error(`Kanal temizleme hatasi (${field}):`, err2.message);
+            }
+            return null;
+        }
         console.error(`Discord gonderim hatasi (${field}):`, e);
         return null;
     }
 }
 
-module.exports = { setClient, sendToGuildChannel };
+
+async function sendWarResult(guild, embed, marker, allowSend) {
+    let channel;
+    try {
+        if (!guild?.zoneWarChannelId || !_client) throw new Error('War channel not configured');
+        channel = await _client.channels.fetch(guild.zoneWarChannelId);
+        if (!channel?.messages || !channel.send) throw new Error('War channel unavailable');
+        const history = await channel.messages.fetch({ limit: 100 });
+        if (history.some(message => message.author?.id === _client.user?.id && message.embeds.some(item => item.footer?.text === marker))) return channel.id;
+    } catch (error) { error.definitelyNotSent = true; throw error; }
+    if (!allowSend) return null;
+    embed.setFooter({ text: marker });
+    try { await channel.send({ embeds: [embed] }); return channel.id; }
+    catch (error) {
+        error.definitelyNotSent = error.status >= 400 && error.status < 500 && error.status !== 408;
+        throw error;
+    }
+}
+module.exports = { setClient, sendToGuildChannel, sendWarResult };

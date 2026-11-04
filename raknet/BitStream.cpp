@@ -221,6 +221,10 @@ void BitStream::Write( BitStream *bitStream, int numberOfBits )
 // Read an array or casted stream
 bool BitStream::Read( char* output, const int numberOfBytes )
 {
+	if(numberOfBytes < 0 || readOffset < 0 || readOffset > numberOfBitsUsed ||
+		(unsigned int)numberOfBytes > (unsigned int)(numberOfBitsUsed - readOffset) / 8) return false;
+	if(numberOfBytes == 0) return true;
+	if(!output) return false;
 	// Optimization:
 	if ((readOffset & 7) == 0)
 	{

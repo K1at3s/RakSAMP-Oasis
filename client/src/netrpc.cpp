@@ -3,6 +3,21 @@
 */
 
 #include "main.h"
+#include "NetworkPayload.h"
+#include "BackendApi.h"
+#include "ReplayHooks.h"
+#include "OperationQueue.h"
+#include "WarResultContext.h"
+static WarResultContext s_warResultContext;
+static DWORD s_contextWarTick = 0;
+static void ScheduleRuntimeScanSample();
+static void ScheduleRuntimeFreeroam();
+static bool RuntimeScanMayAdvance();
+static std::string RuntimeBusyName(bool includeScan);
+static bool RuntimeWarMayMove();
+static void RuntimePauseForFollow();
+static void ObserveOasisWarNotice(const char *raw);
+static bool PrepareOasisResult(const char *tagA, const char *tagB, int scoreA, int scoreB, std::string &nameA, std::string &nameB, bool &won);
 #include "Security.h"
 
 #include <cmath>   // json.hpp'nin std::isfinite gereksinimi
@@ -13,6 +28,7 @@
 #undef vsnprintf
 #include "httplib.h"
 #include "json.hpp"
+#include "GameChatPayload.h"
 using json = nlohmann::json;
 
 int iNetModeNormalOnfootSendRate, iNetModeNormalIncarSendRate, iNetModeFiringSendRate, iNetModeSendMultiplier;
@@ -103,7 +119,7 @@ static bool ZwFirstBloodAllowed()
 {
 	if(!g_inZoneWar || g_zwFirstBlood[0]) return false;
 	if(!g_zoneWarStartTick) return false;
-	return (GetTickCount() - g_zoneWarStartTick) <= ZW_FB_WINDOW_MS;
+	return (ClientTick() - g_zoneWarStartTick) <= ZW_FB_WINDOW_MS;
 }
 
 
@@ -250,7 +266,7 @@ static bool g_gmPrefilled = false;
 static std::string g_gmRequestId;
 #define GMCOL_RESULT_DONE 0
 #define GMCOL_RESULT_NEXT 1
-static const char *g_szBackendBase = "http://127.0.0.1:3000"; // OnGmSend erken kullanir (sablon: satir 955'teki)
+static const std::string &g_szBackendBase = ClientOptions().backendUrl; // OnGmSend erken kullanir (sablon: satir 955'teki)
 
 // Renk kodlarini temizle + trim (gmembers/gvips satirlari icin)
 static void GmCleanLine(const char *szIn, char *szOut, int nOut)
@@ -297,11 +313,9 @@ void StartGmembersCollect(const char *requestId)
 	g_gmKnownAcc.clear(); g_gmPrefilled = false;
 	// Tabloda account ID'si olanlari cek: bunlara /astats GONDERILMEZ (faz 3'te atlanir)
 	try {
-		httplib::Client cli(g_szBackendBase);
-		cli.set_connection_timeout(4);
 		std::string grpEnc; GmUrlEncode(g_myGroupName, grpEnc);
 		std::string strUrl = std::string("/api/gmembers/known?hwid=") + g_myHWID + "&group=" + grpEnc;
-		auto res = cli.Get(strUrl.c_str());
+		auto res = GetBackendSnapshot(strUrl.c_str());
 		if(res && res->status == 200){
 			json jk = json::parse(res->body);
 			if(jk.value("success", false) && jk.contains("known") && jk["known"].is_object()){
@@ -315,7 +329,7 @@ void StartGmembersCollect(const char *requestId)
 			}
 		}
 	} catch(...) {}
-	g_gmPhaseAt = GetTickCount();
+	g_gmPhaseAt = ClientTick();
 	Log("[GM] ?gmembers koleksiyonu basladi (faz 1: uye listesi).");
 	sendServerCommand((char *)"/gmembers");
 }
@@ -523,7 +537,7 @@ void SendGmembersPartial();
 void OnGmVipsResult(const char *szInfo)
 {
 	Log("[GM-VIPS-DATA] %.800s", szInfo ? szInfo : "");
-	if(!szInfo) { g_gmGvipsWaiting = false; g_gmPhase = 3; g_gmPhaseAt = GetTickCount(); g_gmAstatsIdx = 0; g_gmAstatsWaiting = false; SendGmembersPartial(); return; }
+	if(!szInfo) { g_gmGvipsWaiting = false; g_gmPhase = 3; g_gmPhaseAt = ClientTick(); g_gmAstatsIdx = 0; g_gmAstatsWaiting = false; SendGmembersPartial(); return; }
 
 	const char *pL = szInfo;
 	while(pL && *pL)
@@ -645,7 +659,7 @@ void OnGmVipsResult(const char *szInfo)
 	}
 	g_gmGvipsWaiting = false;
 	g_gmPhase = 3;
-	g_gmPhaseAt = GetTickCount();
+	g_gmPhaseAt = ClientTick();
 	g_gmAstatsIdx = 0;
 	g_gmAstatsWaiting = false;
 	SendGmembersPartial();
@@ -676,18 +690,9 @@ void OnGmSend()
 				{"lastActive", g_gmRows[i].szLast}
 			});
 		}
-		httplib::Client cli(g_szBackendBase);
-		cli.set_connection_timeout(5);
-		auto res = cli.Post("/api/gmembers/sheet", j.dump(), "application/json");
-		if(res && res->status == 200)
-		{
-			std::string strResp = res->body;
-			bool bOk = (strResp.find("\"success\":true") != std::string::npos);
-			Log("[GM] Google Sheets gonderimi: %s (%d uye).", bOk ? "BASARILI" : "HATA", g_gmCount);
-			if(!bOk) Log("[GM] Backend cevabi: %.200s", strResp.c_str());
-		}
-		else
-			Log("[GM] Backend'e ulasilamadi (status %d).", res ? res->status : -1);
+		QueueBackendRequest("POST", "/api/gmembers/sheet", j.dump(), [](const BackendResponse &res) {
+			Log("[BACKEND] POST %s completed (HTTP %d).", "/api/gmembers/sheet", res ? res->status : 0);
+		});
 	}
 	catch(...) { Log("[GM] Gonderim hatasi."); }
 	g_gmPhase = 0;
@@ -716,9 +721,7 @@ void SendGmembersPartial()
 				{"lastActive", g_gmRows[i].szLast}
 			});
 		}
-		httplib::Client cli(g_szBackendBase);
-		cli.set_connection_timeout(5);
-		cli.Post("/api/gmembers/sheet", j.dump(), "application/json");
+		QueueBackendRequest("POST", "/api/gmembers/sheet", j.dump());
 	}
 	catch(...){}
 }
@@ -726,7 +729,7 @@ void SendGmembersPartial()
 void ProcessGmembers()
 {
 	if(g_gmPhase == 0) return;
-	DWORD dwNow = GetTickCount();
+	DWORD dwNow = ClientTick();
 
 	if(g_gmPhase == 1)
 	{
@@ -785,7 +788,7 @@ void ProcessGmembers()
 			strncpy_s(g_gmAstatsName, sizeof(g_gmAstatsName), g_gmRows[g_gmAstatsIdx].szName, sizeof(g_gmAstatsName) - 1);
 			// Mevcut gstats makinesi input dialogunu auto-submit eder (g_gstatsAutoSubmit)
 			g_waitingForGStats = true;
-			g_gstatsReqTime = GetTickCount();
+			g_gstatsReqTime = ClientTick();
 			g_gstatsAutoSubmit = true;
 			g_gstatsInput = g_gmRows[g_gmAstatsIdx].szName;
 			g_gstatsRequesterId = "";
@@ -912,7 +915,7 @@ static bool  g_zgrpAuto = false;          // ?zgrp on/off: oto harvest â€” DEFAU
 void ProcessZfFlashSummary()
 {
 	if(!g_zfFlashPendingFlag) return;
-	if(GetTickCount() < g_zfFlashAt) return;
+	if(ClientTick() < g_zfFlashAt) return;
 	g_zfFlashPendingFlag = false;
 	g_zfFlashAt = 0;
 	Log("[ZF] /gzinfo sonrasi 1 sn gecti, flashing zone dagilimi gonderiliyor.");
@@ -935,9 +938,9 @@ void GmembersReset() { s_iGmPage = 1; s_bGmBotOk = false; s_bGmUserOk = false; s
 // Oto zone taramasi: flashing zone'lara isinlanip /gzinfo'dan grup adini ogrenir
 // (zgo mantigi). Sonuc group_colors.txt'ye yazilir; ?zf etiketleri ve
 // "serbest zone" tespiti bu haritadan gelir.
-#define ZONE_SCAN_PER_SAMPLE_MS 7000 // Oasis cevabi yavas: 4sn yetmiyordu  // /gzinfo cevabi icin bekleme (mute korumali)
-#define ZONE_SCAN_TELEPORT_SYNC_MS 3500 // /pos sonrasi teleport tamamlanana kadar bekle (stale /gzinfo + yanlis isim onlenir)
-#define ZONE_SCAN_PERIOD_MS      900000 // oto tarama periyodu: yeni grup adlari icin 15 dk'da bir
+#define ZONE_SCAN_PER_SAMPLE_MS ClientOptions().scanSampleMs // 7000 // Oasis cevabi yavas: 4sn yetmiyordu  // /gzinfo cevabi icin bekleme (mute korumali)
+#define ZONE_SCAN_TELEPORT_SYNC_MS ClientOptions().scanTeleportMs // 3500 // /pos sonrasi teleport tamamlanana kadar bekle (stale /gzinfo + yanlis isim onlenir)
+#define ZONE_SCAN_PERIOD_MS ClientOptions().scanPeriodMs // 900000 // oto tarama periyodu: yeni grup adlari icin 15 dk'da bir
 static int   g_zoneScanQueue[MAX_GANG_ZONES] = {0};
 static int   g_zoneScanQ = 0;          // kuyruktaki ornek zone sayisi
 static int   g_zoneScanIdx = -1;       // -1: tarama yok; 0..: siradaki ornek
@@ -1089,7 +1092,7 @@ void DialogAnswered()
 static void CloseOpenListDlg()
 {
 	if(g_watchDlgId < 0 || g_watchDlgKeep) return;
-	if(GetTickCount() - g_watchDlgAt > 15000) return;
+	if(ClientTick() - g_watchDlgAt > 15000) return;
 	if(g_watchDlgStyle == DIALOG_STYLE_MSGBOX)
 	{
 		sendDialogResponse((WORD)g_watchDlgId, 1, 0xFFFF, (char *)"");
@@ -1150,8 +1153,9 @@ static void FollowWhisperReply(const char *szMsg)
 }
 void ProcessFollowTick()
 {
+    if(!RuntimeBusyName(false).empty()) return;
 	if(!g_followActive) return;
-	DWORD dwNow = GetTickCount();
+	DWORD dwNow = ClientTick();
 	if(dwNow - g_followLastTick < FOLLOW_TICK_MS) return;
 	g_followLastTick = dwNow;
 	int iSlot = g_followSlot;
@@ -1245,8 +1249,8 @@ void ProcessFrRetry()
 	if(g_frSentOnce) return;
 	if(!iSpawned) { g_dwFrFallbackStart = 0; return; } // yeniden spawn'da timer'i kur
 	if(g_dwFrFallbackStart == 0)
-		g_dwFrFallbackStart = GetTickCount();
-	else if(GetTickCount() - g_dwFrFallbackStart >= 10000)
+		g_dwFrFallbackStart = ClientTick();
+	else if(ClientTick() - g_dwFrFallbackStart >= 10000)
 	{
 		g_frSentOnce = true;
 		Log("[SPAWN] Spawn menusu gelmedi/zaman asimi, tek seferlik /fr gonderimi.");
@@ -1382,12 +1386,10 @@ static int FindZoneByGroupTag(const char *szTag)
 		{
 			try
 			{
-				std::string url = std::string("/api/groups/zone?name=") + pDbName;
+				std::string url = std::string("/api/groups/zone?name=") + BackendQueryValue(GameChatToUtf8(pDbName));
 				for(size_t i = 0; i < url.size(); i++)
 					if(url[i] == ' ') url.replace(i, 1, "%20");
-				httplib::Client cli(g_szBackendBase);
-				cli.set_connection_timeout(4);
-				auto res = cli.Get(url.c_str());
+				auto res = GetBackendSnapshot(url.c_str());
 				if(res && res->status == 200)
 				{
 					json j = json::parse(res->body);
@@ -1528,7 +1530,7 @@ void InitGroupColorsFromDisk()
 	// Zone->sahip haritasi ARTIK DB'de (gangs.zones JSON): acilista LoadGroupsFromDb
 	// geri yükler (ProcessDbSync tetikler). zones.txt KALDIRILDI - DB tek dogru kaynak.
 	// Yeniden baslatma sonrasi savas/timer restore: savas bitis ani (sistem tick)
-	// dosyada. GetTickCount() sistem uptime'i oldugu icin restart sonrasi da gecerlidir;
+	// dosyada. ClientTick() sistem uptime'i oldugu icin restart sonrasi da gecerlidir;
 	// bitis ani gecmediyse savas hala suruyor demektir -> kalan sure restore edilir
 	// (geri sayim duyurusu + kill list girisii bu sureye baglidir).
 	// war_timer.txt KALDIRILDI (kullanici: dosya yok). Savas durumu sadece hafizada;
@@ -1601,8 +1603,6 @@ static void SendAdminLog(const char *admin, const char *target, long long target
 	if(!target || !target[0] || !action || !action[0]) return;
 	try
 	{
-		httplib::Client cli(g_szBackendBase);
-		cli.set_connection_timeout(3);
 		json body = {
 			{"hwid", g_myHWID},
 			{"adminName", admin ? admin : ""},
@@ -1613,18 +1613,9 @@ static void SendAdminLog(const char *admin, const char *target, long long target
 			{"durationMin", durationMin},
 			{"reason", reason ? reason : ""}
 		};
-		auto res = cli.Post("/api/adminlog", body.dump(), "application/json");
-		// Server guild bulamazsa 200 + {success:false} doner (INSERT yapilmaz);
-		// client yalnizca status'e bakarsa yanlis "kaydedildi" der. success'i de kontrol et.
-		bool bOk = false;
-		if(res && res->status == 200)
-		{
-			try { bOk = json::parse(res->body).value("success", false); } catch(...) { bOk = false; }
-		}
-		if(bOk)
-			Log("[ALOG] Admin log kaydedildi: %s %s(%lld) [%s] (%s)", action, target, targetId, mode ? mode : "-", reason ? reason : "-");
-		else
-			Log("[ALOG] Admin log KAYDEDILEMEDI (guild bulunamadi/hata): %s %s(%lld) [%s] (%s)", action, target, targetId, mode ? mode : "-", reason ? reason : "-");
+		QueueBackendRequest("POST", "/api/adminlog", body.dump(), [](const BackendResponse &res) {
+			Log("[BACKEND] POST %s completed (HTTP %d).", "/api/adminlog", res ? res->status : 0);
+		});
 	}
 	catch(...) {}
 }
@@ -1646,8 +1637,6 @@ static void SendGroupLog(const char *actor, long long actorAcc,
 	g_lastGlogType = type;
 	try
 	{
-		httplib::Client cli(g_szBackendBase);
-		cli.set_connection_timeout(3);
 		json body = {
 			{"hwid", g_myHWID},
 			{"actorName", actor},
@@ -1657,15 +1646,15 @@ static void SendGroupLog(const char *actor, long long actorAcc,
 			{"oldRank", oldRank ? oldRank : ""},
 			{"newRank", newRank ? newRank : ""}
 		};
-		auto res = cli.Post("/api/grouplog", body.dump(), "application/json");
-		if(res && res->status == 200)
-			Log("[GLOG] Grup log kaydedildi: %s(%lld) -> %s(%lld) '%s'->'%s'", actor, actorAcc, target, targetAcc, oldRank ? oldRank : "", newRank ? newRank : "");
+		QueueBackendRequest("POST", "/api/grouplog", body.dump(), [](const BackendResponse &res) {
+			Log("[BACKEND] POST %s completed (HTTP %d).", "/api/grouplog", res ? res->status : 0);
+		});
 	}
 	catch(...) {}
 	// ponytail: botun kendi otomasyonu (actor==bot nick) sebepli/sebepsiz bilerek yapildi, sorma
 	if(g_szNickName[0] && !_stricmp(actor, g_szNickName)) return;
 	g_pushPending = true;
-	g_pushUntil = GetTickCount() + 30000;
+	g_pushUntil = ClientTick() + 30000;
 	g_pushReason[0] = 0;
 	g_pushRequester = -1;
 	for(int s = 0; s < MAX_PLAYERS; s++)
@@ -1734,7 +1723,7 @@ void StartPm(const char *target, const char *message, const char *discordUser, c
 	g_pmId = iTargetId;
 	strncpy_s(g_pmTarget, sizeof(g_pmTarget), target, sizeof(g_pmTarget) - 1);
 	strncpy_s(g_pmRequesterId, sizeof(g_pmRequesterId), requesterId ? requesterId : "", sizeof(g_pmRequesterId) - 1);
-	g_pmUntil = GetTickCount() + 15 * 60 * 1000; // 15 dk yanit penceresi
+	g_pmUntil = ClientTick() + 15 * 60 * 1000; // 15 dk yanit penceresi
 	g_pmPending = true;
 
 	// Discord daki ilk embed hedefin GERCEK oyun ici adini gostersin
@@ -1743,15 +1732,13 @@ void StartPm(const char *target, const char *message, const char *discordUser, c
 	{
 		try
 		{
-			httplib::Client cli(g_szBackendBase);
-			cli.set_connection_timeout(3);
 			json body = {
 				{"requesterId", requesterId},
 				{"target", target},
 				{"targetName", g_pmName[0] ? g_pmName : target},
 				{"message", message}
 			};
-			cli.Post("/api/pm/sent", body.dump(), "application/json");
+			QueueBackendRequest("POST", "/api/pm/sent", body.dump());
 		}
 		catch(...) {}
 	}
@@ -1766,8 +1753,6 @@ static void PushLastGroupLog(const char *reason)
 	g_pushRequester = -1;
 	try
 	{
-		httplib::Client cli(g_szBackendBase);
-		cli.set_connection_timeout(3);
 		json body = {
 			{"hwid", g_myHWID},
 			{"actorName", g_lastGlogActor},
@@ -1779,18 +1764,9 @@ static void PushLastGroupLog(const char *reason)
 			{"newRank", g_lastGlogNew},
 			{"reason", reason ? reason : ""}
 		};
-		auto res = cli.Post("/api/grouppost", body.dump(), "application/json");
-		if(res && res->status == 200)
-		{
-			Log("[POST] Discord'a gonderildi: %s -> %s (tip %d, gerekce: %s).", g_lastGlogActor, g_lastGlogTarget, g_lastGlogType, (reason && reason[0]) ? reason : "-");
-			if(reason && reason[0])
-			{
-				g_bridgeSuppressEcho++;
-				sendChat((char *)LM("!Discord'a gonderildi.", "!Sent to Discord."));
-			}
-		}
-		else
-			Log("[POST] Discord'a GONDERILEMEDI (HTTP %d).", res ? res->status : -1);
+		QueueBackendRequest("POST", "/api/grouppost", body.dump(), [](const BackendResponse &res) {
+			Log("[BACKEND] POST %s completed (HTTP %d).", "/api/grouppost", res ? res->status : 0);
+		});
 	}
 	catch(...) {}
 }
@@ -2359,7 +2335,7 @@ bool OnAlogAstatsResult(const char *szTitle, const char *szInfo)
 // Her tick: siradaki account ID eylemi icin /astats gonder; zaman asiminda ID ile kaydet.
 static void ProcessAlogAstatsQueue()
 {
-	DWORD dwNow = GetTickCount();
+	DWORD dwNow = ClientTick();
 	if(g_alogAstatsActive)
 	{
 		if(dwNow - g_alogAstatsReqTime > 15000)
@@ -2521,7 +2497,7 @@ static void EnsureAccountId(const char *szName)
 {
 	if(!szName || !szName[0] || !g_isEngineActive) return;
 	if(FindAccountIdByName(szName) > 0) return;
-	DWORD dw = GetTickCount();
+	DWORD dw = ClientTick();
 	if(!g_accPendingName.empty() && dw - g_accPendingAt < ACC_PROBE_TIMEOUT_MS) return; // zaten bir tanesi soruluyor
 	char szCmd[96];
 	sprintf_s(szCmd, sizeof(szCmd), "/stats %s", szName);
@@ -2651,10 +2627,8 @@ static void QueryAdminLogSummary(const char *q)
 	}
 	try
 	{
-		httplib::Client cli(g_szBackendBase);
-		cli.set_connection_timeout(5);
 		json body = {{"hwid", g_myHWID}, {"q", q}};
-		auto res = cli.Post("/api/alog", body.dump(), "application/json");
+		QueueBackendRequest("POST", "/api/alog", body.dump(), [](const BackendResponse &res) {
 		if(res && res->status == 200)
 		{
 			// Backend {"success":bool,"summary"|"message"} doner; ham JSON degil
@@ -2677,6 +2651,7 @@ static void QueryAdminLogSummary(const char *q)
 		}
 		else
 			Log("[ALOG] ?alog sorgusu basarisiz (HTTP %d)", res ? res->status : -1);
+		});
 	}
 	catch(...) {}
 }
@@ -2710,11 +2685,10 @@ static void SyncPlayerCacheToDb()
 	if(arr.empty()) return;
 	try
 	{
-		httplib::Client cli(g_szBackendBase);
-		cli.set_connection_timeout(3);
 		json body = {{"players", arr}};
-		auto res = cli.Post("/api/player/cache", body.dump(), "application/json");
-		if(res && res->status == 200) Log("[PL-CACHE] %d oyuncu DB'ye push edildi.", (int)arr.size());
+		QueueBackendRequest("POST", "/api/player/cache", body.dump(), [](const BackendResponse &res) {
+			Log("[BACKEND] POST %s completed (HTTP %d).", "/api/player/cache", res ? res->status : 0);
+		});
 	}
 	catch(...) {}
 }
@@ -2731,9 +2705,7 @@ static bool LoadGroupsFromDb()
 {
 	try
 	{
-		httplib::Client cli(g_szBackendBase);
-		cli.set_connection_timeout(3);
-		auto res = cli.Get("/api/groups");
+		auto res = GetBackendSnapshot("/api/groups");
 		if(!res || res->status != 200) return false;
 		json j = json::parse(res->body);
 		if(!j.value("success", false)) return false;
@@ -2810,11 +2782,10 @@ static void SyncGroupColorsToDb()
 	if(arr.empty()) return;
 	try
 	{
-		httplib::Client cli(g_szBackendBase);
-		cli.set_connection_timeout(3);
 		json body = {{"groups", arr}};
-		auto res = cli.Post("/api/groups", body.dump(), "application/json");
-		if(res && res->status == 200) Log("[ZF] %d grup/tag + zone listesi DB'ye push edildi (1 grup = 1 satir).", (int)arr.size());
+		QueueBackendRequest("POST", "/api/groups", body.dump(), [](const BackendResponse &res) {
+			Log("[BACKEND] POST %s completed (HTTP %d).", "/api/groups", res ? res->status : 0);
+		});
 	}
 	catch(...) {}
 }
@@ -2854,8 +2825,6 @@ static void SyncBotStatusToDb()
 	};
 	try
 	{
-		httplib::Client cli(g_szBackendBase);
-		cli.set_connection_timeout(3);
 		json body = {{"name", g_szNickName}, {"data", data}};
 		// groupName YALNIZCA doluyken g?nder: bos g?nderilirse DB deki kayitli
 		// grup adi her acilista silinir, bot yeniden ??renmek zorunda kalir.
@@ -2870,8 +2839,9 @@ static void SyncBotStatusToDb()
 			body["gzt"] = g_gztOn ? 1 : 0;
 			body["zgrp"] = g_zgrpAuto ? 1 : 0;
 		}
-		auto res = cli.Post("/api/bot/status", body.dump(), "application/json");
-		if(res && res->status == 200) Log("[BOT] '%s' durumu DB'ye yazildi.", g_szNickName);
+		QueueBackendRequest("POST", "/api/bot/status", body.dump(), [](const BackendResponse &res) {
+			Log("[BACKEND] POST %s completed (HTTP %d).", "/api/bot/status", res ? res->status : 0);
+		});
 	}
 	catch(...) {}
 }
@@ -2907,7 +2877,7 @@ void StartGrole(const char *target, const char *role)
 	g_grolePhase = 1;
 	PauseHarvestsForDialog("?grole");
 	g_grolePage = 0;
-	g_groleStartTime = GetTickCount();
+	g_groleStartTime = ClientTick();
 	g_grTargetItem = -1; g_grDlgId = 0; g_grClickAttempt = -1; g_grClickAt = 0;
 	// Direkt "?grole <isim> <rol>" chat komutu UIF'de calismiyor (test edildi);
 	// /grole dialog otomasyonu kullanilir.
@@ -2925,7 +2895,7 @@ void StartGrank(const char *target, const char *rank)
 	g_grankPhase = 1;
 	PauseHarvestsForDialog("?grank");
 	g_grankPage = 0;
-	g_grankStartTime = GetTickCount();
+	g_grankStartTime = ClientTick();
 	g_grTargetItem = -1; g_grDlgId = 0; g_grClickAttempt = -1; g_grClickAt = 0; g_grDblPhase = 0;
 	Log("[GRANK] Otomasyon baslatildi: '%s' -> '%s' (/grank gonderiliyor)...", target, rank);
 	sendServerCommand((char *)"/grank");
@@ -2939,7 +2909,7 @@ void StartGroleList(const char *requesterId, const char *guildId, const char *hw
 	g_groleListHwid = hwid ? hwid : "";
 	g_groleListMembers.clear();
 	g_groleListPage = 0;
-	g_groleListStartTime = GetTickCount();
+	g_groleListStartTime = ClientTick();
 	Log("[GROLE-LIST] Uye listesi cekiliyor (req=%s)...", requesterId);
 	sendServerCommand((char *)"/grole");
 }
@@ -2952,17 +2922,15 @@ void FinishGroleListAndPost()
 	}
 	Log("[GROLE-LIST] Toplam %d uye toplandi, Discord'a gonderiliyor...", (int)g_groleListMembers.size());
 	try{
-		httplib::Client cli(g_szBackendBase);
-		cli.set_connection_timeout(3);
 		json body = {
 			{"requesterId", g_groleListRequesterId},
 			{"guildId", g_groleListGuildId},
 			{"hwid", g_groleListHwid},
 			{"members", g_groleListMembers}
 		};
-		auto res = cli.Post("/api/grole/list", body.dump(), "application/json");
-		if(res && res->status==200) Log("[GROLE-LIST] Discord'a gonderildi.");
-		else Log("[GROLE-LIST] Gonderilemedi (HTTP %d)", res?res->status:-1);
+		QueueBackendRequest("POST", "/api/grole/list", body.dump(), [](const BackendResponse &res) {
+			Log("[BACKEND] POST %s completed (HTTP %d).", "/api/grole/list", res ? res->status : 0);
+		});
 	}catch(...){}
 	g_groleListActive = false;
 	g_groleListMembers.clear();
@@ -2977,7 +2945,7 @@ void StartGrankList(const char *requesterId, const char *guildId, const char *hw
 	g_grankListHwid = hwid ? hwid : "";
 	g_grankListMembers.clear();
 	g_grankListPage = 0;
-	g_grankListStartTime = GetTickCount();
+	g_grankListStartTime = ClientTick();
 	Log("[GRANK-LIST] Uye listesi cekiliyor (req=%s)...", requesterId);
 	sendServerCommand((char *)"/grole");
 }
@@ -2990,17 +2958,15 @@ void FinishGrankListAndPost()
 	}
 	Log("[GRANK-LIST] Toplam %d uye toplandi, Discord'a gonderiliyor...", (int)g_grankListMembers.size());
 	try{
-		httplib::Client cli(g_szBackendBase);
-		cli.set_connection_timeout(3);
 		json body = {
 			{"requesterId", g_grankListRequesterId},
 			{"guildId", g_grankListGuildId},
 			{"hwid", g_grankListHwid},
 			{"members", g_grankListMembers}
 		};
-		auto res = cli.Post("/api/grank/list", body.dump(), "application/json");
-		if(res && res->status==200) Log("[GRANK-LIST] Discord'a gonderildi.");
-		else Log("[GRANK-LIST] Gonderilemedi (HTTP %d)", res?res->status:-1);
+		QueueBackendRequest("POST", "/api/grank/list", body.dump(), [](const BackendResponse &res) {
+			Log("[BACKEND] POST %s completed (HTTP %d).", "/api/grank/list", res ? res->status : 0);
+		});
 	}catch(...){}
 	g_grankListActive = false;
 	g_grankListMembers.clear();
@@ -3016,7 +2982,7 @@ void StartGkick(const char *target, const char *reason)
 	g_gkickPhase = 1;
 	PauseHarvestsForDialog("?gkick");
 	g_gkickPage = 0;
-	g_gkickStartTime = GetTickCount();
+	g_gkickStartTime = ClientTick();
 	g_grTargetItem = -1; g_grDlgId = 0; g_grClickAttempt = -1; g_grClickAt = 0; g_grDblPhase = 0;
 	Log("[GKICK] Otomasyon baslatildi: '%s' (sebep: '%s') (/gkick gonderiliyor)...", target, g_gkickReason.c_str()[0] ? g_gkickReason.c_str() : "-");
 	sendServerCommand((char *)"/gkick");
@@ -3030,7 +2996,7 @@ void StartGkickList(const char *requesterId, const char *guildId, const char *hw
 	g_gkickListHwid = hwid ? hwid : "";
 	g_gkickListMembers.clear();
 	g_gkickListPage = 0;
-	g_gkickListStartTime = GetTickCount();
+	g_gkickListStartTime = ClientTick();
 	Log("[GKICK-LIST] Uye listesi cekiliyor (req=%s)...", requesterId);
 	sendServerCommand((char *)"/gkick");
 }
@@ -3043,17 +3009,15 @@ void FinishGkickListAndPost()
 	}
 	Log("[GKICK-LIST] Toplam %d uye toplandi, Discord'a gonderiliyor...", (int)g_gkickListMembers.size());
 	try{
-		httplib::Client cli(g_szBackendBase);
-		cli.set_connection_timeout(3);
 		json body = {
 			{"requesterId", g_gkickListRequesterId},
 			{"guildId", g_gkickListGuildId},
 			{"hwid", g_gkickListHwid},
 			{"members", g_gkickListMembers}
 		};
-		auto res = cli.Post("/api/gkick/list", body.dump(), "application/json");
-		if(res && res->status==200) Log("[GKICK-LIST] Discord'a gonderildi.");
-		else Log("[GKICK-LIST] Gonderilemedi (HTTP %d)", res?res->status:-1);
+		QueueBackendRequest("POST", "/api/gkick/list", body.dump(), [](const BackendResponse &res) {
+			Log("[BACKEND] POST %s completed (HTTP %d).", "/api/gkick/list", res ? res->status : 0);
+		});
 	}catch(...){}
 	g_gkickListActive = false;
 	g_gkickListMembers.clear();
@@ -3072,7 +3036,7 @@ static void SyncZscanFromDb()
 		// Zaman asimi: 15 sn icinde ogrenilemezse beklemeyi sifirla; sonraki tick'te
 		// yeniden /stats dener. SAMPRPC gstats timeout'undan (20sn) BAGIMSIZ - yoksa
 		// gstats kapaninca bu da sonsuza dek kilitlenirdi (wait=1 takilmasi).
-		if(g_waitingForGroupName && (GetTickCount() - g_groupNameReqTime > 15000))
+		if(g_waitingForGroupName && (ClientTick() - g_groupNameReqTime > 15000))
 		{
 			g_waitingForGroupName = false;
 			g_groupNamePhase = 0;
@@ -3095,17 +3059,15 @@ static void SyncZscanFromDb()
 			static DWORD s_lastDbNameTry = 0;
 			bool bLoadedFromDb = false;
 			// DB kaydi yokken her tick HTTP+log spam oluyordu: 30 sn de bir dene.
-			if(s_lastDbNameTry == 0 || GetTickCount() - s_lastDbNameTry >= 30000)
+			if(s_lastDbNameTry == 0 || ClientTick() - s_lastDbNameTry >= 30000)
 			{
-				s_lastDbNameTry = GetTickCount();
+				s_lastDbNameTry = ClientTick();
 			if(g_szNickName[0])
 			{
 				try
 				{
-					httplib::Client cli(g_szBackendBase);
-					cli.set_connection_timeout(3);
-					std::string url = std::string("/api/bot/status?name=") + g_szNickName;
-					auto res = cli.Get(url.c_str());
+					std::string url = std::string("/api/bot/status?name=") + BackendQueryValue(GameChatToUtf8(g_szNickName));
+					auto res = GetBackendSnapshot(url.c_str());
 					if(res && res->status == 200)
 					{
 						json j;
@@ -3140,9 +3102,9 @@ static void SyncZscanFromDb()
 					// 15 sn timeout /stats dongusune duser. Faz 2 sonucu isler.
 					g_waitingForGroupName = true;
 					g_groupNamePhase = 2;
-					g_groupNameReqTime = GetTickCount();
+					g_groupNameReqTime = ClientTick();
 					g_waitingForGStats = true;
-					g_gstatsReqTime = GetTickCount();
+					g_gstatsReqTime = ClientTick();
 					g_gstatsAutoSubmit = true;
 					g_gstatsInput = "";
 					g_gstatsRequesterId = "";
@@ -3154,11 +3116,11 @@ static void SyncZscanFromDb()
 				{
 				g_waitingForGroupName = true;
 				g_groupNamePhase = 1;
-				g_groupNameReqTime = GetTickCount();
+				g_groupNameReqTime = ClientTick();
 				// /stats akisi SAMPRPC g_waitingForGStats blogunda islenir: flag'leri
 				// cmds.cpp'deki gibi kur (yoksa Player Stats diyalogu AUTOCLOSE'a dusuyor).
 				g_waitingForGStats = true;
-				g_gstatsReqTime = GetTickCount();
+				g_gstatsReqTime = ClientTick();
 				g_gstatsAutoSubmit = true;
 				g_gstatsInput = "";
 				g_gstatsRequesterId = "";
@@ -3174,9 +3136,9 @@ static void SyncZscanFromDb()
 		{
 			// Spawn beklenirken log spam'i olmasin: 2 sn'de bir bildir.
 			static DWORD s_lastGroupNameBlkLog = 0;
-			if(s_lastGroupNameBlkLog == 0 || GetTickCount() - s_lastGroupNameBlkLog >= 2000)
+			if(s_lastGroupNameBlkLog == 0 || ClientTick() - s_lastGroupNameBlkLog >= 2000)
 			{
-				s_lastGroupNameBlkLog = GetTickCount();
+				s_lastGroupNameBlkLog = ClientTick();
 				Log("[GSTATS] Grup adi yok - ?gname ile ogret (spawn=%d scan=%d ghp=%d war=%d)...",
 					iSpawned, g_zoneScanIdx, g_ghpActive, g_inZoneWar);
 			}
@@ -3185,10 +3147,8 @@ static void SyncZscanFromDb()
 	}
 	try
 	{
-		httplib::Client cli(g_szBackendBase);
-		cli.set_connection_timeout(3);
-		std::string url = std::string("/api/bot/toggles?group=") + g_myGroupName;
-		auto res = cli.Get(url.c_str());
+		std::string url = std::string("/api/bot/toggles?group=") + BackendQueryValue(GameChatToUtf8(g_myGroupName.c_str()));
+		auto res = GetBackendSnapshot(url.c_str());
 		if(res && res->status == 200)
 		{
 			json j = json::parse(res->body);
@@ -3203,8 +3163,8 @@ static void SyncZscanFromDb()
 				g_myGroupName.c_str(), bOn ? "ACIK" : "KAPALI", bGzt ? "ACIK" : "KAPALI", bZgrp ? "ACIK" : "KAPALI");
 			if(bOn && s_bGroupDbRestored && g_zoneScanIdx < 0 && iSpawned
 				&& !g_ghpActive && !g_waitingForGroups
-				&& g_spawnTick != 0 && (GetTickCount() - g_spawnTick) >= 60000 && g_bLoggedIn
-				&& (g_zoneScanLastRun == 0 || GetTickCount() - g_zoneScanLastRun >= ZONE_SCAN_PERIOD_MS))
+				&& g_spawnTick != 0 && (ClientTick() - g_spawnTick) >= 60000 && g_bLoggedIn
+				&& (g_zoneScanLastRun == 0 || ClientTick() - g_zoneScanLastRun >= ZONE_SCAN_PERIOD_MS))
 				StartZoneScan(true); // restore sonrasi ilk tarama: spawn korumasi + harvest oncelikli
 		}
 	}
@@ -3215,39 +3175,20 @@ static void SyncZscanFromDb()
 static DWORD g_lastDbSyncTick = 0;
 void ProcessDbSync(){
 	if(!g_isEngineActive || g_sessionToken.empty()) return;
-	// BACKEND SAGLIK KONTROLU: Discord botu (backend) calisma sirasinda kapanirsa
-	// client de kendini kapatir (60 sn'de bir kontrol). Backend'siz bot islevsizdir.
-	static DWORD s_lastBackendCheck = 0;
-	if(s_lastBackendCheck == 0 || GetTickCount() - s_lastBackendCheck >= 60000)
-	{
-		s_lastBackendCheck = GetTickCount();
-		bool bAlive = false;
-		try
-		{
-			httplib::Client cli(g_szBackendBase);
-			cli.set_connection_timeout(3);
-			auto res = cli.Get("/api/bot/status");
-			if(res && res->status == 200) bAlive = true;
-		}
-		catch(...) {}
-		if(!bAlive)
-		{
-			Log("[BACKEND] Discord botu (backend) yanit vermiyor, client kapatiliyor.");
-			MessageBoxA(NULL,
-				"Discord botu (backend sunucusu) calismayi durdurdu.\n\n"
-				"RakSAMP kapatiliyor. Backend'i yeniden baslatin ve tekrar deneyin.",
-				"RakSAMP - Baglanti Kesildi",
-				MB_OK | MB_ICONERROR);
-			ExitProcess(0);
-		}
-	}
+    static DWORD lastHealthProbe = 0;
+    if(!lastHealthProbe || ClientTick() - lastHealthProbe >= ClientOptions().dbSyncIntervalMs) {
+        lastHealthProbe = ClientTick();
+        QueueBackendRequest("GET", "/api/bot/status", "", [](const BackendResponse &res) {
+            if(!res || res->status >= 500) Log("[BACKEND] Offline; requests will be retried.");
+        }, "health");
+    }
 	// Login beklentisi main.cpp ana dongusunde yonetilir (g_loginPending iken bu
 	// fonksiyon cagrilmaz). Acilis: BUGUNKU grup+tag+zone haritasini DB'den geri yükle (bir kez, 5 sn
 	// aralikli retry). Bu BASARILI OLANA KADAR SyncGroupColorsToDb kilitli -
 	// boylece var olan DB verisi bos push ile silinemez.
 	if(!s_bGroupDbRestored)
 	{
-		DWORD dwNowR = GetTickCount();
+		DWORD dwNowR = ClientTick();
 		if(s_dwRestoreLastTry == 0 || dwNowR - s_dwRestoreLastTry >= 5000)
 		{
 			s_dwRestoreLastTry = dwNowR;
@@ -3271,8 +3212,8 @@ void ProcessDbSync(){
 	// sonradan ogrenilirse (ornek: bot acilip gruba girdikten sonra) bayrak kurulsun.
 	// g_zscanDbLoaded true olunca iceride tekrar denenmez (bir kez).
 	SyncZscanFromDb();
-	DWORD dwNow = GetTickCount();
-	if(dwNow - g_lastDbSyncTick < 60000) return;
+	DWORD dwNow = ClientTick();
+	if(dwNow - g_lastDbSyncTick < ClientOptions().dbSyncIntervalMs) return;
 	g_lastDbSyncTick = dwNow;
 	SyncPlayerCacheToDb();
 	SyncGroupColorsToDb();
@@ -3580,7 +3521,7 @@ static void ZtkGotoZone(int zid)
 	g_ztkVerifyPending = false;
 	g_ztkVerifyZone = -1;
 	g_ztkVerifyTries = 0;
-	g_ztkTeleportAt = GetTickCount();
+	g_ztkTeleportAt = ClientTick();
 	float fCX = (g_zoneMinX[zid] + g_zoneMaxX[zid]) / 2.0f;
 	float fCY = (g_zoneMinY[zid] + g_zoneMaxY[zid]) / 2.0f;
 	char szCmd[128];
@@ -3660,7 +3601,7 @@ static void ZtkVerifyComplete(const char *szInfo)
 		g_ztkPreAsked = false;
 		g_ztkAttackPending = true;
 		g_ztkWarSeen = false;
-		g_ztkAttackAt = GetTickCount();
+		g_ztkAttackAt = ClientTick();
 		g_ztkOutcome = 0;
 		g_zwWeWon = true;
 		sendServerCommand((char *)"/gz");
@@ -3985,8 +3926,7 @@ static void GangZoneScanNext()
 		}
 		if(!bScanContinues)
 		{
-			Sleep(2000);
-			ZwFrOut();
+			ScheduleRuntimeFreeroam();
 			Log("[ZF:SCAN] Tarama bitti, /fr.");
 		}
 		return;
@@ -3994,12 +3934,12 @@ static void GangZoneScanNext()
 	// Komut mute korumasi: /pos + /gzinfo cift komut hizli arka arkaya gidince sunucu
 	// mute atiyordu. Zone'lar arasi minimum bekleme (Sleep) mute'yi onler; flashing-only
 	// tarama az zone oldugu icin toplam sure yine makul (<1-2 dk).
-	Sleep(2000);
-	GangZoneScanGo(g_zoneScanQueue[g_zoneScanIdx]);
+	ScheduleRuntimeScanSample();
 }
 
 static void GangZoneScanGo(int iZone)
 {
+    if(g_followActive || !RuntimeBusyName(false).empty()) { ScheduleRuntimeScanSample(); return; }
 	float fCenterX = (g_zoneMinX[iZone] + g_zoneMaxX[iZone]) / 2.0f;
 	float fCenterY = (g_zoneMinY[iZone] + g_zoneMaxY[iZone]) / 2.0f;
 	char szCmd[128];
@@ -4007,13 +3947,14 @@ static void GangZoneScanGo(int iZone)
 	// 1. faz: teleport. Sunucu konumu i-sleyene kadar /gzinfo G-Ã»NDER-â–‘LMEZ -
 	// ayni anda giderse cevap eski konumun zone'unu dondurur (stale zinciri).
 	g_zoneScanWaitingTeleport = true;
-	g_zoneScanDeadline = GetTickCount() + ZONE_SCAN_TELEPORT_SYNC_MS;
+	g_zoneScanDeadline = ClientTick() + ZONE_SCAN_TELEPORT_SYNC_MS;
 	Log("[ZF:SCAN] Ornek zone #%d taraniyor -> /pos (%s)", iZone, szCmd);
 	sendServerCommand(szCmd);
 }
 
 void StartZoneScan(bool bAuto)
 {
+    if(g_followActive || !RuntimeBusyName(false).empty()) return;
 	if(g_zoneScanIdx >= 0 || !iSpawned || g_inZoneWar || g_zscanPausedForSnip)
 	{
 		Log("[ZF:SCAN] StartZoneScan atlandi (scanAktif=%d spawned=%d war=%d).",
@@ -4038,7 +3979,7 @@ void StartZoneScan(bool bAuto)
 			g_zoneScanQueue[g_zoneScanQ++] = zid;
 		if(g_zoneScanQ == 0)
 		{
-			g_zoneScanLastRun = GetTickCount();
+			g_zoneScanLastRun = ClientTick();
 			Log("[ZF:SCAN] Acilis kontrolu: taranacak zone yok.");
 			return;
 		}
@@ -4059,7 +4000,7 @@ void StartZoneScan(bool bAuto)
 	}
 	if(g_zoneScanQ == 0)
 	{
-		g_zoneScanLastRun = GetTickCount(); // periyodu yenile: sonraki deneme ZONE_SCAN_PERIOD_MS sonra
+		g_zoneScanLastRun = ClientTick(); // periyodu yenile: sonraki deneme ZONE_SCAN_PERIOD_MS sonra
 		Log("[ZF:SCAN] Tarama icin zone yok (%s, periyod 15 dk'ya resetlendi).",
 			bFullVerify ? "tam kontrol" : "bilinmeyen");
 		return;
@@ -4079,7 +4020,7 @@ void StartZoneScan(bool bAuto)
 	g_zoneScanReturnPos[2] = fPos[2];
 
 	g_zoneScanIdx = 0;
-	g_zoneScanLastRun = GetTickCount(); // oto aralikli tarama icin son baslatma anii
+	g_zoneScanLastRun = ClientTick(); // oto aralikli tarama icin son baslatma anii
 	Log("[ZF:SCAN] %d zone taramasý basliyor (%s).", g_zoneScanQ, bAuto ? "oto" : "manuel ?zscan");
 	GangZoneScanGo(g_zoneScanQueue[0]);
 }
@@ -4092,9 +4033,9 @@ static void StartFlashScan()
 	if(g_zoneScanIdx >= 0 || !iSpawned || g_zscanPausedForSnip)
 	{
 		static DWORD s_lastSkipLog = 0;
-		if(s_lastSkipLog == 0 || GetTickCount() - s_lastSkipLog >= 60000)
+		if(s_lastSkipLog == 0 || ClientTick() - s_lastSkipLog >= 60000)
 		{
-			s_lastSkipLog = GetTickCount();
+			s_lastSkipLog = ClientTick();
 			Log("[ZF:FLASHSCAN] Atlanildi (scan aktif=%d spawned=%d).", g_zoneScanIdx >= 0, iSpawned);
 		}
 		return;
@@ -4166,8 +4107,8 @@ void ProcessGrCandidateClicks()
 	if(g_groleActive && g_grolePhase != 1) return;
 	if(g_grankActive && g_grankPhase != 1) return;
 	if(g_gkickActive && g_gkickPhase != 1) return;
-	if(g_grClickAttempt < 0){ g_grClickAttempt = 0; g_grDblPhase = 0; g_grClickAt = GetTickCount() + 100; return; }
-	if(GetTickCount() < g_grClickAt) return;
+	if(g_grClickAttempt < 0){ g_grClickAttempt = 0; g_grDblPhase = 0; g_grClickAt = ClientTick() + 100; return; }
+	if(ClientTick() < g_grClickAt) return;
 	if(g_grClickAttempt >= 4)
 	{
 		Log("[GROLE] Hedef item tiklanamadi, iptal ediliyor.");
@@ -4193,14 +4134,14 @@ void ProcessGrCandidateClicks()
 		Log("[GROLE] Hedef item=%d cift tik (1/2)...", item);
 		SendGrClick(item, szInput);
 		g_grDblPhase = 1;
-		g_grClickAt = GetTickCount() + 400;
+		g_grClickAt = ClientTick() + 400;
 	}
 	else{
 		Log("[GROLE] Hedef item=%d cift tik (2/2)...", item);
 		SendGrClick(item, szInput);
 		g_grDblPhase = 0;
 		g_grClickAttempt++;
-		g_grClickAt = GetTickCount() + 2500;
+		g_grClickAt = ClientTick() + 2500;
 	}
 }
 
@@ -4228,14 +4169,14 @@ static void SendGrRoleSecondClick()
 
 void ProcessZoneScan()
 {
-	if(g_zwFrRetry > 0 && GetTickCount() >= g_zwFrRetryAt)
+	if(g_zwFrRetry > 0 && ClientTick() >= g_zwFrRetryAt)
 	{
 		g_zwFrRetry--;
-		g_zwFrRetryAt = GetTickCount() + 2000;
+		g_zwFrRetryAt = ClientTick() + 2000;
 		Log("[ZONEWAR] /fr tekrar deniyor (%d kaldi).", g_zwFrRetry);
 		ZwFrOut();
 	}
-	if(s_astatsWaiting && GetTickCount() - s_astatsAt > 20000)
+	if(s_astatsWaiting && ClientTick() - s_astatsAt > 20000)
 	{
 		s_astatsWaiting = false;
 		Log("[ASTATS] Sonuc gelmedi (20 sn), istek birakildi.");
@@ -4243,7 +4184,7 @@ void ProcessZoneScan()
 	if(g_harvestPausedForDlg && !g_groleActive && !g_grankActive && !g_gkickActive)
 		ResumeHarvestsAfterDialog("oto");
 
-	if(g_firstRejectTick != 0 && GetTickCount() - g_firstRejectTick > 2*60*1000)
+	if(g_firstRejectTick != 0 && ClientTick() - g_firstRejectTick > 2*60*1000)
 	{
 		Log("[DLG-WATCH] 2dkdir surekli red, yeniden baglaniliyor.");
 		g_firstRejectTick = 0;
@@ -4252,20 +4193,20 @@ void ProcessZoneScan()
 		g_ghpActive = false;
 		g_waitingForGroups = false;
 		g_waitingForGStats = false;
-		g_ghpLastRun = GetTickCount() + 45*60*1000; // travma molasi: oto harvest 60dk durur (acilmayan listeyi tekrar acmasin)
+		g_ghpLastRun = ClientTick() + 45*60*1000; // travma molasi: oto harvest 60dk durur (acilmayan listeyi tekrar acmasin)
 		resetPools(1, 0);
 		return;
 	}
-	if(!g_bLoggedIn && iSpawned && g_spawnTick != 0 && GetTickCount() - g_spawnTick > 180000)
+	if(!g_bLoggedIn && iSpawned && g_spawnTick != 0 && ClientTick() - g_spawnTick > 180000)
 	{
 		g_bLoggedIn = true;
 		Log("[LOGIN] Giris mesaji gorulmedi (180sn), varsayimla devam ediliyor.");
 	}
-	if(g_watchDlgId >= 0 && !g_watchDlgKeep && GetTickCount() - g_watchDlgAt > 30000)
+	if(g_watchDlgId >= 0 && !g_watchDlgKeep && ClientTick() - g_watchDlgAt > 30000)
 	{
 		if(!sampDialog.iIsActive) { g_watchDlgId = -1; }
 		int iWdId = g_watchDlgId, iWdStyle = g_watchDlgStyle;
-		g_watchDlgAt = GetTickCount();
+		g_watchDlgAt = ClientTick();
 		if(iWdStyle == DIALOG_STYLE_LIST || iWdStyle == DIALOG_STYLE_TABLIST || iWdStyle == DIALOG_STYLE_TABLIST_HEADERS)
 		{
 			SendListSelectRaw(iWdId, 0, g_watchDlgRow[0] ? g_watchDlgRow : NULL);
@@ -4279,19 +4220,19 @@ void ProcessZoneScan()
 
 	// ?post gerekce penceresi doldu mu? (30 sn) â€” gerekce yazilmadiysa bos gonderilir,
 	// Discord tarafi "gerekce verilmedi" yazar.
-	if(g_pushPending && GetTickCount() > g_pushUntil)
+	if(g_pushPending && ClientTick() > g_pushUntil)
 	{
 		g_pushPending = false;
 		Log("[POST] 30 sn doldu, gonderiliyor (gerekce: '%s').", g_pushReason[0] ? g_pushReason : "-");
 		PushLastGroupLog(g_pushReason[0] ? g_pushReason : "");
 	}
 	// Faz-2 rol/rank cift tik ikinci tiklamasi.
-	if(g_grRoleDblPending && GetTickCount() >= g_grRoleDblAt)
+	if(g_grRoleDblPending && ClientTick() >= g_grRoleDblAt)
 		SendGrRoleSecondClick();
 	// /grole DIREKT komut ("?grole <isim> <rol>") 4 sn icinde "changed the role of"
 	// onayi uretmediyse: /grole dialog otomasyonuna gec (hala phase=1 page=0'sa).
 	// (Direkt komut diyalog acmissa phase 1 zaten ilerliyordur; tekrar /grole gonderilmez.)
-	if(g_groleActive && g_groleDirectPending && GetTickCount() > g_groleDirectAt && g_grolePhase == 1 && g_grolePage == 0)
+	if(g_groleActive && g_groleDirectPending && ClientTick() > g_groleDirectAt && g_grolePhase == 1 && g_grolePage == 0)
 	{
 		g_groleDirectPending = false;
 		Log("[GROLE] Direkt komut onay vermedi, /grole dialog otomasyonuna gecilir (hedef '%s').", g_groleTarget.c_str());
@@ -4307,7 +4248,7 @@ void ProcessZoneScan()
 	// ayni komutu tekrar gonderince spam/mute riski artar, SADECE bir kez tekrar dener.
 	if(g_ghpActive && g_ghpWaitingGstats)
 	{
-		bool bHadTimeout = (g_gstatsReqTime != 0 && GetTickCount() - g_gstatsReqTime > 50000);
+		bool bHadTimeout = (g_gstatsReqTime != 0 && ClientTick() - g_gstatsReqTime > 50000);
 		if(bHadTimeout || !g_waitingForGStats)
 		{
 			if(g_ghpStaleRetries < 1)
@@ -4324,7 +4265,7 @@ void ProcessZoneScan()
 				// oturumda tekrar denenir). Komut spam'i mute getirir.
 				Log("[GHP] gstats yanit vermedi (mute/sunucu), adim atlaniyor.");
 				g_ghpWaitingGstats = false;
-				g_ghpNextStepAt = GetTickCount() + GHP_STEP_DELAY_MS;
+				g_ghpNextStepAt = ClientTick() + GHP_STEP_DELAY_MS;
 				g_ghpIdx++;
 				ProcessGhpHarvestStep();
 			}
@@ -4333,7 +4274,7 @@ void ProcessZoneScan()
 
 	// Komut mute korumasi: siradaki /gstats ancak GHP_STEP_DELAY_MS gecikme
 	// dolunca gonderilir (OnGStatsResultForHarvest deadline'i kurar).
-	if(g_ghpActive && !g_ghpWaitingGstats && g_ghpNextStepAt != 0 && GetTickCount() >= g_ghpNextStepAt)
+	if(g_ghpActive && !g_ghpWaitingGstats && g_ghpNextStepAt != 0 && ClientTick() >= g_ghpNextStepAt)
 	{
 		ProcessGhpHarvestStep();
 	}
@@ -4346,7 +4287,7 @@ void ProcessZoneScan()
 		// dolu ama tag'i bos/placeholder (tag==isim) olan grup varsa harvest ile
 		// kisa tag cekilir. Tum tagler tamamsa GEREKSIZ /groups+ /gstats spam'i
 		// atilmaz (kullanici istegi).
-		DWORD dwNow3 = GetTickCount();
+		DWORD dwNow3 = ClientTick();
 		bool bNeedHarvest = false;
 		// GRUP ADI GATE: harvest yalnizca kendi grup adi ogrenildikten SONRA baslar
 		// (ogrenme 1 kereliktir, /stats -> Group butonu; harvest /gstats diyaloglari
@@ -4359,8 +4300,8 @@ void ProcessZoneScan()
 			g_ghpForce = true;
 			Log("[GHP] Acilis taramasi kuruldu (kayitli ?zgrp on): ilk sessizlikte baslayacak.");
 		}
-		if(g_zgrpAuto && s_bGroupDbRestored && iSpawned && !g_myGroupName.empty() && (g_ghpLastRun == 0 || GetTickCount() - g_ghpLastRun >= GHP_AUTO_PERIOD_MS)
-			&& g_spawnTick != 0 && (GetTickCount() - g_spawnTick) >= 30000 && g_bLoggedIn) // spawn+login korumasi
+		if(g_zgrpAuto && s_bGroupDbRestored && iSpawned && !g_myGroupName.empty() && (g_ghpLastRun == 0 || ClientTick() - g_ghpLastRun >= GHP_AUTO_PERIOD_MS)
+			&& g_spawnTick != 0 && (ClientTick() - g_spawnTick) >= 30000 && g_bLoggedIn) // spawn+login korumasi
 		{
 			// Eksik tag tespiti: tag bos veya placeholder (tag == isim) olan grup
 			// Oto harvest periyodu doldu: her zaman harvest baslat. Bilinen gruplar
@@ -4377,7 +4318,7 @@ void ProcessZoneScan()
 			Log("[GHP] Eksik tag'li grup var, otomatik harvest basliyor (/groups, tek seferlik)%s.",
 				g_zscanAuto ? " - bitince zone taramasi gelecek" : "");
 			g_waitingForGroups = true;
-			g_groupsReqTime = GetTickCount();
+			g_groupsReqTime = ClientTick();
 			sendServerCommand((char *)"/groups");
 		}
 		// ?zscan on ise otomatik aralikli tarama: spawn'dan sonra ve ZONE_SCAN_PERIOD_MS
@@ -4400,8 +4341,9 @@ void ProcessZoneScan()
 		}
 		return;
 	}
+	if(!RuntimeScanMayAdvance()) return;
 	if(g_inZoneWar || g_zgoActive) return; // savas/zgo surecinde tarama bekler
-	DWORD dwNow = GetTickCount();
+	DWORD dwNow = ClientTick();
 	if(dwNow <= g_zoneScanDeadline) return;
 
 	// 1. faz bitti (teleport sync): simdi /gzinfo gonder, cevap icin yeni deadline.
@@ -4425,6 +4367,7 @@ void ServerJoin(RPCParameters *rpcParams)
 {
 	if(!iGameInited) return;
 
+	if(!rpcParams || !rpcParams->input || !rpcParams->numberOfBitsOfData || rpcParams->numberOfBitsOfData > 8 * 1024 * 1024) return;
 	PCHAR Data = reinterpret_cast<PCHAR>(rpcParams->input);
 	int iBitLength = rpcParams->numberOfBitsOfData;
 
@@ -4432,16 +4375,17 @@ void ServerJoin(RPCParameters *rpcParams)
 	PLAYERID playerId;
 	BYTE byteNameLen=0;
 
-	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength/8)+1,false);
+	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength+7)/8,false);
+	bsData.SetWriteOffset(iBitLength);
 	
-	bsData.Read(playerId);
+	if(!bsData.Read(playerId)) return;
 	int iUnk = 0;
-	bsData.Read(iUnk);
+	if(!bsData.Read(iUnk)) return;
 	BYTE bIsNPC = 0;
-	bsData.Read(bIsNPC);
-	bsData.Read(byteNameLen);
+	if(!bsData.Read(bIsNPC)) return;
+	if(!bsData.Read(byteNameLen)) return;
 	if(byteNameLen > 20) return;
-	bsData.Read(szPlayerName,byteNameLen);
+	if(!bsData.Read(szPlayerName,byteNameLen)) return;
 	szPlayerName[byteNameLen] = '\0';
 	
 	if(playerId < 0 || playerId >= MAX_PLAYERS) return;
@@ -4472,15 +4416,17 @@ void ServerQuit(RPCParameters *rpcParams)
 {
 	if(!iGameInited) return;
 
+	if(!rpcParams || !rpcParams->input || !rpcParams->numberOfBitsOfData || rpcParams->numberOfBitsOfData > 8 * 1024 * 1024) return;
 	PCHAR Data = reinterpret_cast<PCHAR>(rpcParams->input);
 	int iBitLength = rpcParams->numberOfBitsOfData;
 
-	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength/8)+1,false);
+	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength+7)/8,false);
+	bsData.SetWriteOffset(iBitLength);
 	PLAYERID playerId;
 	BYTE byteReason;
 
-	bsData.Read(playerId);
-	bsData.Read(byteReason);
+	if(!bsData.Read(playerId)) return;
+	if(!bsData.Read(byteReason)) return;
 
 	if(playerId < 0 || playerId >= MAX_PLAYERS) return;
 
@@ -4494,10 +4440,12 @@ void ServerQuit(RPCParameters *rpcParams)
 
 void InitGame(RPCParameters *rpcParams)
 {
+	if(!rpcParams || !rpcParams->input || !rpcParams->numberOfBitsOfData || rpcParams->numberOfBitsOfData > 8 * 1024 * 1024) return;
 	PCHAR Data = reinterpret_cast<PCHAR>(rpcParams->input);
 	int iBitLength = rpcParams->numberOfBitsOfData;
 
-	RakNet::BitStream bsInitGame((unsigned char *)Data,(iBitLength/8)+1,false);
+	RakNet::BitStream bsInitGame((unsigned char *)Data,(iBitLength+7)/8,false);
+	bsInitGame.SetWriteOffset(iBitLength);
 
 	PLAYERID MyPlayerID;
 	bool bLanMode, bStuntBonus;
@@ -4513,55 +4461,55 @@ void InitGame(RPCParameters *rpcParams)
 	int m_iDeathDropMoney;
 	bool m_bInstagib;
 
-	bsInitGame.ReadCompressed(m_bZoneNames);
-	bsInitGame.ReadCompressed(m_bUseCJWalk);
-	bsInitGame.ReadCompressed(m_bAllowWeapons);
-	bsInitGame.ReadCompressed(m_bLimitGlobalChatRadius);
-	bsInitGame.Read(m_fGlobalChatRadius);
-	bsInitGame.ReadCompressed(bStuntBonus);
-	bsInitGame.Read(m_fNameTagDrawDistance);
-	bsInitGame.ReadCompressed(m_bDisableEnterExits);
-	bsInitGame.ReadCompressed(m_bNameTagLOS);
-	bsInitGame.ReadCompressed(m_bManualVehicleEngineAndLight); // 
-	bsInitGame.Read(iSpawnsAvailable);
-	bsInitGame.Read(MyPlayerID);
-	bsInitGame.ReadCompressed(m_bShowPlayerTags);
-	bsInitGame.Read(m_iShowPlayerMarkers);
-	bsInitGame.Read(m_byteWorldTime);
-	bsInitGame.Read(m_byteWeather);
-	bsInitGame.Read(m_fGravity);
-	bsInitGame.ReadCompressed(bLanMode);
-	bsInitGame.Read(m_iDeathDropMoney);
-	bsInitGame.ReadCompressed(m_bInstagib);
+	if(!bsInitGame.ReadCompressed(m_bZoneNames)) return;
+	if(!bsInitGame.ReadCompressed(m_bUseCJWalk)) return;
+	if(!bsInitGame.ReadCompressed(m_bAllowWeapons)) return;
+	if(!bsInitGame.ReadCompressed(m_bLimitGlobalChatRadius)) return;
+	if(!bsInitGame.Read(m_fGlobalChatRadius)) return;
+	if(!bsInitGame.ReadCompressed(bStuntBonus)) return;
+	if(!bsInitGame.Read(m_fNameTagDrawDistance)) return;
+	if(!bsInitGame.ReadCompressed(m_bDisableEnterExits)) return;
+	if(!bsInitGame.ReadCompressed(m_bNameTagLOS)) return;
+	if(!bsInitGame.ReadCompressed(m_bManualVehicleEngineAndLight)) return;
+	if(!bsInitGame.Read(iSpawnsAvailable)) return;
+	if(!bsInitGame.Read(MyPlayerID) || MyPlayerID >= MAX_PLAYERS) return;
+	if(!bsInitGame.ReadCompressed(m_bShowPlayerTags)) return;
+	if(!bsInitGame.Read(m_iShowPlayerMarkers)) return;
+	if(!bsInitGame.Read(m_byteWorldTime)) return;
+	if(!bsInitGame.Read(m_byteWeather)) return;
+	if(!bsInitGame.Read(m_fGravity)) return;
+	if(!bsInitGame.ReadCompressed(bLanMode)) return;
+	if(!bsInitGame.Read(m_iDeathDropMoney)) return;
+	if(!bsInitGame.ReadCompressed(m_bInstagib)) return;
 
 	// Server's send rate restrictions
 	if(!settings.uiForceCustomSendRates)
 	{
-		bsInitGame.Read(iNetModeNormalOnfootSendRate);
-		bsInitGame.Read(iNetModeNormalIncarSendRate);
-		bsInitGame.Read(iNetModeFiringSendRate);
-		bsInitGame.Read(iNetModeSendMultiplier);
+		if(!bsInitGame.Read(iNetModeNormalOnfootSendRate)) return;
+		if(!bsInitGame.Read(iNetModeNormalIncarSendRate)) return;
+		if(!bsInitGame.Read(iNetModeFiringSendRate)) return;
+		if(!bsInitGame.Read(iNetModeSendMultiplier)) return;
 	}
 	else
 		bsInitGame.SetReadOffset(bsInitGame.GetReadOffset() + 4*32);
 
-	bsInitGame.Read(m_bLagCompensation);
+	if(!bsInitGame.Read(m_bLagCompensation)) return;
 
 	BYTE unk;
-	bsInitGame.Read(unk);
-	bsInitGame.Read(unk);
-	bsInitGame.Read(unk);
+	if(!bsInitGame.Read(unk)) return;
+	if(!bsInitGame.Read(unk)) return;
+	if(!bsInitGame.Read(unk)) return;
 
 	BYTE byteStrLen;
-	bsInitGame.Read(byteStrLen);
+	if(!bsInitGame.Read(byteStrLen)) return;
 	if(byteStrLen)
 	{
 		memset(g_szHostName,0,sizeof(g_szHostName));
-		bsInitGame.Read(g_szHostName, byteStrLen);
+		if(!bsInitGame.Read(g_szHostName, byteStrLen)) return;
 	}
 	g_szHostName[byteStrLen] = '\0';
 
-	bsInitGame.Read((char *)&byteVehicleModels[0],212);
+	if(!bsInitGame.Read((char *)&byteVehicleModels[0],212)) return;
 
 	g_myPlayerID = MyPlayerID;
 
@@ -4586,7 +4534,7 @@ void InitGame(RPCParameters *rpcParams)
 	// Login dialogu HIC gelmezse (sunucu tmp'e zorluyorsa) 10 sn sonra otomatik
 	// devam et (takilip sonsuza dek bekleme).
 	g_loginPending = true;
-	g_loginPendingUntil = GetTickCount() + 10000;
+	g_loginPendingUntil = ClientTick() + 10000;
 	Log("[LOGIN] Baglanti tamam, login bekleniyor (tmp hesap onleniyor)...");
 }
 
@@ -4594,10 +4542,12 @@ void WorldPlayerAdd(RPCParameters *rpcParams)
 {
 	if(!iGameInited) return;
 
+	if(!rpcParams || !rpcParams->input || !rpcParams->numberOfBitsOfData || rpcParams->numberOfBitsOfData > 8 * 1024 * 1024) return;
 	PCHAR Data = reinterpret_cast<PCHAR>(rpcParams->input);
 	int iBitLength = rpcParams->numberOfBitsOfData;
 
-	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength/8)+1,false);
+	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength+7)/8,false);
+	bsData.SetWriteOffset(iBitLength);
 
 	PLAYERID playerId;
 	BYTE byteFightingStyle=4;
@@ -4607,15 +4557,15 @@ void WorldPlayerAdd(RPCParameters *rpcParams)
 	float fRotation=0;
 	DWORD dwColor=0;
 
-	bsData.Read(playerId);
-	bsData.Read(byteTeam);
-	bsData.Read(iSkin);
-	bsData.Read(vecPos[0]);
-	bsData.Read(vecPos[1]);
-	bsData.Read(vecPos[2]);
-	bsData.Read(fRotation);
-	bsData.Read(dwColor);
-	bsData.Read(byteFightingStyle);
+	if(!bsData.Read(playerId)) return;
+	if(!bsData.Read(byteTeam)) return;
+	if(!bsData.Read(iSkin)) return;
+	if(!bsData.Read(vecPos[0])) return;
+	if(!bsData.Read(vecPos[1])) return;
+	if(!bsData.Read(vecPos[2])) return;
+	if(!bsData.Read(fRotation)) return;
+	if(!bsData.Read(dwColor)) return;
+	if(!bsData.Read(byteFightingStyle)) return;
 
 	if(playerId < 0 || playerId >= MAX_PLAYERS) return;
 
@@ -4634,13 +4584,15 @@ void WorldPlayerDeath(RPCParameters *rpcParams)
 {
 	if(!iGameInited) return;
 
+	if(!rpcParams || !rpcParams->input || !rpcParams->numberOfBitsOfData || rpcParams->numberOfBitsOfData > 8 * 1024 * 1024) return;
 	PCHAR Data = reinterpret_cast<PCHAR>(rpcParams->input);
 	int iBitLength = rpcParams->numberOfBitsOfData;
 
-	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength/8)+1,false);
+	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength+7)/8,false);
+	bsData.SetWriteOffset(iBitLength);
 
 	PLAYERID playerId;
-	bsData.Read(playerId);
+	if(!bsData.Read(playerId)) return;
 
 	if(playerId < 0 || playerId >= MAX_PLAYERS) return;
 
@@ -4655,15 +4607,17 @@ void ScrDeathMessage(RPCParameters *rpcParams)
 {
 	if(!iGameInited || !g_inZoneWar || g_zwKillListSent) return;
 
+	if(!rpcParams || !rpcParams->input || !rpcParams->numberOfBitsOfData || rpcParams->numberOfBitsOfData > 8 * 1024 * 1024) return;
 	PCHAR Data = reinterpret_cast<PCHAR>(rpcParams->input);
 	int iBitLength = rpcParams->numberOfBitsOfData;
-	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength/8)+1,false);
+	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength+7)/8,false);
+	bsData.SetWriteOffset(iBitLength);
 
 	BYTE byteWeapon = 0;
 	WORD wVictimId = 0, wKillerId = 0;
-	bsData.Read(byteWeapon);
-	bsData.Read(wVictimId);
-	bsData.Read(wKillerId);
+	if(!bsData.Read(byteWeapon)) return;
+	if(!bsData.Read(wVictimId)) return;
+	if(!bsData.Read(wKillerId)) return;
 
 	if(wKillerId >= MAX_PLAYERS || wVictimId >= MAX_PLAYERS) return;
 	const char *pKiller = playerInfo[wKillerId].szPlayerName;
@@ -4684,13 +4638,15 @@ void WorldPlayerRemove(RPCParameters *rpcParams)
 {
 	if(!iGameInited) return;
 
+	if(!rpcParams || !rpcParams->input || !rpcParams->numberOfBitsOfData || rpcParams->numberOfBitsOfData > 8 * 1024 * 1024) return;
 	PCHAR Data = reinterpret_cast<PCHAR>(rpcParams->input);
 	int iBitLength = rpcParams->numberOfBitsOfData;
 
-	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength/8)+1,false);
+	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength+7)/8,false);
+	bsData.SetWriteOffset(iBitLength);
 
 	PLAYERID playerId=0;
-	bsData.Read(playerId);
+	if(!bsData.Read(playerId)) return;
 
 	if(playerId < 0 || playerId >= MAX_PLAYERS) return;
 
@@ -4706,14 +4662,16 @@ void WorldVehicleAdd(RPCParameters *rpcParams)
 {
 	if(!iGameInited) return;
 
+	if(!rpcParams || !rpcParams->input || !rpcParams->numberOfBitsOfData || rpcParams->numberOfBitsOfData > 8 * 1024 * 1024) return;
 	PCHAR Data = reinterpret_cast<PCHAR>(rpcParams->input);
 	int iBitLength = rpcParams->numberOfBitsOfData;
 
-	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength/8)+1,false);
+	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength+7)/8,false);
+	bsData.SetWriteOffset(iBitLength);
 
 	NEW_VEHICLE NewVehicle;
 
-	bsData.Read((char *)&NewVehicle,sizeof(NEW_VEHICLE));
+	if(!bsData.Read((char *)&NewVehicle,sizeof(NEW_VEHICLE))) return;
 
 	if(NewVehicle.VehicleId < 0 || NewVehicle.VehicleId >= MAX_VEHICLES) return;
 
@@ -4731,14 +4689,16 @@ void WorldVehicleRemove(RPCParameters *rpcParams)
 {
 	if(!iGameInited) return;
 
+	if(!rpcParams || !rpcParams->input || !rpcParams->numberOfBitsOfData || rpcParams->numberOfBitsOfData > 8 * 1024 * 1024) return;
 	PCHAR Data = reinterpret_cast<PCHAR>(rpcParams->input);
 	int iBitLength = rpcParams->numberOfBitsOfData;
 
-	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength/8)+1,false);
+	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength+7)/8,false);
+	bsData.SetWriteOffset(iBitLength);
 
 	VEHICLEID VehicleID;
 
-	bsData.Read(VehicleID);
+	if(!bsData.Read(VehicleID)) return;
 
 	if(VehicleID < 0 || VehicleID >= MAX_VEHICLES) return;
 
@@ -4752,13 +4712,15 @@ void WorldVehicleRemove(RPCParameters *rpcParams)
 
 void ConnectionRejected(RPCParameters *rpcParams)
 {
+	if(!rpcParams || !rpcParams->input || !rpcParams->numberOfBitsOfData || rpcParams->numberOfBitsOfData > 8 * 1024 * 1024) return;
 	PCHAR Data = reinterpret_cast<PCHAR>(rpcParams->input);
 	int iBitLength = rpcParams->numberOfBitsOfData;
 
-	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength/8)+1,false);
+	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength+7)/8,false);
+	bsData.SetWriteOffset(iBitLength);
 	BYTE byteRejectReason;
 
-	bsData.Read(byteRejectReason);
+	if(!bsData.Read(byteRejectReason)) return;
 
 	if(byteRejectReason==REJECT_REASON_BAD_VERSION)
 	{
@@ -4801,14 +4763,14 @@ static bool ZwWarEndEnterGz(const char *szWhy)
 {
 	if(g_zwKillListStay || g_zwAutoJoinSent || g_zwKillListSent) return false;
 	if(g_zwNoGzEntry) { Log("[KILLLIST] Bitis girisi atlandi (/gz once reddedildi)."); return false; }
-	if(GetTickCount() - g_zwLastGzAt < 3000) return false; // /gz anti-spam
+	if(ClientTick() - g_zwLastGzAt < 3000) return false; // /gz anti-spam
 	g_zwAutoJoinSent = true;
 	g_zwKillListStay = true;   // GZ'de kal: sonuc gelince finalize, sonra /fr
-	g_zwCaptureStart = GetTickCount();
+	g_zwCaptureStart = ClientTick();
 	g_zwFinalizeAt = 0;
 	g_zwReturnPending = true;
-	g_zwReturnAt = GetTickCount() + KILL_LIST_CAPTURE_WINDOW_MS;
-	g_zwLastGzAt = GetTickCount();
+	g_zwReturnAt = ClientTick() + KILL_LIST_CAPTURE_WINDOW_MS;
+	g_zwLastGzAt = ClientTick();
 	Log("[KILLLIST] Savas bitti (%s), GZ'de degilmis: /gz atilip sonuc bekleniyor.", szWhy);
 	sendServerCommand((char *)"/gz");
 	return true;
@@ -4816,14 +4778,15 @@ static bool ZwWarEndEnterGz(const char *szWhy)
 
 static void ZwJoinCaptureReturn()
 {
+    if(!RuntimeWarMayMove()) return;
 	g_zwReturnPending = true;
 	g_zwKillListStay = false;
 	// 2 sn: takim rengi + war timer textdraw'inin ilk edit'i gelene kadar kal,
 	// sonra /fr ile geri don. (Uzun kalma GZ'de takilma/ban riski tasir.)
-	g_zwReturnAt = GetTickCount() + 3000; // ilk 3 sn kurali: Oasis
+	g_zwReturnAt = ClientTick() + 3000; // ilk 3 sn kurali: Oasis
 	Log("[ZONEWAR] Kisa GZ giris yapiliyor, takim rengi ogrenilip /fr ile geri donulecek.");
 	if(g_zwNoGzEntry) { Log("[ZONEWAR] Kisa giris atlandi (/gz once reddedildi)."); return; }
-	g_zwLastGzAt = GetTickCount();
+	g_zwLastGzAt = ClientTick();
 	sendServerCommand((char *)"/gz");
 }
 
@@ -4831,19 +4794,21 @@ void ClientMessage(RPCParameters *rpcParams)
 {
 	//if(!iGameInited) return;
 
+	if(!rpcParams || !rpcParams->input || !rpcParams->numberOfBitsOfData || rpcParams->numberOfBitsOfData > 8 * 1024 * 1024) return;
 	PCHAR Data = reinterpret_cast<PCHAR>(rpcParams->input);
 	int iBitLength = rpcParams->numberOfBitsOfData;
 
-	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength/8)+1,false);
+	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength+7)/8,false);
+	bsData.SetWriteOffset(iBitLength);
 	DWORD dwStrLen, dwColor;
 	char szMsg[257];
 	memset(szMsg, 0, 257);
 
-	bsData.Read(dwColor);
-	bsData.Read(dwStrLen);
+	if(!bsData.Read(dwColor)) return;
+	if(!bsData.Read(dwStrLen)) return;
 	if(dwStrLen > 256) return;
 
-	bsData.Read(szMsg, dwStrLen);
+	if(!bsData.Read(szMsg, dwStrLen)) return;
 	szMsg[dwStrLen] = 0;
 
 	if(settings.iFind)
@@ -4934,7 +4899,7 @@ void ClientMessage(RPCParameters *rpcParams)
 						playerInfo[iPid].iIsConnected = 1;
 						strncpy_s(playerInfo[iPid].szPlayerName, sizeof(playerInfo[iPid].szPlayerName), szNm, _TRUNCATE);
 						strncpy_s(g_playerCache[iPid].szName, sizeof(g_playerCache[0].szName), szNm, _TRUNCATE);
-						g_playerCache[iPid].dwTime = GetTickCount();
+						g_playerCache[iPid].dwTime = ClientTick();
 					}
 				}
 			}
@@ -5033,7 +4998,7 @@ void ClientMessage(RPCParameters *rpcParams)
 			if(iM >= 0 && iM <= 120 && iS >= 0 && iS <= 59 && g_inZoneWar)
 			{
 				g_warRemainingSec = iM * 60 + iS;
-				g_warTimerTick = GetTickCount();
+				g_warTimerTick = ClientTick();
 				// Chat kaynagi (uL.Hold tum savaslarin suresini yazar): ?gzt time
 				// gostergesi icin tutulur ama GERI SAYIM BUNA GORE ATILMAZ -
 				// bizim savasimiz degilse phantom duyurular cikiyordu.
@@ -5051,6 +5016,7 @@ void ClientMessage(RPCParameters *rpcParams)
 		}
 
 		const char *pZoneMsg = szNonColorEmbeddedMsg;
+        ObserveOasisWarNotice(pZoneMsg);
 		const char *pAction = NULL;
 		const char *pTail = NULL;
 
@@ -5079,26 +5045,26 @@ void ClientMessage(RPCParameters *rpcParams)
 			if(!g_anyWarActive || strcmp(g_anyWarDesc, szNew) != 0)
 			{
 				strncpy_s(g_anyWarDesc, sizeof(g_anyWarDesc), szNew, _TRUNCATE);
-				g_anyWarStartTick = GetTickCount();
+				g_anyWarStartTick = ClientTick();
 				Log("[WAR] Genel savas basladi: %s", g_anyWarDesc);
 			}
 			g_anyWarActive = true;
 		}
-		if(strstr(pZoneMsg, "Your position has been set") != NULL) { g_lastPosOkTick = GetTickCount(); g_firstRejectTick = 0; }
+		if(strstr(pZoneMsg, "Your position has been set") != NULL) { g_lastPosOkTick = ClientTick(); g_firstRejectTick = 0; }
 		if(strstr(pZoneMsg, "You cannot perform this action with a dialog open") != NULL && g_zwFrRetry < 3)
 	{
 		g_zwFrRetry = 3;
-		g_zwFrRetryAt = GetTickCount() + 1200;
+		g_zwFrRetryAt = ClientTick() + 1200;
 		Log("[ZONEWAR] /fr reddedildi (acik dialog), %d kez tekrar denenecek.", g_zwFrRetry);
 	}
 	if(strstr(pZoneMsg, "dialog open") != NULL && (g_zoneScanIdx >= 0 || g_followActive || g_zgoActive || g_ztkActive || g_ghpActive || g_waitingForGroups || g_waitingForGStats) && g_firstRejectTick == 0)
 		{
-			g_firstRejectTick = GetTickCount();
+			g_firstRejectTick = ClientTick();
 			Log("[DLG-WATCH] Surekli red basladi, 5dk surerse reconnect.");
 		}
 		if(strstr(pZoneMsg, " defeated ") != NULL || strstr(pZoneMsg, "Results [") != NULL)
 		{
-			g_lastWarEndTick = GetTickCount();
+			g_lastWarEndTick = ClientTick();
 			if(g_anyWarActive) Log("[WAR] Genel savas bitti.");
 			g_anyWarActive = false;
 			g_anyWarStartTick = 0;
@@ -5124,7 +5090,7 @@ void ClientMessage(RPCParameters *rpcParams)
 				const char *pE = strchr(pR, ']');
 				if(pE && (size_t)(pE - pR) < sizeof(g_wrScore)) { memcpy(g_wrScore, pR, (size_t)(pE - pR)); g_wrScore[pE - pR] = 0; }			}
 		}
-		if(strstr(szNonColorEmbeddedMsg, "sufficient permissions") != NULL && GetTickCount() - g_zwLastGzAt < 5000)
+		if(strstr(szNonColorEmbeddedMsg, "sufficient permissions") != NULL && ClientTick() - g_zwLastGzAt < 5000)
 		{
 			if(!g_zwNoGzEntry)
 			{
@@ -5225,7 +5191,7 @@ void ClientMessage(RPCParameters *rpcParams)
 			// aktifse gelen her yeni join duyurusu tekrar sayilir; zone tag'i uyu-smuyorsa
 			// (bos tag dahil) da ayni savasin devami kabul edilir.
 			bool bGeneralRepeat = (g_anyWarActive && g_anyWarDesc[0] && strstr(pZoneMsg, g_anyWarDesc) != NULL
-				&& GetTickCount() - g_anyWarStartTick > 5000 && g_warRemainingSec >= 0);
+				&& ClientTick() - g_anyWarStartTick > 5000 && g_warRemainingSec >= 0);
 			if((g_inZoneWar && g_zoneWarStartTick != 0
 				&& (!szZoneTag[0] || !strcmp(g_zwWarZone, szZoneTag)))
 				|| bGeneralRepeat)
@@ -5248,7 +5214,7 @@ void ClientMessage(RPCParameters *rpcParams)
 				g_zwNoGzEntry = false; // yeni savas: giris yasagi sifirla
 				strncpy_s(g_zwWarZone, sizeof(g_zwWarZone), szZoneTag, sizeof(g_zwWarZone) - 1);
 				// Savas baslangic anini kaydet: kalan sure = ZONE_WAR_TOTAL_MS - gecen sure.
-				g_zoneWarStartTick = GetTickCount();
+				g_zoneWarStartTick = ClientTick();
 				g_inZoneWar = true;
 				g_gztCountdownAnnounced = 999; // yeni savas: geri sayim esikleri sifirdan
 				g_gztLastRem = -1;
@@ -5287,7 +5253,7 @@ void ClientMessage(RPCParameters *rpcParams)
 				// Savas boyunca yakalayiciyi ACIK tut; bitince finalize et.
 				// Oasis repo: kill list dialogdan gelir - textdraw yakalama cop toplayip Discord'a spam atiyordu.
 			g_zwCapturingKillList = false;
-				g_zwCaptureStart = GetTickCount();
+				g_zwCaptureStart = ClientTick();
 				g_zwFinalizeAt = 0; // yeni savas: bitis finalize'i yeniden kurulacak
 					g_zwEmptyFinalizeSince = 0; // yeni savas: bos-finalize sayaci sifirlanir
 				Log("[KILLLIST] Yakalayici savas boyunca acik (kill list textdraw'lari toplanacak).");
@@ -5324,6 +5290,11 @@ void ClientMessage(RPCParameters *rpcParams)
 							for(char *q = szR; *q; q++) if(*q == '\r' || *q == '\n') { *q = 0; break; }
 							NormalizeGroupName(szR);
 							g_zwWarTeamRight = szR;  // mavi
+                            if(g_zoneWarStartTick != s_contextWarTick) {
+                                s_contextWarTick = g_zoneWarStartTick;
+                                s_warResultContext.begin(g_myGroupName, g_zwWarTeamLeft, g_zwWarTeamRight,
+                                    g_zwWarZone, std::string("oasis:") + g_szNickName + ":" + std::to_string((long long)time(NULL)) + ":" + std::to_string(s_contextWarTick));
+                            }
 						}
 						Log("[ZONEWAR] Takimlar: SOL(kirmizi)='%s' | SAG(mavi)='%s'",
 							g_zwWarTeamLeft.c_str(), g_zwWarTeamRight.c_str());
@@ -5351,7 +5322,7 @@ void ClientMessage(RPCParameters *rpcParams)
 				if(g_myGroupName.empty() && !g_zwLearningGroup)
 				{
 					g_zwLearningGroup = true;
-					g_zwLearnTick = GetTickCount();
+					g_zwLearnTick = ClientTick();
 					Log("[ZONEWAR] /gz2 bildirimi alindi, kendi grup adi ogrenilecek...");
 				}
 			}
@@ -5487,7 +5458,7 @@ void ClientMessage(RPCParameters *rpcParams)
 		// /gz2'den sonra gelen ilk zone mesaji bizim grubumuzun mesajidir.
 		if(pAction && g_zwLearningGroup && (strncmp(pZoneMsg, "ZONE WAR:", 9) == 0) && strcmp(pAction, "defeated") != 0 && strcmp(pAction, "results") != 0)
 		{
-			if(GetTickCount() - g_zwLearnTick <= 60000)
+			if(ClientTick() - g_zwLearnTick <= 60000)
 			{
 				const char *pName = pZoneMsg + 9;
 				while(*pName == ' ') pName++;
@@ -5543,7 +5514,7 @@ void ClientMessage(RPCParameters *rpcParams)
 
 		if(pAction)
 		{
-			DWORD dwNow = GetTickCount();
+			DWORD dwNow = ClientTick();
 			// 60 sn anti-spam: YALNIZCA zone-war mesajlari bu zamanlayiciyi gunceller.
 			// (?za/?gz kendi g_lastZoneWarTime'i kullanir â€” paylasilirsa "loses to"
 			// war-end mesaji sessizce yutulur, savas hic bitmezdi.)
@@ -5573,7 +5544,7 @@ if(!ZwWarEndEnterGz(pAction) && g_zwCapturingKillList && !g_zwKillListSent)
 				{
 					// Bitis textdraw'larini bekle; g_zwReturnPending true kalir,
 					// finalize sonrasi d-nüs (ProcessZoneWarAutoJoin) /fr g?nderir.
-					g_zwFinalizeAt = GetTickCount() + 3000;
+					g_zwFinalizeAt = ClientTick() + 3000;
 					Log("[KILLLIST] Savas bitti (%s), GZ'de kalinip sonuc textdraw'lari bekleniyor...", pAction);
 				}
 				else if(g_zwReturnPending)
@@ -5641,7 +5612,7 @@ if(!ZwWarEndEnterGz(pAction) && g_zwCapturingKillList && !g_zwKillListSent)
 		{
 			// Sunucu login'i islesin: 3 sn sonra akis devam etsin.
 			if(g_loginPendingUntil == 0)
-				g_loginPendingUntil = GetTickCount() + 3000;
+				g_loginPendingUntil = ClientTick() + 3000;
 			Log("[LOGIN] 'You logged in' mesaji alindi, 3 sn sonra akis devam edecek.");
 		}
 		const char *pLogged = strstr(szNonColorEmbeddedMsg, "logged in");
@@ -5769,7 +5740,7 @@ g_bridgeSuppressEcho++;
 				g_followMiss = 0;
 				g_followLastTick = 0;
 				g_followLastX = 0.0f; g_followLastY = 0.0f; g_followLastZ = 0.0f;
-				g_followActive = true;
+				g_followActive = true; RuntimePauseForFollow();
 				FollowWhisperReply(LM("takip basladi.", "Following you."));
 				Log("[FOLLOW] %s (%d) takip ediliyor.", szWName, iWId);
 				return;
@@ -5830,7 +5801,7 @@ g_bridgeSuppressEcho++;
 			strncpy_s(g_secCmdValue2, sizeof(g_secCmdValue2), szNew, sizeof(g_secCmdValue2) - 1);
 			g_secCmdIsEmail = false;
 			g_secCmdPending = true;
-			g_secCmdAt = GetTickCount() + 15000;
+			g_secCmdAt = ClientTick() + 15000;
 			g_secCmdCount = 0;
 			Log("[SEC] ?changepass PM'de (yetkili: %s), deger: '%s'", szPmName, g_secCmdValue);
 			sendServerCommand((char *)"/changepass");
@@ -5870,7 +5841,7 @@ g_bridgeSuppressEcho++;
 			}
 			g_secCmdIsEmail = true;
 			g_secCmdPending = true;
-			g_secCmdAt = GetTickCount() + 15000;
+			g_secCmdAt = ClientTick() + 15000;
 			g_secCmdCount = 0;
 			Log("[SEC] ?email PM'de (yetkili: %s), deger: '%s'", szPmName, g_secCmdValue);
 			sendServerCommand((char *)"/email");
@@ -5887,7 +5858,7 @@ g_bridgeSuppressEcho++;
 			const char *pId = pOp + 1;
 			iPmId = atoi(pId);
 		}
-		if(g_pmPending && GetTickCount() < g_pmUntil && g_pmRequesterId[0]
+		if(g_pmPending && ClientTick() < g_pmUntil && g_pmRequesterId[0]
 			&& szPmName[0] && pMsg[0]
 			&& ((g_pmName[0] && _stricmp(szPmName, g_pmName) == 0)
 				|| (g_pmTarget[0] && _stricmp(szPmName, g_pmTarget) == 0)
@@ -5897,15 +5868,13 @@ g_bridgeSuppressEcho++;
 			Log("[PM] Yanit Discord'a iletiliyor (PM): %s: '%s'", szPmName, pMsg);
 			try
 			{
-				httplib::Client cli(g_szBackendBase);
-				cli.set_connection_timeout(3);
 				json body = {
 					{"hwid", g_myHWID},
 					{"requesterId", g_pmRequesterId},
 					{"reply", pMsg},
 					{"author", szPmName}
 				};
-				cli.Post("/api/pm/reply", body.dump(), "application/json");
+				QueueBackendRequest("POST", "/api/pm/reply", body.dump());
 			}
 			catch(...) {}
 		}
@@ -5914,7 +5883,7 @@ g_bridgeSuppressEcho++;
 	// ?ginv sonucu: sunucu SYSTEM cevabini gruba ilet (10 sn pencere).
 	if(g_ginvPending)
 	{
-		if(GetTickCount() - g_ginvAt >= 10000) g_ginvPending = false;
+		if(ClientTick() - g_ginvAt >= 10000) g_ginvPending = false;
 		else if(!strncmp(szNonColorEmbeddedMsg, "SYSTEM:", 7))
 		{
 			const char *pR = szNonColorEmbeddedMsg + 7;
@@ -5972,7 +5941,7 @@ g_bridgeSuppressEcho++;
 						{
 							strncpy_s(g_playerCache[iSenderId].szName,
 								sizeof(g_playerCache[0].szName), szGrpName, _TRUNCATE);
-							g_playerCache[iSenderId].dwTime = GetTickCount();
+							g_playerCache[iSenderId].dwTime = ClientTick();
 						}
 					}
 				}
@@ -6048,7 +6017,7 @@ g_bridgeSuppressEcho++;
 							{
 								strncpy_s(g_playerCache[iSenderId].szName,
 									sizeof(g_playerCache[0].szName), szGrpName, _TRUNCATE);
-								g_playerCache[iSenderId].dwTime = GetTickCount();
+								g_playerCache[iSenderId].dwTime = ClientTick();
 							}
 						}
 					}
@@ -6071,6 +6040,7 @@ g_bridgeSuppressEcho++;
 // iSenderId < 0 ise konsol/gelen sender yok anlaminda g_myPlayerID varsayilir.
 void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 {
+    if(!pGroupMsg || RuntimeGateGroupCommand(pGroupMsg, iSenderId)) return;
 			// ?post gerekce penceresi: ?post sonrasi 30 sn icinde yazilan normal grup
 			// mesaji gerekce olarak yakalanir (komutlar haric).
 			if(g_pushPending && g_pushRequester >= 0 && iSenderId == g_pushRequester && pGroupMsg[0] != '?' && pGroupMsg[0] != '!' && pGroupMsg[0] != '/' && pGroupMsg[0] != '\0')
@@ -6080,7 +6050,7 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 			}
 			// /pm yaniti: hedef oyuncu grup chat'inde normal mesaj atarsa Discord'a ilet
 			// (Discord'da /pm'i kullanan kisiye etiketli + ephemeral gosterilir).
-			if(g_pmPending && GetTickCount() < g_pmUntil && g_pmTarget[0] && g_pmRequesterId[0]
+			if(g_pmPending && ClientTick() < g_pmUntil && g_pmTarget[0] && g_pmRequesterId[0]
 				&& iSenderId >= 0 && iSenderId < MAX_PLAYERS && iSenderId != g_myPlayerID
 				&& pGroupMsg[0] != '?' && pGroupMsg[0] != '!' && pGroupMsg[0] != '/' && pGroupMsg[0] != '\0')
 			{
@@ -6091,15 +6061,13 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 					Log("[PM] Yanit Discord'a iletiliyor: %s: '%s'", pPmName, pGroupMsg);
 					try
 					{
-						httplib::Client cli(g_szBackendBase);
-						cli.set_connection_timeout(3);
 						json body = {
 							{"hwid", g_myHWID},
 							{"requesterId", g_pmRequesterId},
 							{"reply", pGroupMsg},
 							{"author", pPmName}
 						};
-						cli.Post("/api/pm/reply", body.dump(), "application/json");
+						QueueBackendRequest("POST", "/api/pm/reply", body.dump());
 					}
 					catch(...) {}
 				}
@@ -6119,7 +6087,7 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 					if(dLoss >= 0.0) g_playerCache[iPid].dLoss = dLoss;
 					if(dFps  >= 0.0) g_playerCache[iPid].iFps = (int)dFps;
 					if(dPing >= 0.0) g_playerCache[iPid].iPing = (int)dPing;
-					g_playerCache[iPid].dwTime = GetTickCount();
+					g_playerCache[iPid].dwTime = ClientTick();
 					if(bNew)
 						Log("[PL-CACHE] %d (%s) stats cache: loss %.2f%% fps %d ping %d",
 							iPid, g_playerCache[iPid].szName[0] ? g_playerCache[iPid].szName : "?",
@@ -6130,7 +6098,7 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 					// loss/fps/ping bu "Stats ->" mesajindadir (SAMPRPC dialogda loss
 					// bulamazsa cevabi buraya birakir, flag acik kalir).
 					if(g_waitingForPNetStats && g_plTargetId == iPid
-						&& GetTickCount() - g_pnetstatsReqTime <= 15000)
+						&& ClientTick() - g_pnetstatsReqTime <= 15000)
 					{
 						g_waitingForPNetStats = false;
 						const char *pName = "Player ?";
@@ -6205,7 +6173,7 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 			// --- ?w : Discord war help, 5 dk cooldown (spam onlemek icin; 30 sn iken Discord'a yagmur gibi iniyordu) ---
 			else if(!strncmp(pGroupMsg, "?w", 2) && (pGroupMsg[2] == '\0' || pGroupMsg[2] == ' '))
 			{
-				DWORD dwNow = GetTickCount();
+				DWORD dwNow = ClientTick();
 				if(g_lastWarHelpTime != 0 && (dwNow - g_lastWarHelpTime) < 180000)
 				{
 					int iLeft = (int)((180000 - (dwNow - g_lastWarHelpTime)) / 1000);
@@ -6227,7 +6195,7 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 			// --- ?ping : yanit verir, 30 sn cooldown (RakGravy ile ayni) ---
 			if(!strncmp(pGroupMsg, "?ping", 5) && (pGroupMsg[5] == '\0' || pGroupMsg[5] == ' '))
 			{
-				DWORD dwNow = GetTickCount();
+				DWORD dwNow = ClientTick();
 				if(g_lastPingTime != 0 && (dwNow - g_lastPingTime) < 30000)
 				{
 					int iLeft = (int)((30000 - (dwNow - g_lastPingTime)) / 1000);
@@ -6246,7 +6214,7 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 			// --- ?pl [id] : /stats Session (FPS/Ping/Packet Loss), 30 sn cooldown ---
 			else if(!strncmp(pGroupMsg, "?pl", 3) && (pGroupMsg[3] == '\0' || pGroupMsg[3] == ' '))
 			{
-				DWORD dwNow = GetTickCount();
+				DWORD dwNow = ClientTick();
 				if(g_lastPLTime != 0 && (dwNow - g_lastPLTime) < 30000)
 				{
 					int iLeft = (int)((30000 - (dwNow - g_lastPLTime)) / 1000);
@@ -6276,7 +6244,7 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 
 				g_plTargetId = iTarget;
 				g_waitingForPNetStats = true;
-				g_pnetstatsReqTime = GetTickCount();
+				g_pnetstatsReqTime = ClientTick();
 
 
 
@@ -6294,7 +6262,7 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 			// --- ?gst : /gstats dialogundan zone + aktif oyuncu sayisini oyunda goster (Discord'a gitmez) ---
 			else if(!strncmp(pGroupMsg, "?gst", 4) && (pGroupMsg[4] == '\0' || pGroupMsg[4] == ' '))
 			{
-				DWORD dwNow = GetTickCount();
+				DWORD dwNow = ClientTick();
 				if(g_lastGStatsTime != 0 && (dwNow - g_lastGStatsTime) < 30000)
 				{
 					int iLeft = (int)((30000 - (dwNow - g_lastGStatsTime)) / 1000);
@@ -6308,7 +6276,7 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 				g_lastGStatsTime = dwNow;
 
 				g_waitingForGst = true;
-				g_gstReqTime = GetTickCount();
+				g_gstReqTime = ClientTick();
 				Log("[GST] /gstats gonderiliyor (zone + aktif oyuncu sayisi icin)...");
 				sendServerCommand((char *)"/gstats");
 			}
@@ -6330,7 +6298,7 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 			else if((!strncmp(pGroupMsg, "?gstats", 7) && (pGroupMsg[7] == '\0' || pGroupMsg[7] == ' '))
 			     || (!strncmp(pGroupMsg, "?act", 4) && (pGroupMsg[4] == '\0' || pGroupMsg[4] == ' ')))
 			{
-				DWORD dwNow = GetTickCount();
+				DWORD dwNow = ClientTick();
 				if(g_lastGStatsTime != 0 && (dwNow - g_lastGStatsTime) < 30000)
 				{
 					int iLeft = (int)((30000 - (dwNow - g_lastGStatsTime)) / 1000);
@@ -6344,7 +6312,7 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 				g_lastGStatsTime = dwNow;
 
 				g_waitingForGStats = true;
-				g_gstatsReqTime = GetTickCount();
+				g_gstatsReqTime = ClientTick();
 				g_gstatsSentFirst = false;
 				g_gstatsRequesterId = ""; // oyun ici istek: Discord'a gonderilmez
 				Log("[GSTATS] /gstats gonderiliyor...");
@@ -6379,10 +6347,8 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 				{
 					// Per-user listesini Discord'a goster (log + chat)
 					try{
-						httplib::Client cli(g_szBackendBase);
-						cli.set_connection_timeout(3);
 						std::string url = "/api/welcome/peruser/list?hwid=" + g_myHWID;
-						auto res = cli.Get(url.c_str());
+						auto res = GetBackendSnapshot(url.c_str());
 						if(res && res->status==200){
 							auto j=json::parse(res->body);
 							auto list=j.value("list", json::array());
@@ -6489,7 +6455,7 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 						"!War timer: OFF. Enable with ?gzt on | time: ?gzt time"));
 					return;
 				}
-				DWORD dwNow = GetTickCount();
+				DWORD dwNow = ClientTick();
 				// Kalan sure: oncelikle yakalanan GZ timer textdraw'ina dayanir
 				// (gercek kalan sure; chat duyuru ani ile savas basi ayni degil).
 				// Yoksa baslangic tick'inden hesaplanan deger kullanilir.
@@ -6608,13 +6574,13 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 					strncpy_s(s_astatsQuery, sizeof(s_astatsQuery), pArg, sizeof(s_astatsQuery) - 1);
 					strncpy_s(s_astatsSender, sizeof(s_astatsSender), g_szNickName, sizeof(s_astatsSender) - 1);
 					s_astatsWaiting = true;
-					s_astatsAt = GetTickCount();
+					s_astatsAt = ClientTick();
 					// Sunucu /astats argumanini KULLANMAZ: her seferinde bir INPUT
 					// dialogu acar, degeri oraya biz yazip submit ederiz (/gstats ile
 					// ayni makine). g_gstatsInput bos kalinca SAMPRPC o dialogu
 					// atladi ve sonuc HIC gelmedi.
 					g_waitingForGStats = true;
-					g_gstatsReqTime = GetTickCount();
+					g_gstatsReqTime = ClientTick();
 					g_gstatsAutoSubmit = true;
 					// ID dialogu karakter kontrolu yapiyor: "fSc.Oreyoo" gibi bir isimdeki
 					// nokta "{AAAAAA}" renk kodu vb. "karakter iceriyor" hatasini
@@ -6670,18 +6636,16 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 				// DB'deki eski adi da temizle ki ogrenilen taze ad yazilsin
 				try
 				{
-					httplib::Client cli(g_szBackendBase);
-					cli.set_connection_timeout(3);
 					json body = {{"name", g_szNickName}, {"data", json::object()}, {"groupName", ""}};
-					cli.Post("/api/bot/status", body.dump(), "application/json");
+					QueueBackendRequest("POST", "/api/bot/status", body.dump());
 				}
 				catch(...) {}
 				// Tek seferlik ogrenme: /gstats (bos submit -> kendi grubu), faz 2 isler.
 				g_waitingForGroupName = true;
 				g_groupNamePhase = 2;
-				g_groupNameReqTime = GetTickCount();
+				g_groupNameReqTime = ClientTick();
 				g_waitingForGStats = true;
-				g_gstatsReqTime = GetTickCount();
+				g_gstatsReqTime = ClientTick();
 				g_gstatsAutoSubmit = true;
 				g_gstatsInput = "";
 				g_gstatsRequesterId = "";
@@ -6713,7 +6677,7 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 					{
 						Log("[POST] ?post: gerekce bekleniyor (30 sn)...");
 						g_pushPending = true;
-						g_pushUntil = GetTickCount() + 30000;
+						g_pushUntil = ClientTick() + 30000;
 						g_pushReason[0] = 0;
 						g_pushRequester = iSenderId;
 						g_bridgeSuppressEcho++;
@@ -6896,6 +6860,7 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 			{
 				const char *pArg = pGroupMsg + 4;
 				while(*pArg == ' ' || *pArg == '#') pArg++;
+                if(!*pArg) { sendChat((char *)"!Usage: ?zsnip <zone|tag|off>"); return; }
 				int iZone = -1;
 				g_snipZoneCount = 0; g_snipZoneIdx = 0; g_snipGroupName[0] = 0;
 				if(pArg[0] >= '0' && pArg[0] <= '9')
@@ -6956,7 +6921,7 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 					g_zgoActive = true;
 					PauseZoneScanForSnip(); // tarama /pos kapismamasi icin duraklat (donuste devam)
 					g_zgoZoneId = iZone;
-					g_zgoReturnTick = GetTickCount() + ZGO_STAY_MS;
+					g_zgoReturnTick = ClientTick() + ZGO_STAY_MS;
 					sendServerCommand(szCmd);
 
 					char szMsg[128];
@@ -6990,7 +6955,7 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 			else if((!strncmp(pGroupMsg, "?za", 3) && (pGroupMsg[3] == '\0' || pGroupMsg[3] == ' '))
 			     || (!strncmp(pGroupMsg, "?zattack", 8) && (pGroupMsg[8] == '\0' || pGroupMsg[8] == ' ')))
 			{
-				DWORD dwNow = GetTickCount();
+				DWORD dwNow = ClientTick();
 				if(g_lastZoneWarTime != 0 && (dwNow - g_lastZoneWarTime) < 180000)
 				{
 					int iLeft = (int)((180000 - (dwNow - g_lastZoneWarTime)) / 1000);
@@ -7043,15 +7008,16 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 				// Yetki textdraw penceresi: co-leader/leader degilsek sunucu bir textdraw
 				// gosterir; ScrShowTextDraw icindeki kontrol onu yakalayip gruba bildirir.
 				g_zaPermActive = true;
-				g_zaPermUntil = GetTickCount() + 8000;
+				g_zaPermUntil = ClientTick() + 8000;
 			}
 			// --- ?zsnip <zoneid | gruptag> : zone sniper (YS botu gibi) ---
 			// Hedef zonu bul, oraya isinla; o zonede savas SURUYORSA bitisini bekle,
 			// bitince /gz ile saldir (zone sniper). Id (sayi) veya isim/tag ile calisir.
-			else if(!strncmp(pGroupMsg, "?zsnip", 6) && (pGroupMsg[6] == ' ' || pGroupMsg[6] == '#' || pGroupMsg[6] != '\0'))
+			else if(IsSniperCommand(pGroupMsg))
 			{
 				const char *pArg = pGroupMsg + 6;
 				while(*pArg == ' ' || *pArg == '#') pArg++;
+                if(!*pArg) { sendChat((char *)"!Usage: ?zsnip <zone|tag|off>"); return; }
 				// off: bekleyen istegi/bekleyen yetki kontrolunu iptal edebilmeli, gecir.
 				if(g_snipPermPending && _stricmp(pArg, "off") != 0)
 				{
@@ -7082,7 +7048,7 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 					g_snipSenderId = iSenderId;
 					g_snipPermPending = true;
 					g_waitingForGmembers = true;
-					g_gmembersReqTime = GetTickCount();
+					g_gmembersReqTime = ClientTick();
 					GmembersReset();
 					Log("[ZSNIP] off icin yetki kontrolu: /gmembers gonderiliyor.");
 					g_bridgeSuppressEcho++;
@@ -7156,7 +7122,7 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 				g_snipSenderId = iSenderId;
 				g_snipPermPending = true;
 				g_waitingForGmembers = true;
-				g_gmembersReqTime = GetTickCount();
+				g_gmembersReqTime = ClientTick();
 				GmembersReset();
 				Log("[ZSNIP] Yetki kontrolu: /gmembers gonderiliyor (zone #%d, istek: %s).", iZone, pArg);
 				g_bridgeSuppressEcho++;
@@ -7279,7 +7245,7 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 						// HEMEN ba?lat (otomatik kapidan beklemek yerine). Zone taramasi
 						// aktifse durdur - yoksa tarama /gzinfo dialogu harvest /gstats
 						// zinciriyle cakisip ikisi de takilirdi.
-						if(g_spawnTick != 0 && (GetTickCount() - g_spawnTick) >= 60000 && !g_ghpActive && !g_inZoneWar && !g_zgoActive)
+						if(g_spawnTick != 0 && (ClientTick() - g_spawnTick) >= 60000 && !g_ghpActive && !g_inZoneWar && !g_zgoActive)
 						{
 							if(g_zoneScanIdx >= 0)
 							{
@@ -7293,7 +7259,7 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 							g_ghpLearnedCount = 0;
 							SyncGroupColorsToDb();
 							g_waitingForGroups = true;
-							g_groupsReqTime = GetTickCount();
+							g_groupsReqTime = ClientTick();
 							sendServerCommand((char *)"/groups");
 						}
 						else
@@ -7310,7 +7276,7 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 					// Mevcut txt'teki (zaten ogrenilmis) tag'leri hemen DB'ye yaz.
 					SyncGroupColorsToDb();
 					g_waitingForGroups = true;
-					g_groupsReqTime = GetTickCount();
+					g_groupsReqTime = ClientTick();
 					sendServerCommand((char *)"/groups");
 				}
 			}
@@ -7343,7 +7309,7 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 			// --- ?gz : zone war baslatma -Ã¥Ã† Discord zonewar kanalina bildirim, 180 sn cooldown (RakGravy ile ayni) ---
 			else if(!strncmp(pGroupMsg, "?gz", 3) && (pGroupMsg[3] == '\0' || pGroupMsg[3] == ' '))
 			{
-				DWORD dwNow = GetTickCount();
+				DWORD dwNow = ClientTick();
 				if(g_lastZoneWarTime != 0 && (dwNow - g_lastZoneWarTime) < 180000)
 				{
 					int iLeft = (int)((180000 - (dwNow - g_lastZoneWarTime)) / 1000);
@@ -7428,7 +7394,7 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 					Log("[GINV] Oyun ici ?ginv: id %d (isteyen: %d).", atoi(pArg), iSenderId);
 					sendServerCommand(szCmd);
 					g_ginvPending = true;
-					g_ginvAt = GetTickCount();
+					g_ginvAt = ClientTick();
 				}
 				else
 				{
@@ -7486,7 +7452,7 @@ void HandleGroupCommand(const char *pGroupMsg, int iSenderId)
 					return;
 				}
 				Log("[GROUPCHAT] Grup mesaji Discord'a iletilmek uzere: %s", pGroupMsg + 1);
-				SendGroupChatToDiscord(pGroupMsg + 1);
+				SendGroupChatToDiscord(pGroupMsg + 1, (iSenderId >= 0 && iSenderId < MAX_PLAYERS) ? playerInfo[iSenderId].szPlayerName : g_szNickName);
 			}
 }
 
@@ -7494,20 +7460,22 @@ void Chat(RPCParameters *rpcParams)
 {
 	if(!iGameInited) return;
 
+	if(!rpcParams || !rpcParams->input || !rpcParams->numberOfBitsOfData || rpcParams->numberOfBitsOfData > 8 * 1024 * 1024) return;
 	PCHAR Data = reinterpret_cast<PCHAR>(rpcParams->input);
 	int iBitLength = rpcParams->numberOfBitsOfData;
 	PlayerID sender = rpcParams->sender;
 
-	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength/8)+1,false);
+	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength+7)/8,false);
+	bsData.SetWriteOffset(iBitLength);
 	PLAYERID playerId;
 	BYTE byteTextLen;
 
 	unsigned char szText[256];
 	memset(szText, 0, 256);
 
-	bsData.Read(playerId);
-	bsData.Read(byteTextLen);
-	bsData.Read((char*)szText, byteTextLen);
+	if(!bsData.Read(playerId)) return;
+	if(!bsData.Read(byteTextLen)) return;
+	if(!bsData.Read((char*)szText, byteTextLen)) return;
 	szText[byteTextLen] = 0;
 
 	if(playerId < 0 || playerId >= MAX_PLAYERS)
@@ -7538,10 +7506,12 @@ void UpdateScoresPingsIPs(RPCParameters *rpcParams)
 {
 	if(!iGameInited) return;
 
+	if(!rpcParams || !rpcParams->input || !rpcParams->numberOfBitsOfData || rpcParams->numberOfBitsOfData > 8 * 1024 * 1024) return;
 	PCHAR Data = reinterpret_cast<PCHAR>(rpcParams->input);
 	int iBitLength = rpcParams->numberOfBitsOfData;
 
-	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength/8)+1,false);
+	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength+7)/8,false);
+	bsData.SetWriteOffset(iBitLength);
 
 	PLAYERID playerId;
 	int iPlayerScore;
@@ -7549,9 +7519,9 @@ void UpdateScoresPingsIPs(RPCParameters *rpcParams)
 
 	for(PLAYERID i=0; i<(iBitLength/8)/9; i++)
 	{
-		bsData.Read(playerId);
-		bsData.Read(iPlayerScore);
-		bsData.Read(dwPlayerPing);
+		if(!bsData.Read(playerId)) return;
+		if(!bsData.Read(iPlayerScore)) return;
+		if(!bsData.Read(dwPlayerPing)) return;
 
 		if(playerId < 0 || playerId >= MAX_PLAYERS)
 			continue;
@@ -7565,15 +7535,17 @@ void SetCheckpoint(RPCParameters *rpcParams)
 {
 	if(!iGameInited) return;
 
+	if(!rpcParams || !rpcParams->input || !rpcParams->numberOfBitsOfData || rpcParams->numberOfBitsOfData > 8 * 1024 * 1024) return;
 	PCHAR Data = reinterpret_cast<PCHAR>(rpcParams->input);
 	int iBitLength = rpcParams->numberOfBitsOfData;
 
-	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength/8)+1,false);
+	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength+7)/8,false);
+	bsData.SetWriteOffset(iBitLength);
 
-	bsData.Read(settings.CurrentCheckpoint.fPosition[0]);
-	bsData.Read(settings.CurrentCheckpoint.fPosition[1]);
-	bsData.Read(settings.CurrentCheckpoint.fPosition[2]);
-	bsData.Read(settings.CurrentCheckpoint.fSize);
+	if(!bsData.Read(settings.CurrentCheckpoint.fPosition[0])) return;
+	if(!bsData.Read(settings.CurrentCheckpoint.fPosition[1])) return;
+	if(!bsData.Read(settings.CurrentCheckpoint.fPosition[2])) return;
+	if(!bsData.Read(settings.CurrentCheckpoint.fSize)) return;
 
 	settings.CurrentCheckpoint.bActive = true;
 
@@ -7593,16 +7565,18 @@ void DisableCheckpoint(RPCParameters *rpcParams)
 
 void Pickup(RPCParameters *rpcParams)
 {
+	if(!rpcParams || !rpcParams->input || !rpcParams->numberOfBitsOfData || rpcParams->numberOfBitsOfData > 8 * 1024 * 1024) return;
 	PCHAR Data = reinterpret_cast<PCHAR>(rpcParams->input);
 	int iBitLength = rpcParams->numberOfBitsOfData;
 
-	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength/8)+1,false);
+	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength+7)/8,false);
+	bsData.SetWriteOffset(iBitLength);
 
 	int PickupID;
 	PICKUP Pickup;
 
-	bsData.Read(PickupID);
-	bsData.Read((PCHAR)&Pickup, sizeof(PICKUP));
+	if(!bsData.Read(PickupID)) return;
+	if(!bsData.Read((PCHAR)&Pickup, sizeof(PICKUP))) return;
 
 	if(settings.uiPickupsLogging != 0)
 	{
@@ -7614,14 +7588,16 @@ void Pickup(RPCParameters *rpcParams)
 
 void DestroyPickup(RPCParameters *rpcParams)
 {
+	if(!rpcParams || !rpcParams->input || !rpcParams->numberOfBitsOfData || rpcParams->numberOfBitsOfData > 8 * 1024 * 1024) return;
 	PCHAR Data = reinterpret_cast<PCHAR>(rpcParams->input);
 	int iBitLength = rpcParams->numberOfBitsOfData;
 
-	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength/8)+1,false);
+	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength+7)/8,false);
+	bsData.SetWriteOffset(iBitLength);
 
 	int PickupID;
 
-	bsData.Read(PickupID);
+	if(!bsData.Read(PickupID)) return;
 
 	if(settings.uiPickupsLogging != 0)
 	{
@@ -7631,18 +7607,20 @@ void DestroyPickup(RPCParameters *rpcParams)
 
 void RequestClass(RPCParameters *rpcParams)
 {
+	if(!rpcParams || !rpcParams->input || !rpcParams->numberOfBitsOfData || rpcParams->numberOfBitsOfData > 8 * 1024 * 1024) return;
 	PCHAR Data = reinterpret_cast<PCHAR>(rpcParams->input);
 	int iBitLength = rpcParams->numberOfBitsOfData;
 
-	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength/8)+1,false);
+	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength+7)/8,false);
+	bsData.SetWriteOffset(iBitLength);
 
 	BYTE byteRequestOutcome = 0;
 
-	bsData.Read(byteRequestOutcome);
+	if(!bsData.Read(byteRequestOutcome)) return;
 
 	if(byteRequestOutcome)
 	{
-		bsData.Read((PCHAR)&SpawnInfo,sizeof(PLAYER_SPAWN_INFO));
+		if(!bsData.Read((PCHAR)&SpawnInfo,sizeof(PLAYER_SPAWN_INFO))) return;
 
 		iLocalPlayerSkin = SpawnInfo.iSkin;
 	}
@@ -7667,7 +7645,7 @@ void SpawnConfirmed(RPCParameters *rpcParams)
 
 	iSpawned = 1;
 	bIsSpectating = 0;
-	g_zoneScanWaitStart = GetTickCount(); // oto-tarama sayaci: 30 sn sonra ilk tarama
+	g_zoneScanWaitStart = ClientTick(); // oto-tarama sayaci: 30 sn sonra ilk tarama
 
 	// Spawn onayi (RPC_Spawn) alindi: /fr'yi GONDER. Spawn menusu secimi zaten
 	// bir kez /fr gonderdi; kullanici istegi: spawn olduktan sonra da /fr tekrar
@@ -7698,7 +7676,7 @@ void SpawnConfirmed(RPCParameters *rpcParams)
 	if(g_inZoneWar && g_warRemainingSec >= 0 && !g_zwReturnPending && !g_zwKillListStay)
 	{
 		g_zwReturnPending = true;
-		g_zwReturnAt = GetTickCount() + 4000;
+		g_zwReturnAt = ClientTick() + 4000;
 		Log("[WAR:TIMER] Restore sonrasi kisa GZ girisii: timer dogrulaniyor (%d sn restore).", g_warRemainingSec);
 		sendServerCommand((char *)"/gz");
 	}
@@ -7708,9 +7686,11 @@ void ScrInitMenu(RPCParameters *rpcParams)
 {
 	if(!iGameInited) return;
 
+	if(!rpcParams || !rpcParams->input || !rpcParams->numberOfBitsOfData || rpcParams->numberOfBitsOfData > 8 * 1024 * 1024) return;
 	PCHAR Data = reinterpret_cast<PCHAR>(rpcParams->input);
 	int iBitLength = rpcParams->numberOfBitsOfData;
-	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength/8)+1,false);
+	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength+7)/8,false);
+	bsData.SetWriteOffset(iBitLength);
 
 	memset(&GTAMenu, 0, sizeof(struct stGTAMenu));
 
@@ -7723,43 +7703,43 @@ void ScrInitMenu(RPCParameters *rpcParams)
 	float fCol2 = 0.0;
 	MENU_INT MenuInteraction;
 
-	bsData.Read(byteMenuID);
-	bsData.Read(bColumns);
-	bsData.Read(cText, MAX_MENU_LINE);
-	bsData.Read(fX);
-	bsData.Read(fY);
-	bsData.Read(fCol1);
-	if (bColumns) bsData.Read(fCol2);
-	bsData.Read(MenuInteraction.bMenu);
+	if(!bsData.Read(byteMenuID)) return;
+	if(!bsData.Read(bColumns)) return;
+	if(!bsData.Read(cText, MAX_MENU_LINE)) return;
+	if(!bsData.Read(fX)) return;
+	if(!bsData.Read(fY)) return;
+	if(!bsData.Read(fCol1)) return;
+	if(bColumns && !bsData.Read(fCol2)) return;
+	if(!bsData.Read(MenuInteraction.bMenu)) return;
 	for (BYTE i = 0; i < MAX_MENU_ITEMS; i++)
-		bsData.Read(MenuInteraction.bRow[i]);
+		if(!bsData.Read(MenuInteraction.bRow[i])) return;
 
 	Log("[MENU] %s", cText);
 	strcpy(GTAMenu.szTitle, cText);
 
 	BYTE byteColCount;
-	bsData.Read(cText, MAX_MENU_LINE);
+	if(!bsData.Read(cText, MAX_MENU_LINE)) return;
 	Log("[MENU] %s", cText);
 	strcpy(GTAMenu.szSeparator, cText);
 
-	bsData.Read(byteColCount);
+	if(!bsData.Read(byteColCount)) return;
 	GTAMenu.byteColCount = byteColCount;
 	for (BYTE i = 0; i < byteColCount; i++)
 	{
-		bsData.Read(cText, MAX_MENU_LINE);
+		if(!bsData.Read(cText, MAX_MENU_LINE)) return;
 		Log("[MENU:%d] %s", i, cText);
 		strcpy(GTAMenu.szColumnContent[i], cText);
 	}
 
 	if (bColumns)
 	{
-		bsData.Read(cText, MAX_MENU_LINE);
+		if(!bsData.Read(cText, MAX_MENU_LINE)) return;
 		//Log("4: %s", cText);
 
-		bsData.Read(byteColCount);
+		if(!bsData.Read(byteColCount)) return;
 		for (BYTE i = 0; i < byteColCount; i++)
 		{
-			bsData.Read(cText, MAX_MENU_LINE);
+			if(!bsData.Read(cText, MAX_MENU_LINE)) return;
 			//Log("5: %d %s", i, cText);
 		}
 	}
@@ -8001,7 +7981,7 @@ static bool WarResultDialogTry(const char *szTitle, const char *szInfo, int iDlg
 {
 	// Savas bitisinden 90 sn gecmis olabilir ama biz 09:03 kontrol penceresindeyiz
 	// (savas bitmis olabilir) -> o durumda da sonuc diyalogu kabul edilir.
-	if(GetTickCount() - g_lastWarEndTick > 90000 && !(g_zwCheckJoinSent && !g_zwKillListSent)) return false;
+	if(ClientTick() - g_lastWarEndTick > 90000 && !(g_zwCheckJoinSent && !g_zwKillListSent)) return false;
 	if(iStyle != DIALOG_STYLE_LIST && iStyle != DIALOG_STYLE_TABLIST && iStyle != DIALOG_STYLE_TABLIST_HEADERS) return false;
 	if(!(strstr(szTitle, "War") || strstr(szTitle, "Result") || strstr(szTitle, "Score") || strstr(szTitle, "Kill") || strstr(szTitle, "Winner") || strstr(szTitle, "MVP") || strstr(szTitle, "GZ"))) return false;
 	Log("[WARRESULT-DATA] '%s': %.800s", szTitle, szInfo ? szInfo : "");
@@ -8132,6 +8112,10 @@ static bool OasisKillListDialog(const char *szTitle, const char *szInfo)
 		}
 	}
 	if(nRows == 0) return true;
+    std::string resultNameA, resultNameB; bool resultWon = false;
+    if(!PrepareOasisResult(szTagA, szTagB, iSA, iSB, resultNameA, resultNameB, resultWon)) {
+        Log("[KILLLIST] Unmatched or ambiguous Oasis result ignored."); return true;
+    }
 	// Sonuc dialogu kazanani YAZMIYOR. "ZONE WAR: X defeated Y" chat'i gonderimden
 	// ~20ms SONRA geliyor (37.148 vs 37.143) -> eski kod varsayilan true ile
 	// "Won" basiyordu (bot gC'ydi, 21-37 kaybetti, log 'KAYBETTI' diyordu).
@@ -8163,10 +8147,10 @@ static bool OasisKillListDialog(const char *szTitle, const char *szInfo)
 	sprintf_s(szHeader, sizeof(szHeader), "%-16s %4s %4s %4s %6s", "Name", "K", "A", "D", "DMG");
 	sprintf_s(szTot, sizeof(szTot), "Total            %4d %4d %4d %6.0f", iTotK, 0, iTotD, fTotDmg);
 	sprintf_s(szBox, sizeof(szBox), "%s\n--------------------------------------\n%s\n--------------------------------------\n%s", szHeader, szRows, szTot);
-	SendKillList(szBox, "", szTagA[0] ? szTagA : "A", szTagB[0] ? szTagB : "B", szTagA, szTagB,
-		iSA, iSB, g_zwWeWon, szMvp, szFeeder,
+	SendKillList(szBox, "", resultNameA.c_str(), resultNameB.c_str(), szTagA, szTagB,
+		iSA, iSB, resultWon, szMvp, szFeeder,
 		fBestDmg > 0 ? (int)fBestDmg : 0, iBestK < 0 ? 0 : iBestK, iBestD < 0 ? 0 : iBestD,
-		g_zwFirstBlood, "");
+		g_zwFirstBlood, "", s_warResultContext.ownGroup.c_str(), s_warResultContext.zone.c_str(), s_warResultContext.id.c_str(), s_warResultContext.wonKnown);
 	FILE *fl = fopen("gz sonucl.txt", "w");
 	if(fl) { fprintf(fl, "%s\n", szBox); fclose(fl); }
 	Log("[KILLLIST] Oasis dialog sonucu gonderildi (%d satir %s %d - %d %s).", nRows, szTagA, iSA, iSB, szTagB);
@@ -8183,27 +8167,31 @@ void ScrDialogBox(RPCParameters *rpcParams)
 {
 	if(!iGameInited) return;
 
+	if(!rpcParams || !rpcParams->input || !rpcParams->numberOfBitsOfData || rpcParams->numberOfBitsOfData > 8 * 1024 * 1024) return;
 	PCHAR Data = reinterpret_cast<PCHAR>(rpcParams->input);
 	int iBitLength = rpcParams->numberOfBitsOfData;
-	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength/8)+1,false);
+	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength+7)/8,false);
+	bsData.SetWriteOffset(iBitLength);
 
-	bsData.Read(sampDialog.wDialogID);
-	bsData.Read(sampDialog.bDialogStyle);
+	stSAMPDialog dialog = sampDialog;
+	if(!bsData.Read(dialog.wDialogID)) return;
+	if(!bsData.Read(dialog.bDialogStyle)) return;
 
-	bsData.Read(sampDialog.bTitleLength);
-	bsData.Read(sampDialog.szTitle, sampDialog.bTitleLength);
-	sampDialog.szTitle[sampDialog.bTitleLength] = 0;
+	if(!bsData.Read(dialog.bTitleLength)) return;
+	if(!ReadNetworkText(bsData, dialog.szTitle, dialog.bTitleLength)) return;
+	dialog.szTitle[dialog.bTitleLength] = 0;
 
-	bsData.Read(sampDialog.bButton1Len);
-	bsData.Read(sampDialog.szButton1, sampDialog.bButton1Len);
-	sampDialog.szButton1[sampDialog.bButton1Len] = 0;
+	if(!bsData.Read(dialog.bButton1Len)) return;
+	if(!ReadNetworkText(bsData, dialog.szButton1, dialog.bButton1Len)) return;
+	dialog.szButton1[dialog.bButton1Len] = 0;
 
-	bsData.Read(sampDialog.bButton2Len);
-	bsData.Read(sampDialog.szButton2, sampDialog.bButton2Len);
-	sampDialog.szButton2[sampDialog.bButton2Len] = 0;
+	if(!bsData.Read(dialog.bButton2Len)) return;
+	if(!ReadNetworkText(bsData, dialog.szButton2, dialog.bButton2Len)) return;
+	dialog.szButton2[dialog.bButton2Len] = 0;
 
 	char szDlgInfo[2048] = {0};
-	stringCompressor->DecodeString(szDlgInfo, sizeof(szDlgInfo), &bsData);
+	if(!stringCompressor->DecodeString(szDlgInfo, sizeof(szDlgInfo), &bsData)) return;
+	 sampDialog = dialog;
 	Log("[DLG] id=%d style=%d title='%s' btn1='%s' btn2='%s'", sampDialog.wDialogID, sampDialog.bDialogStyle, sampDialog.szTitle, sampDialog.szButton1, sampDialog.szButton2);
 
 	// --- SPAWN MENUSU: "Where would you like to go?" otomatik Freeroam secimi ---
@@ -8214,7 +8202,7 @@ void ScrDialogBox(RPCParameters *rpcParams)
 	// Oasis: spawn basinda "Oasis | Mode" listesi gelir - secim ayni, /fr YOK.
 	bool bIsOasisMode = (strstr(sampDialog.szTitle, "Oasis") != NULL && strstr(sampDialog.szTitle, "Mode") != NULL);
 	g_watchDlgId = sampDialog.wDialogID;
-	g_watchDlgAt = GetTickCount();
+	g_watchDlgAt = ClientTick();
 	g_watchDlgStyle = sampDialog.bDialogStyle;
 	g_watchDlgRow[0] = 0;
 	if(sampDialog.bDialogStyle == DIALOG_STYLE_LIST || sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST || sampDialog.bDialogStyle == DIALOG_STYLE_TABLIST_HEADERS)
@@ -8272,7 +8260,7 @@ void ScrDialogBox(RPCParameters *rpcParams)
 						pRakClient->RPC(&RPC_DialogResponse, &bsSel, HIGH_PRIORITY, RELIABLE_ORDERED, 0, FALSE, UNASSIGNED_NETWORK_ID, NULL);
 					}
 					sampDialog.iIsActive = 0;
-					g_dwSpawnMenuHandled = GetTickCount();
+					g_dwSpawnMenuHandled = ClientTick();
 					bSelected = true;
 
 					// Freeroam secimi cevaplandigina gore /fr'yi gonder.
@@ -8339,7 +8327,7 @@ void ScrDialogBox(RPCParameters *rpcParams)
 
 	// Bekleyen /stats cevabi (ACC probe): govdeyi bir kez dokum - format daha
 	// sonra kesin parse ile doldurulacak. Sadece bizim sordugumuz isim icin.
-	if(!g_accPendingName.empty() && GetTickCount() - g_accPendingAt < ACC_PROBE_TIMEOUT_MS)
+	if(!g_accPendingName.empty() && ClientTick() - g_accPendingAt < ACC_PROBE_TIMEOUT_MS)
 		Log("[ACCDBG] isim='%s' baslik='%s' govde=%.300s", g_accPendingName.c_str(), sampDialog.szTitle, szDlgInfo);
 
 	if(g_groleActive || g_grankActive || g_gkickActive || g_waitingForGmembers || g_waitingForGStats)
@@ -8419,20 +8407,22 @@ void ScrDialogBox(RPCParameters *rpcParams)
 
 void ScrGameText(RPCParameters *rpcParams)
 {
+	if(!rpcParams || !rpcParams->input || !rpcParams->numberOfBitsOfData || rpcParams->numberOfBitsOfData > 8 * 1024 * 1024) return;
 	PCHAR Data = reinterpret_cast<PCHAR>(rpcParams->input);
 	int iBitLength = rpcParams->numberOfBitsOfData;
 
-	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength/8)+1,false);
+	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength+7)/8,false);
+	bsData.SetWriteOffset(iBitLength);
 	char szMessage[400];
 	int iType, iTime, iLength;
 
-	bsData.Read(iType);
-	bsData.Read(iTime);
-	bsData.Read(iLength);
+	if(!bsData.Read(iType)) return;
+	if(!bsData.Read(iTime)) return;
+	if(!bsData.Read(iLength)) return;
 
-	if(iLength > 400) return; // tsk tsk, kye
+	if(iLength < 0 || iLength >= (int)sizeof(szMessage)) return; // tsk tsk, kye
 
-	bsData.Read(szMessage, iLength);
+	if(!ReadNetworkText(bsData, szMessage, iLength)) return;
 	szMessage[iLength] = '\0';
 
 	Log("[GAMETEXT] %s", szMessage);
@@ -8469,6 +8459,7 @@ void ScrGameText(RPCParameters *rpcParams)
 	// guvenilir ek sinyal. Sonuc zsnip zincirine islenir + war durumu temizlenir.
 	if(strstr(szMessage, "won the zone war"))
 	{
+        s_warResultContext.outcome(true);
 		g_zwWeWon = true;
 		g_ztkOutcome = 1;
 		if(g_ztkActive) g_ztkTargetWar = false;
@@ -8488,7 +8479,7 @@ void ScrGameText(RPCParameters *rpcParams)
 			// acik kaliyor ve ?zf surekli capturing etiketi basiyordu (gametext lost vakasi).
 			if(!ZwWarEndEnterGz("won/lost") && g_zwCapturingKillList && !g_zwKillListSent)
 			{
-				g_zwFinalizeAt = GetTickCount() + 3000;
+				g_zwFinalizeAt = ClientTick() + 3000;
 				Log("[KILLLIST] Gametext: savas bitti, GZ'de kalinip sonuc textdraw'lari bekleniyor...");
 			}
 			else if(g_zwReturnPending)
@@ -8506,6 +8497,7 @@ void ScrGameText(RPCParameters *rpcParams)
 	}
 	else if(strstr(szMessage, "lost the zone war"))
 	{
+        s_warResultContext.outcome(false);
 		g_zwWeWon = false;
 		g_ztkOutcome = 2;
 		if(g_ztkActive) g_ztkTargetWar = false;
@@ -8525,7 +8517,7 @@ void ScrGameText(RPCParameters *rpcParams)
 			// acik kaliyor ve ?zf surekli capturing etiketi basiyordu (gametext lost vakasi).
 			if(!ZwWarEndEnterGz("won/lost") && g_zwCapturingKillList && !g_zwKillListSent)
 			{
-				g_zwFinalizeAt = GetTickCount() + 3000;
+				g_zwFinalizeAt = ClientTick() + 3000;
 				Log("[KILLLIST] Gametext: savas bitti, GZ'de kalinip sonuc textdraw'lari bekleniyor...");
 			}
 			else if(g_zwReturnPending)
@@ -8540,15 +8532,17 @@ void ScrGameText(RPCParameters *rpcParams)
 
 void ScrPlayAudioStream(RPCParameters *rpcParams)
 {
+	if(!rpcParams || !rpcParams->input || !rpcParams->numberOfBitsOfData || rpcParams->numberOfBitsOfData > 8 * 1024 * 1024) return;
 	PCHAR Data = reinterpret_cast<PCHAR>(rpcParams->input);
 	int iBitLength = rpcParams->numberOfBitsOfData;
 
-	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength/8)+1,false);
+	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength+7)/8,false);
+	bsData.SetWriteOffset(iBitLength);
 	unsigned char bURLLen;
 	char szURL[256];
 
-	bsData.Read(bURLLen);
-	bsData.Read(szURL, bURLLen);
+	if(!bsData.Read(bURLLen)) return;
+	if(!bsData.Read(szURL, bURLLen)) return;
 	szURL[bURLLen] = 0;
 
 	Log("[AUDIO_STREAM] %s", szURL);
@@ -8556,23 +8550,27 @@ void ScrPlayAudioStream(RPCParameters *rpcParams)
 
 void ScrSetDrunkLevel(RPCParameters *rpcParams)
 {
+	if(!rpcParams || !rpcParams->input || !rpcParams->numberOfBitsOfData || rpcParams->numberOfBitsOfData > 8 * 1024 * 1024) return;
 	PCHAR Data = reinterpret_cast<PCHAR>(rpcParams->input);
 	int iBitLength = rpcParams->numberOfBitsOfData;
 
-	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength/8)+1,false);
+	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength+7)/8,false);
+	bsData.SetWriteOffset(iBitLength);
 
-	bsData.Read(iDrunkLevel);
+	if(!bsData.Read(iDrunkLevel)) return;
 }
 
 void ScrHaveSomeMoney(RPCParameters *rpcParams)
 {
+	if(!rpcParams || !rpcParams->input || !rpcParams->numberOfBitsOfData || rpcParams->numberOfBitsOfData > 8 * 1024 * 1024) return;
 	PCHAR Data = reinterpret_cast<PCHAR>(rpcParams->input);
 	int iBitLength = rpcParams->numberOfBitsOfData;
 
-	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength/8)+1,false);
+	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength+7)/8,false);
+	bsData.SetWriteOffset(iBitLength);
 
 	int iGivenMoney;
-	bsData.Read(iGivenMoney);
+	if(!bsData.Read(iGivenMoney)) return;
 
 	iMoney += iGivenMoney;
 }
@@ -8584,29 +8582,33 @@ void ScrResetMoney(RPCParameters *rpcParams)
 
 void ScrSetPlayerPos(RPCParameters *rpcParams)
 {
+	if(!rpcParams || !rpcParams->input || !rpcParams->numberOfBitsOfData || rpcParams->numberOfBitsOfData > 8 * 1024 * 1024) return;
 	PCHAR Data = reinterpret_cast<PCHAR>(rpcParams->input);
 	int iBitLength = rpcParams->numberOfBitsOfData;
 
-	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength/8)+1,false);
+	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength+7)/8,false);
+	bsData.SetWriteOffset(iBitLength);
 
 	if(settings.iNormalModePosForce == 0)
 	{
-		bsData.Read(settings.fNormalModePos[0]);
-		bsData.Read(settings.fNormalModePos[1]);
-		bsData.Read(settings.fNormalModePos[2]);
+		if(!bsData.Read(settings.fNormalModePos[0])) return;
+		if(!bsData.Read(settings.fNormalModePos[1])) return;
+		if(!bsData.Read(settings.fNormalModePos[2])) return;
 	}
 }
 
 void ScrSetPlayerFacingAngle(RPCParameters *rpcParams)
 {
+	if(!rpcParams || !rpcParams->input || !rpcParams->numberOfBitsOfData || rpcParams->numberOfBitsOfData > 8 * 1024 * 1024) return;
 	PCHAR Data = reinterpret_cast<PCHAR>(rpcParams->input);
 	int iBitLength = rpcParams->numberOfBitsOfData;
 
-	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength/8)+1,false);
+	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength+7)/8,false);
+	bsData.SetWriteOffset(iBitLength);
 
 	if(settings.iNormalModePosForce == 0)
 	{
-		bsData.Read(settings.fNormalModeRot);
+		if(!bsData.Read(settings.fNormalModeRot)) return;
 	}
 }
 
@@ -8615,11 +8617,13 @@ void ScrSetPlayerFacingAngle(RPCParameters *rpcParams)
 // (#0'dan itibaren, haritanýn üst solundan) bu sýrayla e-sle-sir -> ?zgo i-gin kaydet.
 void ScrAddGangZone(RPCParameters *rpcParams)
 {
+	if(!rpcParams || !rpcParams->input || !rpcParams->numberOfBitsOfData || rpcParams->numberOfBitsOfData > 8 * 1024 * 1024) return;
 	PCHAR Data = reinterpret_cast<PCHAR>(rpcParams->input);
 	int iBitLength = rpcParams->numberOfBitsOfData;
 	if(iBitLength <= 0) return;
 
-	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength/8)+1,false);
+	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength+7)/8,false);
+	bsData.SetWriteOffset(iBitLength);
 
 	// Format (cozumlendi): WORD zoneId + 4 float (minX, minY, maxX, maxY) + 4 byte renk.
 	// Renk paketten OKUNUR ama SAKLANMAZ/KULLANILMAZ - eslesme isim bazlidir.
@@ -8628,7 +8632,7 @@ void ScrAddGangZone(RPCParameters *rpcParams)
 	unsigned int uiColor = 0;
 	if(!bsData.Read(usZoneId) || !bsData.Read(fMinX) || !bsData.Read(fMinY) || !bsData.Read(fMaxX) || !bsData.Read(fMaxY))
 		return;
-	bsData.Read(uiColor); // atilir
+	if(!bsData.Read(uiColor)) return; // atilir
 
 	if(usZoneId < MAX_GANG_ZONES)
 	{
@@ -8645,11 +8649,13 @@ void ScrAddGangZone(RPCParameters *rpcParams)
 // zone numaralarý (#N) sabittir; sadece gerekirse tekrar toplanýr.
 void ScrRemoveGangZone(RPCParameters *rpcParams)
 {
+	if(!rpcParams || !rpcParams->input || !rpcParams->numberOfBitsOfData || rpcParams->numberOfBitsOfData > 8 * 1024 * 1024) return;
 	PCHAR Data = reinterpret_cast<PCHAR>(rpcParams->input);
 	int iBitLength = rpcParams->numberOfBitsOfData;
 	if(iBitLength <= 0) return;
 
-	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength/8)+1,false);
+	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength+7)/8,false);
+	bsData.SetWriteOffset(iBitLength);
 	unsigned int uiZoneID = 0;
 	if(bsData.Read(uiZoneID))
 		Log("[GANGZONE] zone kaldirildi: %u", uiZoneID);
@@ -8659,13 +8665,15 @@ void ScrRemoveGangZone(RPCParameters *rpcParams)
 // hangi zone'larin flaslandigi buradan cikarilir. RENK KULLANILMAZ (eslesme isim+tag).
 void ScrFlashGangZone(RPCParameters *rpcParams)
 {
+	if(!rpcParams || !rpcParams->input || !rpcParams->numberOfBitsOfData || rpcParams->numberOfBitsOfData > 8 * 1024 * 1024) return;
 	PCHAR Data = reinterpret_cast<PCHAR>(rpcParams->input);
 	int iBitLength = rpcParams->numberOfBitsOfData;
 	if(iBitLength <= 0) return;
 
-	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength/8)+1,false);
+	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength+7)/8,false);
+	bsData.SetWriteOffset(iBitLength);
 	unsigned short usZoneId = 0;
-	bsData.Read(usZoneId);
+	if(!bsData.Read(usZoneId)) return;
 	if(usZoneId >= MAX_GANG_ZONES) return;
 	g_zoneFlash[usZoneId] = true;
 	Log("[GANGZONE:FLASH] id=%u", usZoneId);
@@ -8689,11 +8697,13 @@ void ScrFlashGangZone(RPCParameters *rpcParams)
 // RPC 85 (RPC_ScrStopFlashGangZone): flaslama durdurulur.
 void ScrStopFlashGangZone(RPCParameters *rpcParams)
 {
+	if(!rpcParams || !rpcParams->input || !rpcParams->numberOfBitsOfData || rpcParams->numberOfBitsOfData > 8 * 1024 * 1024) return;
 	PCHAR Data = reinterpret_cast<PCHAR>(rpcParams->input);
 	int iBitLength = rpcParams->numberOfBitsOfData;
 	if(iBitLength <= 0) return;
 
-	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength/8)+1,false);
+	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength+7)/8,false);
+	bsData.SetWriteOffset(iBitLength);
 	unsigned short usZoneId = 0;
 	if(bsData.Read(usZoneId))
 	{
@@ -8708,14 +8718,16 @@ void ScrStopFlashGangZone(RPCParameters *rpcParams)
 
 void ScrSetSpawnInfo(RPCParameters *rpcParams)
 {
+	if(!rpcParams || !rpcParams->input || !rpcParams->numberOfBitsOfData || rpcParams->numberOfBitsOfData > 8 * 1024 * 1024) return;
 	PCHAR Data = reinterpret_cast<PCHAR>(rpcParams->input);
 	int iBitLength = rpcParams->numberOfBitsOfData;
 
-	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength/8)+1,false);
+	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength+7)/8,false);
+	bsData.SetWriteOffset(iBitLength);
 
 	PLAYER_SPAWN_INFO SpawnInfo;
 
-	bsData.Read((PCHAR)&SpawnInfo, sizeof(PLAYER_SPAWN_INFO));
+	if(!bsData.Read((PCHAR)&SpawnInfo, sizeof(PLAYER_SPAWN_INFO))) return;
 
 	if(settings.iNormalModePosForce == 0)
 	{
@@ -8727,36 +8739,42 @@ void ScrSetSpawnInfo(RPCParameters *rpcParams)
 
 void ScrSetPlayerHealth(RPCParameters *rpcParams)
 {
+	if(!rpcParams || !rpcParams->input || !rpcParams->numberOfBitsOfData || rpcParams->numberOfBitsOfData > 8 * 1024 * 1024) return;
 	PCHAR Data = reinterpret_cast<PCHAR>(rpcParams->input);
 	int iBitLength = rpcParams->numberOfBitsOfData;
 
-	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength/8)+1,false);
+	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength+7)/8,false);
+	bsData.SetWriteOffset(iBitLength);
 
-	bsData.Read(settings.fPlayerHealth);
+	if(!bsData.Read(settings.fPlayerHealth)) return;
 }
 
 void ScrSetPlayerArmour(RPCParameters *rpcParams)
 {
+	if(!rpcParams || !rpcParams->input || !rpcParams->numberOfBitsOfData || rpcParams->numberOfBitsOfData > 8 * 1024 * 1024) return;
 	PCHAR Data = reinterpret_cast<PCHAR>(rpcParams->input);
 	int iBitLength = rpcParams->numberOfBitsOfData;
 
-	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength/8)+1,false);
+	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength+7)/8,false);
+	bsData.SetWriteOffset(iBitLength);
 
-	bsData.Read(settings.fPlayerArmour);
+	if(!bsData.Read(settings.fPlayerArmour)) return;
 }
 
 void ScrSetPlayerSkin(RPCParameters *rpcParams)
 {
+	if(!rpcParams || !rpcParams->input || !rpcParams->numberOfBitsOfData || rpcParams->numberOfBitsOfData > 8 * 1024 * 1024) return;
 	PCHAR Data = reinterpret_cast<PCHAR>(rpcParams->input);
 	int iBitLength = rpcParams->numberOfBitsOfData;
 
-	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength/8)+1,false);
+	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength+7)/8,false);
+	bsData.SetWriteOffset(iBitLength);
 
 	int iPlayerID;
 	unsigned int uiSkin;
 
-	bsData.Read(iPlayerID);
-	bsData.Read(uiSkin);
+	if(!bsData.Read(iPlayerID)) return;
+	if(!bsData.Read(uiSkin)) return;
 
 	if(iPlayerID < 0 || iPlayerID >= MAX_PLAYERS)
 		return;
@@ -8767,29 +8785,31 @@ void ScrSetPlayerSkin(RPCParameters *rpcParams)
 
 void ScrCreateObject(RPCParameters *rpcParams)
 {
+	if(!rpcParams || !rpcParams->input || !rpcParams->numberOfBitsOfData || rpcParams->numberOfBitsOfData > 8 * 1024 * 1024) return;
 	PCHAR Data = reinterpret_cast<PCHAR>(rpcParams->input);
 	int iBitLength = rpcParams->numberOfBitsOfData;
 
-	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength/8)+1,false);
+	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength+7)/8,false);
+	bsData.SetWriteOffset(iBitLength);
 
 	unsigned short ObjectID;
-	bsData.Read(ObjectID);
+	if(!bsData.Read(ObjectID)) return;
 
 	unsigned long ModelID;
-	bsData.Read(ModelID);
+	if(!bsData.Read(ModelID)) return;
 
 	float vecPos[3];
-	bsData.Read(vecPos[0]);
-	bsData.Read(vecPos[1]);
-	bsData.Read(vecPos[2]);
+	if(!bsData.Read(vecPos[0])) return;
+	if(!bsData.Read(vecPos[1])) return;
+	if(!bsData.Read(vecPos[2])) return;
 
 	float vecRot[3];
-	bsData.Read(vecRot[0]);
-	bsData.Read(vecRot[1]);
-	bsData.Read(vecRot[2]);
+	if(!bsData.Read(vecRot[0])) return;
+	if(!bsData.Read(vecRot[1])) return;
+	if(!bsData.Read(vecRot[2])) return;
 
 	float fDrawDistance;
-	bsData.Read(fDrawDistance);
+	if(!bsData.Read(fDrawDistance)) return;
 
 	if(settings.uiObjectsLogging != 0)
 	{
@@ -8801,10 +8821,12 @@ void ScrCreateObject(RPCParameters *rpcParams)
 
 void ScrCreate3DTextLabel(RPCParameters *rpcParams)
 {
+	if(!rpcParams || !rpcParams->input || !rpcParams->numberOfBitsOfData || rpcParams->numberOfBitsOfData > 8 * 1024 * 1024) return;
 	PCHAR Data = reinterpret_cast<PCHAR>(rpcParams->input);
 	int iBitLength = rpcParams->numberOfBitsOfData;
 
-	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength/8)+1,false);
+	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength+7)/8,false);
+	bsData.SetWriteOffset(iBitLength);
 
 	WORD ID;
 	CHAR Text[256];
@@ -8815,17 +8837,17 @@ void ScrCreate3DTextLabel(RPCParameters *rpcParams)
 	WORD PlayerID;
 	WORD VehicleID;
 
-	bsData.Read((WORD)ID);
-	bsData.Read((DWORD)dwColor);
-	bsData.Read((FLOAT)vecPos[0]);
-	bsData.Read((FLOAT)vecPos[1]);
-	bsData.Read((FLOAT)vecPos[2]);
-	bsData.Read((FLOAT)DrawDistance);
-	bsData.Read((BYTE)UseLOS);
-	bsData.Read((WORD)PlayerID);
-	bsData.Read((WORD)VehicleID);
+	if(!bsData.Read(ID)) return;
+	if(!bsData.Read(dwColor)) return;
+	if(!bsData.Read(vecPos[0])) return;
+	if(!bsData.Read(vecPos[1])) return;
+	if(!bsData.Read(vecPos[2])) return;
+	if(!bsData.Read(DrawDistance)) return;
+	if(!bsData.Read(UseLOS)) return;
+	if(!bsData.Read(PlayerID)) return;
+	if(!bsData.Read(VehicleID)) return;
 
-	stringCompressor->DecodeString(Text, 256, &bsData);
+	if(!stringCompressor->DecodeString(Text, sizeof(Text), &bsData)) return;
 
 	if(settings.uiTextLabelsLogging != 0)
 	{
@@ -8866,7 +8888,7 @@ static void CaptureWarTimer(const char *pText, int iLen)
 	int iM = atoi(pNum), iS = atoi(pColon + 1);
 	if(iS < 0 || iS > 59 || iM < 0 || iM > 120) return;
 	g_warRemainingSec = iM * 60 + iS;
-	g_warTimerTick = GetTickCount();
+	g_warTimerTick = ClientTick();
 	g_warTimerViaTdw = true; // textdraw kaynagi: KENDI savasimizin GZ timer'i
 	// UIF savaslari 10 dk DEGIL, timer 3 dk gibi kisa surebilir. ZONE_WAR_TOTAL_MS
 	// fallback'i (4104) yanlis bitis ani veriyordu -> bot 7 dk gec girip kill list'i
@@ -8889,10 +8911,12 @@ static void CaptureWarTimer(const char *pText, int iLen)
 
 void ScrShowTextDraw(RPCParameters *rpcParams)
 {
+	if(!rpcParams || !rpcParams->input || !rpcParams->numberOfBitsOfData || rpcParams->numberOfBitsOfData > 8 * 1024 * 1024) return;
 	PCHAR Data = reinterpret_cast<PCHAR>(rpcParams->input);
 	int iBitLength = rpcParams->numberOfBitsOfData;
 
-	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength/8)+1,false);
+	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength+7)/8,false);
+	bsData.SetWriteOffset(iBitLength);
 
 	WORD wTextID;
 	TEXT_DRAW_TRANSMIT TextDrawTransmit;
@@ -8900,10 +8924,10 @@ void ScrShowTextDraw(RPCParameters *rpcParams)
 	CHAR cText[1024];
 	unsigned short cTextLen = 0;
 
-	bsData.Read(wTextID);
-	bsData.Read((PCHAR)&TextDrawTransmit, sizeof(TEXT_DRAW_TRANSMIT));
-	bsData.Read(cTextLen);
-	bsData.Read(cText, cTextLen);
+	if(!bsData.Read(wTextID)) return;
+	if(!bsData.Read((PCHAR)&TextDrawTransmit, sizeof(TEXT_DRAW_TRANSMIT))) return;
+	if(!bsData.Read(cTextLen)) return;
+	if(!ReadNetworkText(bsData, cText, cTextLen)) return;
 	cText[cTextLen] = '\0';
 
 	CaptureWarTimer(cText, (int)cTextLen);
@@ -8911,7 +8935,7 @@ void ScrShowTextDraw(RPCParameters *rpcParams)
 	// ?za yetki kontrolu: /gz sonrasi sunucu co-leader/leader degilsek bir textdraw
 	// gosterir (UIF, tam metin surum farkli olabilir). Icinde "leader/yetk" gecen
 	// metin yakalanir, gruba dile gore bildirilir; pencere 8 sn dolar.
-	if(g_zaPermActive && GetTickCount() < g_zaPermUntil)
+	if(g_zaPermActive && ClientTick() < g_zaPermUntil)
 	{
 		if(strstr(cText, "leader") || strstr(cText, "Leader") || strstr(cText, "yetk"))
 		{
@@ -9043,13 +9067,15 @@ void ScrShowTextDraw(RPCParameters *rpcParams)
 
 void ScrHideTextDraw(RPCParameters *rpcParams)
 {
+	if(!rpcParams || !rpcParams->input || !rpcParams->numberOfBitsOfData || rpcParams->numberOfBitsOfData > 8 * 1024 * 1024) return;
 	PCHAR Data = reinterpret_cast<PCHAR>(rpcParams->input);
 	int iBitLength = rpcParams->numberOfBitsOfData;
 
-	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength/8)+1,false);
+	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength+7)/8,false);
+	bsData.SetWriteOffset(iBitLength);
 
 	WORD wTextID;
-	bsData.Read(wTextID);
+	if(!bsData.Read(wTextID)) return;
 
 	if(settings.uiTextDrawsLogging != 0)
 		Log("[TEXTDRAW:HIDE] ID: %d.", wTextID);
@@ -9057,18 +9083,20 @@ void ScrHideTextDraw(RPCParameters *rpcParams)
 
 void ScrEditTextDraw(RPCParameters *rpcParams)
 {
+	if(!rpcParams || !rpcParams->input || !rpcParams->numberOfBitsOfData || rpcParams->numberOfBitsOfData > 8 * 1024 * 1024) return;
 	PCHAR Data = reinterpret_cast<PCHAR>(rpcParams->input);
 	int iBitLength = rpcParams->numberOfBitsOfData;
 
-	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength/8)+1,false);
+	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength+7)/8,false);
+	bsData.SetWriteOffset(iBitLength);
 
 	WORD wTextID;
 	CHAR cText[1024];
 	unsigned short cTextLen = 0;
 
-	bsData.Read(wTextID);
-	bsData.Read(cTextLen);
-	bsData.Read(cText, cTextLen);
+	if(!bsData.Read(wTextID)) return;
+	if(!bsData.Read(cTextLen)) return;
+	if(!ReadNetworkText(bsData, cText, cTextLen)) return;
 	cText[cTextLen] = '\0';
 
 	CaptureWarTimer(cText, (int)cTextLen);
@@ -9077,14 +9105,16 @@ void ScrEditTextDraw(RPCParameters *rpcParams)
 
 void ScrTogglePlayerSpectating(RPCParameters *rpcParams)
 {
+	if(!rpcParams || !rpcParams->input || !rpcParams->numberOfBitsOfData || rpcParams->numberOfBitsOfData > 8 * 1024 * 1024) return;
 	PCHAR Data = reinterpret_cast<PCHAR>(rpcParams->input);
 	int iBitLength = rpcParams->numberOfBitsOfData;
 
-	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength/8)+1,false);
+	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength+7)/8,false);
+	bsData.SetWriteOffset(iBitLength);
 
 	BOOL bToggle;
 
-	bsData.Read(bToggle);
+	if(!bsData.Read(bToggle)) return;
 
 	if(bIsSpectating && !bToggle && !iSpawned)
 	{
@@ -9098,24 +9128,26 @@ void ScrTogglePlayerSpectating(RPCParameters *rpcParams)
 // Gamemode'dan gelen grup bilgisi: setPlayerWarGroup(playerID, ownGroup, enemyGroup)
 void ScrSetWarGroup(RPCParameters *rpcParams)
 {
+	if(!rpcParams || !rpcParams->input || !rpcParams->numberOfBitsOfData || rpcParams->numberOfBitsOfData > 8 * 1024 * 1024) return;
 	PCHAR Data = reinterpret_cast<PCHAR>(rpcParams->input);
 	int iBitLength = rpcParams->numberOfBitsOfData;
 
-	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength/8)+1,false);
+	RakNet::BitStream bsData((unsigned char *)Data,(iBitLength+7)/8,false);
+	bsData.SetWriteOffset(iBitLength);
 
 	BYTE byteOwnLen = 0;
 	char szOwn[64] = {0};
 	BYTE byteEnemyLen = 0;
 	char szEnemy[64] = {0};
 
-	bsData.Read(byteOwnLen);
+	if(!bsData.Read(byteOwnLen)) return;
 	if(byteOwnLen > 63) return;
-	bsData.Read(szOwn, byteOwnLen);
+	if(!bsData.Read(szOwn, byteOwnLen)) return;
 	szOwn[byteOwnLen] = '\0';
 
-	bsData.Read(byteEnemyLen);
+	if(!bsData.Read(byteEnemyLen)) return;
 	if(byteEnemyLen > 63) return;
-	bsData.Read(szEnemy, byteEnemyLen);
+	if(!bsData.Read(szEnemy, byteEnemyLen)) return;
 	szEnemy[byteEnemyLen] = '\0';
 
 	// Oyun RPC'sinden gelen grup adi guvenilmez (kisa kod/ID olabiliyor, ornek: "NM").
@@ -9142,8 +9174,8 @@ void FinalizeKillList()
 		// KillListSent YOK - sonraki toplama devam eder. Eski davranis bos
 		// finalize'de sent=true yapip kaptaji tum savas boyunca kilitliyordu
 		// ("gz sonucl.txt yazilmadi" vakasi).
-		g_zwCaptureStart = GetTickCount();
-		DWORD dwEmptyNow = GetTickCount();
+		g_zwCaptureStart = ClientTick();
+		DWORD dwEmptyNow = ClientTick();
 		if(g_zwEmptyFinalizeSince == 0)
 			g_zwEmptyFinalizeSince = dwEmptyNow;
 		if(dwEmptyNow - g_zwEmptyFinalizeSince < 30000)
@@ -9495,7 +9527,7 @@ void FinalizeKillList()
 	}
 
 	SendKillList(strRedBox.c_str(), strBlueBox.c_str(), pRedName, pBlueName, pRedTag, pBlueTag,
-		iRedK, iBlueK, g_zwWeWon, g_zwMvpName, g_zwFeederName, g_zwBestDmg, g_zwBestK, g_zwBestD, g_zwFirstBlood, szTopWeapons);
+		iRedK, iBlueK, g_zwWeWon, g_zwMvpName, g_zwFeederName, g_zwBestDmg, g_zwBestK, g_zwBestD, g_zwFirstBlood, szTopWeapons, s_warResultContext.ownGroup.c_str(), s_warResultContext.zone.c_str(), s_warResultContext.id.c_str(), s_warResultContext.wonKnown);
 
 	g_zwCapturingKillList = false;
 	g_zwKillListSent = true;
@@ -9529,11 +9561,9 @@ static bool QueryBackendPlayerRow(int iPid, char *szName, size_t nNameLen, doubl
 	if(!g_isEngineActive || g_sessionToken.empty()) return false;
 	try
 	{
-		httplib::Client cli(g_szBackendBase);
-		cli.set_connection_timeout(4);
 		char szUrl[64];
 		sprintf_s(szUrl, sizeof(szUrl), "/api/player/cache?id=%d", iPid);
-		auto res = cli.Get(szUrl);
+		auto res = GetBackendSnapshot(szUrl);
 		if(!res || res->status != 200) return false;
 		json j = json::parse(res->body);
 		if(!j.value("success", false) || !j.contains("rows") || !j["rows"].is_array() || j["rows"].empty()) return false;
@@ -9558,11 +9588,9 @@ static bool QueryBackendPlayerRowByAccount(int iAcc, char *szName, size_t nNameL
 	if(!g_isEngineActive || g_sessionToken.empty()) return false;
 	try
 	{
-		httplib::Client cli(g_szBackendBase);
-		cli.set_connection_timeout(4);
 		char szUrl[64];
 		sprintf_s(szUrl, sizeof(szUrl), "/api/player/cache?accountId=%d", iAcc);
-		auto res = cli.Get(szUrl);
+		auto res = GetBackendSnapshot(szUrl);
 		if(!res || res->status != 200) return false;
 		json j = json::parse(res->body);
 		if(!j.value("success", false) || !j.contains("rows") || !j["rows"].is_array() || j["rows"].empty()) return false;
@@ -9585,13 +9613,13 @@ static bool PlEnsureFromDb(int iPid)
 	g_playerCache[iPid].dLoss = dL;
 	g_playerCache[iPid].iFps = iF;
 	g_playerCache[iPid].iPing = iP;
-	g_playerCache[iPid].dwTime = GetTickCount();
+	g_playerCache[iPid].dwTime = ClientTick();
 	Log("[PL-CACHE] id=%d DB'den tamamlandi: %s.", iPid, szN);
 	return dL >= 0.0;
 }
 void ProcessZoneWarAutoJoin()
 {
-	DWORD dwNow = GetTickCount();
+	DWORD dwNow = ClientTick();
 	// Stuck war temizleme
 	if(g_inZoneWar && g_zoneWarStartTick != 0 && dwNow - g_zoneWarStartTick > 11*60*1000){
 		Log("[ZONEWAR] Savas 11dk'yi asti (stuck), temizleniyor.");
@@ -9618,7 +9646,7 @@ void ProcessZoneWarAutoJoin()
 
 		if(iRemainingSec >= 0)
 		{
-			static const int iT[] = { 9*60+10, 9*60+3, 9*60+1, 10, 3, 1 };
+			const int iT[] = { 9*60+10, 9*60+3, 9*60+1, (int)ClientOptions().warNotice1, (int)ClientOptions().warNotice2, (int)ClientOptions().warNotice3 };
 			const int nT = 6;
 
 			// 9:xx esikleri yalnizca GECIS'te duyurulur â€” ?gzt geÃ§ acilirsa geriye
@@ -9736,7 +9764,7 @@ void ProcessZoneWarAutoJoin()
 		// olabilir) WarResultDialogTry yakalayip Discord'a gonderir.
 		// Sonra 00:03'te asama 2 (kill-list) gelir.
 		if(!g_zwCheckJoinSent && iLeft >= 0 && iLeft <= 543 && !g_zwNoGzEntry
-			&& !g_zwKillListStay && GetTickCount() - g_zwLastGzAt >= 3000)
+			&& !g_zwKillListStay && ClientTick() - g_zwLastGzAt >= 3000)
 		{
 			g_zwCheckJoinSent = true;
 			g_zwReturnPending = true;
@@ -9767,11 +9795,11 @@ void ProcessZoneWarAutoJoin()
 			else
 				Log("[KILLLIST] GZ bitimine 00:03 kala giriliyor, kill/death/assist/DMG textdraw'lari toplanacak.");
 			if(g_zwNoGzEntry) { Log("[KILLLIST] 00:03 girisi atlandi (/gz once reddedildi)."); }
-			else { g_zwLastGzAt = GetTickCount(); sendServerCommand((char *)"/gz"); }
+			else { g_zwLastGzAt = ClientTick(); sendServerCommand((char *)"/gz"); }
 			if(!g_znipHeldForWar && (g_ztkActive || g_snipInterrupt || g_snipPermPending))
 			{
 				g_znipHeldForWar = true;
-				g_znipHoldAt = GetTickCount();
+				g_znipHoldAt = ClientTick();
 				Log("[ZSNIP] Sniper bizim savas icin duraklatildi (kill-list girisi).");
 			}
 		}
@@ -9944,7 +9972,7 @@ Log("[ZSNIP] Kullanici iptal etti (yetki dogrulandi), sniper kapatildi.");
 	if(g_snipZoneCount > 0 && g_snipZoneIdx < g_snipZoneCount)
 		iZone = g_snipZones[g_snipZoneIdx]; // zincir baslangici
 	if(iZone < 0 || iZone >= g_zoneCount) { Log("[ZSNIP] Hedef zone gecersiz, iptal."); return; }
-	DWORD dwNow = GetTickCount();
+	DWORD dwNow = ClientTick();
 	int iWaitSec = 0;
 	if(g_inZoneWar && g_zwWarZone[0] && atoi(g_zwWarZone) == iZone)
 	{
@@ -9996,12 +10024,11 @@ static int CollectGroupZones(const char *szGroupName, int *outZones, int maxZone
 	{
 		try
 		{
-			std::string url = std::string("/api/groups/zone?name=") + szGroupName;
+			std::string encodedGroup; GmUrlEncode(GameChatToUtf8(szGroupName), encodedGroup);
+            std::string url = std::string("/api/groups/zone?name=") + encodedGroup;
 			for(size_t i = 0; i < url.size(); i++)
 				if(url[i] == ' ') url.replace(i, 1, "%20");
-			httplib::Client cli(g_szBackendBase);
-			cli.set_connection_timeout(4);
-			auto res = cli.Get(url.c_str());
+			auto res = GetBackendSnapshot(url.c_str());
 			if(res && res->status == 200)
 			{
 				json j = json::parse(res->body);
@@ -10047,7 +10074,7 @@ void ProcessZtkTick()
 	{
 		if(!g_inZoneWar && !g_zwKillListStay)
 		{
-			DWORD dwHeld = GetTickCount() - g_znipHoldAt;
+			DWORD dwHeld = ClientTick() - g_znipHoldAt;
 			if(g_ztkAttackAt != 0) g_ztkAttackAt += dwHeld;
 			if(g_ztkVerifyAt != 0) g_ztkVerifyAt += dwHeld;
 			if(g_ztkTeleportAt != 0) g_ztkTeleportAt += dwHeld;
@@ -10067,7 +10094,7 @@ void ProcessZtkTick()
 		{
 			// /gz sonrasi savas hic baslamadi: 20 sn icinde war mesaji gelmezse basarisiz.
 			// (Eskiden sahte KAZANILDI yaziliyordu: outcome==0 && weWon hep true idi.)
-			if(GetTickCount() - g_ztkAttackAt < 20000) return;
+			if(ClientTick() - g_ztkAttackAt < 20000) return;
 			Log("[ZSNIP] Saldiri basarisiz: 20 sn icinde savas baslamadi, sniper durduruluyor.");
 			g_bridgeSuppressEcho++;
 			sendChat((char *)LM("!Saldiri basarisiz: savas baslamadi, sniper durduruldu.", "!Attack failed: no war started, sniper stopped."));
@@ -10162,8 +10189,8 @@ void ProcessZtkTick()
 	// zone'u okuyup yanlis dogrulama uretiyordu); cevapsiz /gzinfo 3 denemede kesilir.
 	if(g_ztkZoneId >= 0 && g_ztkZoneId < g_zoneCount)
 	{
-		if(GetTickCount() - g_ztkTeleportAt < 6000) return;
-		if(g_ztkVerifyPending && GetTickCount() - g_ztkVerifyAt > 12000)
+		if(ClientTick() - g_ztkTeleportAt < 6000) return;
+		if(g_ztkVerifyPending && ClientTick() - g_ztkVerifyAt > 12000)
 		{
 			g_ztkVerifyPending = false;
 			if(++g_ztkVerifyTries >= 3)
@@ -10179,7 +10206,7 @@ void ProcessZtkTick()
 		{
 			g_ztkVerifyPending = true;
 			g_ztkVerifyZone = g_ztkZoneId;
-			g_ztkVerifyAt = GetTickCount();
+			g_ztkVerifyAt = ClientTick();
 			Log("[ZSNIP] Zone #%d sahibi dogrulaniyor (/gzinfo)...", g_ztkZoneId);
 			sendServerCommand((char *)"/gzinfo");
 		}
@@ -10516,7 +10543,7 @@ void OnGroupsListCaptured(const char *szInfo)
 	Log("[GHP] /groups: %d grup ATLANDI (datasi zaten var), %d yeni grup tag icin taranacak.",
 		nSkipped, g_ghpCount);
 	if(g_ghpCount == 0) { g_ghpActive = false; return; }
-	g_ghpNextStepAt = GetTickCount() + GHP_STEP_DELAY_MS; // kapatma cevabi islesin diye ilk adim deadline ile (race olmasin)
+	g_ghpNextStepAt = ClientTick() + GHP_STEP_DELAY_MS; // kapatma cevabi islesin diye ilk adim deadline ile (race olmasin)
 }
 
 // Sonraki harvester adimi: bir sonraki ID icin /gstats gonder (veya bitir).
@@ -10526,7 +10553,7 @@ void ProcessGhpHarvestStep()
 
 	// Komut mute korumasi: deadline dolmadiysa beklet. Zaman asimina dusmus
 	// bekleme (g_waitingForGStats false) deadline'i ASAR - zincir takilmasin.
-	if(g_ghpNextStepAt != 0 && GetTickCount() < g_ghpNextStepAt && g_waitingForGStats) return;
+	if(g_ghpNextStepAt != 0 && ClientTick() < g_ghpNextStepAt && g_waitingForGStats) return;
 
 	if(g_ghpIdx >= g_ghpCount)
 	{
@@ -10551,7 +10578,7 @@ void ProcessGhpHarvestStep()
 		// surece bir daha harvest yapilmaz - tag'ler db'de kalici).
 		if(g_zfFlashPendingFlag || g_zfFlashAt != 0)
 		{
-			g_zfFlashAt = GetTickCount() + 1000;
+			g_zfFlashAt = ClientTick() + 1000;
 			Log("[GHP] Harvest sonrasi ?zf ozeti tag'lerle yeniden gonderilecek.");
 		}
 		return;
@@ -10562,7 +10589,7 @@ void ProcessGhpHarvestStep()
 
 	// cmds.cpp /gstats blokuyla ayni flag kurulumu -> sonuc dialogu SAMPRPC 4. blokta yakalanir
 	g_waitingForGStats = true;
-	g_gstatsReqTime = GetTickCount();
+	g_gstatsReqTime = ClientTick();
 	g_gstatsAutoSubmit = true;
 	g_gstatsInput = "";
 	g_gstatsRequesterId = "";
@@ -10600,7 +10627,7 @@ bool OnGStatsResultForHarvest(const char *szInfo)
 		g_waitingForGStats = false;
 		g_ghpStaleRetries = 0;
 		g_muteReconnectPending = false;
-		g_ghpNextStepAt = GetTickCount() + GHP_STEP_DELAY_MS;
+		g_ghpNextStepAt = ClientTick() + GHP_STEP_DELAY_MS;
 		return true;
 	}
 
@@ -10614,7 +10641,7 @@ bool OnGStatsResultForHarvest(const char *szInfo)
 	g_muteReconnectPending = false; // adim cevap verdi: baglanti saglikli, sonraki mute icin sifirla
 	// Komut mute korumasi: siradaki /gstats'i aninda degil, GHP_STEP_DELAY_MS
 	// sonra gonder (ProcessZoneScan deadline'i gorunce ProcessGhpHarvestStep cagirir).
-	g_ghpNextStepAt = GetTickCount() + GHP_STEP_DELAY_MS;
+	g_ghpNextStepAt = ClientTick() + GHP_STEP_DELAY_MS;
 	return true;
 }
 
@@ -10623,7 +10650,7 @@ void ProcessZgoReturn()
 {
 	if(!g_zgoActive) return;
 
-	DWORD dwNow = GetTickCount();
+	DWORD dwNow = ClientTick();
 	if(dwNow < g_zgoReturnTick) return;
 
 	g_zgoActive = false;
@@ -10750,3 +10777,6 @@ void UnRegisterRPCs(RakClientInterface * pRakClient)
 }
 
 
+
+#include "RuntimeAutomation.inc"
+#include "OasisResultContext.inc"

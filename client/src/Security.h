@@ -3,6 +3,7 @@
 
 #include <string>
 #include <vector>
+#include <functional>
 
 // K??resel De?si?skenler
 extern std::string g_myHWID;
@@ -65,7 +66,7 @@ bool PerformSecurityHandshake(const std::string& serverUrl, const char *nick);
 void TriggerWarHelp(const char *playerName);
 int HandleCapturedDialog(int wDialogID, const char *szTitle, const char *szInfo);
 void ToggleDiscordChat();
-void SendGroupChatToDiscord(const char *text);
+void SendGroupChatToDiscord(const char *text, const char *author = NULL);
 void PollDiscordChat();
 // ?tr/?en: dili MongoDB'ye (Guild.lang) yazar; polling bu degeri geri okur.
 void ServerSetBotLang(bool turkish);
@@ -79,7 +80,7 @@ void PollCommands();
 void SendKillList(const char *redBox, const char *blueBox, const char *redName, const char *blueName,
     const char *redTag, const char *blueTag, int redKills, int blueKills, bool won,
     const char *mvpName, const char *feederName, int mvpDmg, int mvpKills, int feederDeaths,
-    const char *firstBlood, const char *topWeapons);
+    const char *firstBlood, const char *topWeapons, const char *ownGroup, const char *zone, const char *warId, bool wonKnown);
 void ProcessZoneWarAutoJoin();
 void ProcessGmembers();
 void StartGmembersCollect(const char *requestId = "");
@@ -178,4 +179,16 @@ int RunCommand(char *szCMD, int iFromConsole);
 // misc_funcs.cpp: cikis chat kuyrugu (5 sn arayla gonderim) - main loop her tick cagirir
 void ProcessChatOutQueue();
 
+void PumpBackendHttp();
+void InvalidateBackendResponses();
+void ResetAutomationSession();
+void ProcessAutomationRuntime();
+std::string DescribeAutomation();
+bool RuntimeGateGroupCommand(const char *command, int sender);
+void ResetChatOutQueue();
+bool RuntimeConnectionReady();
+bool ProcessLoginGate(unsigned long now);
+bool QueueAutomationAction(const std::string &key, const std::function<void()> &action);
+void SendDiscordCommandStatus(const char *requesterId, const char *status, const char *reason = "");
+void ProcessDiscordUnlink();
 #endif

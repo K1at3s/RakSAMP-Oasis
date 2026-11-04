@@ -4,6 +4,10 @@
 
 #include "main.h"
 #include "Security.h"
+#include "RuntimeOptions.h"
+#include "LogPrivacy.h"
+#include "ReplayHooks.h"
+#include <mutex>
 
 RakClientInterface *pRakClient = NULL;
 int iAreWeConnected = 0, iConnectionRequested = 0, iSpawned = 0, iGameInited = 0, iSpawnsAvailable = 0;
@@ -18,7 +22,7 @@ struct stVehiclePool vehiclePool[MAX_VEHICLES];
 
 FILE *flLog = NULL, *flTextDrawsLog = NULL;
 
-DWORD dwAutoRunTick = GetTickCount();
+DWORD dwAutoRunTick = ClientTick();
 
 extern int iMoney, iDrunkLevel, iLocalPlayerSkin;
 extern BOOL bIsSpectating;
@@ -29,7 +33,7 @@ extern unsigned long g_loginPendingUntil;
 
 int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShowCmd)
 {
-	srand((unsigned int)GetTickCount());
+	srand((unsigned int)ClientTick());
 
 	// load up settings
 	if(!LoadSettings())
@@ -39,10 +43,10 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 		return 0;
 	}
 
-	// Local testte: "http://127.0.0.1:3000"
+	// Local testte: "http://127.0.0.1:3001"
 	// VDS canlida: "http://144.48.83.9:3000"
 	// Ayni PC 2. bot: nick HWID sonuna eklenir (kopya basina kimlik).
-	if (!PerformSecurityHandshake("http://127.0.0.1:3000", settings.server.szNickname)) {
+	if (!PerformSecurityHandshake(ClientOptions().backendUrl, settings.server.szNickname)) {
 		return 0;
 	}
 
@@ -98,11 +102,13 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 	int iLastMoney = iMoney;
 	int iLastDrunkLevel = iDrunkLevel;
 
-	int iLastStatsUpdate = GetTickCount();
+	int iLastStatsUpdate = ClientTick();
 	
 	while(1)
 	{
 		UpdateNetwork(pRakClient);
+		PumpBackendHttp();
+		ProcessAutomationRuntime();
 
 		if(settings.bSpam)
 			sampSpam();
@@ -125,7 +131,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 		processPulsator();
 		processBulletFlood();
 
-		if (!iConnectionRequested)
+		if (!iConnectionRequested && RuntimeConnectionReady())
 		{
 			if(!iGettingNewName)
 				sampConnect(settings.server.szAddr, settings.server.iPort, settings.server.szNickname, settings.server.szPassword, pRakClient);
@@ -134,6 +140,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
 			iConnectionRequested = 1;
 		}
+
 		// INTERNET KESINTISI: baglanti kurulamazsa (DNS cozulemedi / paket disari
 		// cikamadi) hicbir yanit paketi gelmez; ne ATTEMPT_FAILED ne baska sinyal.
 		// iConnectionRequested=1 takili kalir, ana dongu sonsuza kadar bekler.
@@ -142,10 +149,10 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 			static DWORD s_dwNoConnSince = 0;
 			if(!iAreWeConnected)
 			{
-				if(s_dwNoConnSince == 0) s_dwNoConnSince = GetTickCount();
-				else if(GetTickCount() - s_dwNoConnSince > 60000)
+				if(s_dwNoConnSince == 0) s_dwNoConnSince = ClientTick();
+				else if(ClientTick() - s_dwNoConnSince > 60000)
 				{
-					s_dwNoConnSince = GetTickCount();
+					s_dwNoConnSince = ClientTick();
 					Log("[NET] 60 sn baglanti kurulamadi (internet kesik olabilir), yeniden deneniyor.");
 					iConnectionRequested = 0;
 				}
@@ -160,24 +167,9 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 			// Sadece chat kuyrugu ve dialog yakalama ("You logged in" algilama) calisir.
 			// (g_loginPending: InitGame'de true; login dialogu gelirse SAMPRPC korur;
 			//  "You logged in to your account" mesaj? gelince false olur.)
-			if(g_loginPending)
-			{
-				// Timeout: login dialogu hic gelmezse 10 sn sonra otomatik devam et.
-				// (g_loginPendingUntil: InitGame'de now+10s; login dialogu gelirse
-				// SAMPRPC 0 yapar = kullan?c? girene kadar bekle, timeout yok.)
-				if(g_loginPendingUntil != 0 && GetTickCount() > g_loginPendingUntil)
-				{
-					g_loginPending = false;
-					Log("[LOGIN] Login bekleme timeout (10 sn), normal akisa devam ediliyor.");
-				}
-				else
-				{
-					ProcessChatOutQueue();
-					PollDiscordChat();
-					continue;
-				}
-			}
-
+            if(!ProcessLoginGate(ClientTick())) {
+                ProcessChatOutQueue(); Sleep(5); continue;
+            }
 			// Zone war: ?pl zaman asimi + GZ sonuc textdraw yakalama (bot GZ'ye girmez)
 			ProcessZoneWarAutoJoin();
 
@@ -186,8 +178,6 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
 			// ?ztk zone sniper: hedef zonede sava? bitince /gz (isine bekleme)
 			ProcessZtkTick();
-
-			// ?follow (whisper): hedef oyuncuyu /pos ile takip (3 sn'de bir)
 			ProcessFollowTick();
 
 			// Cache + grup renklerini backend'e (MySQL) yazar (60 sn'de bir)
@@ -217,8 +207,8 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 			// Welcome ayarlarini backend'den tazele (kisisel mesaj, 10 sn'de bir)
 			RefreshWelcomeState();
 
-			static DWORD dwLastInfoUpdate = GetTickCount();
-			if(dwLastInfoUpdate && dwLastInfoUpdate < (GetTickCount() - 1000))
+			static DWORD dwLastInfoUpdate = ClientTick();
+			if(dwLastInfoUpdate && dwLastInfoUpdate < (ClientTick() - 1000))
 			{
 				char szHealthText[16], szArmourText[16];
 
@@ -244,7 +234,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
 			if (settings.iUpdateStats)
 			{
-				if((GetTickCount() - iLastStatsUpdate >= 1000) || iMoney != iLastMoney || iDrunkLevel != iLastDrunkLevel)
+				if((ClientTick() - iLastStatsUpdate >= 1000) || iMoney != iLastMoney || iDrunkLevel != iLastDrunkLevel)
 				{
 					RakNet::BitStream bsSend;
 
@@ -263,7 +253,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 					iLastMoney = iMoney;
 					iLastDrunkLevel = iDrunkLevel;
 
-					iLastStatsUpdate = GetTickCount();
+					iLastStatsUpdate = ClientTick();
 				}
 			}
 
@@ -301,7 +291,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 						sampSpawn();
 
 						iSpawned = 1;
-						g_spawnTick = GetTickCount(); // harvest 60 sn korumasi
+						g_spawnTick = ClientTick(); // harvest 60 sn korumasi
 						iNotificationDisplayedBeforeSpawn = 1;
 					}
 				}
@@ -333,7 +323,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 				// Run autorun commands
 				if(settings.iAutorun)
 				{
-					if(dwAutoRunTick && dwAutoRunTick < (GetTickCount() - 2000))
+					if(dwAutoRunTick && dwAutoRunTick < (ClientTick() - 2000))
 					{
 						static int autorun;
 						if(!autorun)
@@ -393,18 +383,24 @@ static FILE *flLogScan = NULL; // tarama/debug gurultusu ayri dosyaya
 
 void Log(char *fmt, ...)
 {
-	if(flLog == NULL)
-	{
-		// Her acilista sifirdan: eski log silinir, yeniden olusur.
-		flLog = fopen("RakSAMPClient.log", "wb");
-		if(flLog == NULL)
-			return;
-		{
-			unsigned char bom[3] = {0xEF, 0xBB, 0xBF};
-			fwrite(bom, 1, 3, flLog);
-		}
-	}
-
+    static std::recursive_mutex logMutex;
+    std::lock_guard<std::recursive_mutex> guard(logMutex);
+    if(ClientReplay().enabled) {
+        char line[2048] = {}; va_list args; va_start(args, fmt); vsnprintf(line, sizeof(line), fmt, args); va_end(args);
+        ClientReplay().logs.push_back(RedactLogSecrets(line)); return;
+    }
+    static std::string logDay;
+    SYSTEMTIME day; GetLocalTime(&day);
+    char stamp[16]; sprintf_s(stamp, sizeof(stamp), "%04d-%02d-%02d", day.wYear, day.wMonth, day.wDay);
+    if(logDay != stamp) {
+        if(flLog) fclose(flLog); if(flLogScan) fclose(flLogScan);
+        flLog = flLogScan = NULL; logDay = stamp;
+    }
+    CreateDirectoryA("logs", NULL);
+    if(!flLog) {
+        const std::string file = std::string("logs/RakSAMPClient-") + stamp + ".log";
+        flLog = fopen(file.c_str(), "ab"); if(!flLog) return;
+    }
 	SYSTEMTIME time;
 	GetLocalTime(&time);
 
@@ -420,6 +416,8 @@ void Log(char *fmt, ...)
 	va_start(args, fmt);
 	vsprintf_s(buffer, 2048, fmt, args);
 	va_end(args);
+	const std::string safe = RedactLogSecrets(buffer);
+	strncpy_s(buffer, sizeof(buffer), safe.c_str(), _TRUNCATE);
 
 	char utf8buf[4096];
 	SmartToUtf8(buffer, utf8buf, sizeof(utf8buf));
@@ -442,12 +440,8 @@ void Log(char *fmt, ...)
 		{
 			if(flLogScan == NULL)
 			{
-				flLogScan = fopen("RakSAMPClient-scan.log", "wb");
-				if(flLogScan)
-				{
-					unsigned char bom2[3] = {0xEF, 0xBB, 0xBF};
-					fwrite(bom2, 1, 3, flLogScan);
-				}
+				const std::string scanFile = std::string("logs/RakSAMPClient-scan-") + stamp + ".log";
+				flLogScan = fopen(scanFile.c_str(), "ab");
 			}
 			flOut = flLogScan;
 		}
@@ -499,15 +493,19 @@ void Log(char *fmt, ...)
 
 void SaveTextDrawData ( WORD wTextID, TEXT_DRAW_TRANSMIT *pData, CHAR* cText )
 {
-	if ( flTextDrawsLog == NULL )
-	{
-		flTextDrawsLog = fopen( "TextDraws.log", "a" );
-
-		if ( flTextDrawsLog == NULL )
-			return;
-	}
-
-	fprintf( flTextDrawsLog, "TextDraw ID: %d, Text: %s\n", wTextID, cText );
+    extern bool g_secCmdPending;
+    if(g_loginPending || g_secCmdPending) return;
+    static std::string textDay;
+    SYSTEMTIME day; GetLocalTime(&day);
+    char stamp[16]; sprintf_s(stamp, sizeof(stamp), "%04d-%02d-%02d", day.wYear, day.wMonth, day.wDay);
+    if(textDay != stamp) { if(flTextDrawsLog) fclose(flTextDrawsLog); flTextDrawsLog = NULL; textDay = stamp; }
+    CreateDirectoryA("logs", NULL);
+    if(!flTextDrawsLog) {
+        const std::string path = std::string("logs/TextDraws-") + stamp + ".log";
+        flTextDrawsLog = fopen(path.c_str(), "ab"); if(!flTextDrawsLog) return;
+    }
+    const std::string safeText = RedactLogSecrets(cText ? cText : "");
+	fprintf( flTextDrawsLog, "TextDraw ID: %d, Text: %s\n", wTextID, safeText.c_str() );
 	fprintf( flTextDrawsLog, "Flags: box(%i), left(%i), right(%i), center(%i), proportional(%i), padding(%i)\n", pData->byteBox, pData->byteLeft, pData->byteRight, pData->byteCenter, pData->byteProportional, pData->bytePadding );
 	fprintf( flTextDrawsLog, "LetterWidth: %.3f, LetterHeight: %.3f, LetterColor: %X, LineWidth: %.3f, LineHeight: %.3f\n", pData->fLetterWidth, pData->fLetterHeight, pData->dwLetterColor, pData->fLineWidth, pData->fLineHeight );
 	fprintf( flTextDrawsLog, "BoxColor: %X, Shadow: %i, Outline: %i, BackgroundColor: %X, Style: %i, Selectable: %i\n", pData->dwBoxColor, pData->byteShadow, pData->byteOutline, pData->dwBackgroundColor, pData->byteStyle, pData->byteSelectable );
