@@ -42,3 +42,9 @@ Her pazartesi 02:30 UTC'de 20 dakikalık çevrimdışı dayanıklılık testi ç
 Uzun test yalnızca kendi loopback HTTP sunucusunu kullanır. Yavaş/başarısız cevaplar, kapanmış bağlantı, 128 işlik HTTP kuyruğunun doyması, işlem kuyruğu izolasyonu, dosya kilidi ile gerçek yazma hatası ve yeniden açılışta sonuçların korunması sınanır. Fiziksel diski doldurmaz.
 
 Çıktı `client/tests/obj/stress/summary.json` dosyasındadır. Bellek, beş saniyelik ısınma sonrasındaki değerin 32 MiB üzerine çıkmamalı; ana thread cevap işleme süresi 500 ms altında kalmalı; kabul edilen HTTP işleri sonunda tamamlanmış olmalıdır. Bu ölçümler canlı sunucu performansı yerine çevrimdışı dayanıklılığı gösterir.
+
+## Release kurulumu, geri alma ve hata raporu
+
+Her release EXE, SHA-256 kontrol dosyası, `INSTALL-AND-ROLLBACK.md` ve yerel tanılama aracı içerir. UIF ve Oasis klasörlerini karıştırmayın. Güncellemeden önce kendi `client/bin` klasörünüzü, özellikle EXE ve XML'i yedekleyin; EXE hash'ini doğruladıktan sonra yalnızca EXE'yi değiştirin. Geri almak için yedek EXE'yi geri koyun. İstemciyi geri almak ayrı dağıtılmış backend'i geri almaz.
+
+PowerShell'de `./client/tests/Create-DiagnosticReport.ps1 -Project UIF` (Oasis için `-Project Oasis`) çalıştırın. Release asset'inden aracı ayrı indirdiyseniz `-ClientRoot 'C:\path\to\RakSAMP'` ile depo kökünü verin. Araç son günlük dosyasından yalnızca seçili teknik olayları alır; sohbet, tarama/textdraw kayıtları, XML, backend yapılandırması, bellek dökümleri, tam dosya yolları ve otomatik yükleme içermez. IP, e-posta, parola/token anahtarları ve uzun kimlik kalıpları maskelenir. ZIP'i açıp `diagnostics.txt` dosyasını incelemeden kimseyle paylaşmayın.
