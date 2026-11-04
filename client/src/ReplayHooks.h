@@ -8,6 +8,7 @@
 // Enabled only by the offline test executable. No game command enables replay.
 struct ReplayState {
     bool enabled = false;
+    bool asyncReads = false;
     unsigned long tick = 100000;
     std::vector<std::string> commands, chats, logs, http, warResults;
     std::map<std::string, std::pair<int, std::string>> responses;

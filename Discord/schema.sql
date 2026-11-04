@@ -2,8 +2,8 @@
 --   mysql -h 127.0.0.1 -P 6033 -u raksamp -p < schema.sql
 -- NOT: bot her açılışta eksik kolon/tabloları kendi de ekler (db.js init),
 -- yani bu dosya kurulum/elle kurulum referansıdır ve db.js ile aynı olmalıdır.
-CREATE DATABASE IF NOT EXISTS raksamp CHARACTER SET utf8mb4;
-USE raksamp;
+CREATE DATABASE IF NOT EXISTS raksamp_oasis CHARACTER SET utf8mb4;
+USE raksamp_oasis;
 
 CREATE TABLE IF NOT EXISTS guilds (
     guild_id VARCHAR(255) PRIMARY KEY,
@@ -89,6 +89,8 @@ CREATE TABLE IF NOT EXISTS welcome_per_user (
 -- Grup rol/rank değişiklik logları — /glog
 CREATE TABLE IF NOT EXISTS group_logs (
     id INT AUTO_INCREMENT PRIMARY KEY,
+    hwid VARCHAR(64) NULL,
+    group_name VARCHAR(96) NULL,
     actor_name VARCHAR(64) NULL,
     actor_acc BIGINT NULL,
     target_name VARCHAR(64) NULL,

@@ -6,8 +6,10 @@
     "scripts":  {
                     "start":  "node server.js",
                     "dev":  "bun --watch server.js",
-                    "test":  "bun db.selftest.js \u0026\u0026 bun hwidMigration.selftest.js \u0026\u0026 bun warResultDelivery.selftest.js && bun oasisKilllist.selftest.js",
-                    "test:node":  "node db.selftest.js \u0026\u0026 node hwidMigration.selftest.js \u0026\u0026 node warResultDelivery.selftest.js && node oasisKilllist.selftest.js"
+                    "test":  "bun db.selftest.js \u0026\u0026 bun hwidMigration.selftest.js \u0026\u0026 bun warResultDelivery.selftest.js \u0026\u0026 bun oasisKilllist.selftest.js",
+                    "test:node":  "node db.selftest.js \u0026\u0026 node hwidMigration.selftest.js \u0026\u0026 node warResultDelivery.selftest.js \u0026\u0026 node oasisKilllist.selftest.js",
+                    "test:mysql":  "bun mysql.integration.js",
+                    "test:mysql:node":  "node mysql.integration.js"
                 },
     "dependencies":  {
                          "discord.js":  "^14.14.1",

@@ -213,6 +213,8 @@ async function init() {
     // Grup rol degisikligi loglari: "(Ad)(accid) changed the rank of Hedef(accid) ..."
     await p.execute(`CREATE TABLE IF NOT EXISTS group_logs (
         id INT AUTO_INCREMENT PRIMARY KEY,
+        hwid VARCHAR(64) NULL,
+        group_name VARCHAR(96) NULL,
         actor_name VARCHAR(64) NULL,
         actor_acc BIGINT NULL,
         target_name VARCHAR(64) NULL,
@@ -222,6 +224,8 @@ async function init() {
         reason VARCHAR(255) NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`);
+    await p.execute(`ALTER TABLE group_logs ADD COLUMN hwid VARCHAR(64) NULL`).catch(() => {});
+    await p.execute(`ALTER TABLE group_logs ADD COLUMN group_name VARCHAR(96) NULL`).catch(() => {});
     // Roster Discord mesaj kaydi (?gmembers bitiminde kanala atilan/duzenlenen link mesaji)
     await p.execute(`CREATE TABLE IF NOT EXISTS roster_messages (
         guild_id VARCHAR(255) PRIMARY KEY,

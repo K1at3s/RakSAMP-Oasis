@@ -1,41 +1,4 @@
-struct BackendReadEntry { BackendResponse response; DWORD at = 0; };
-static std::map<std::string, BackendReadEntry> s_backendReads;
-static std::string s_resultWarning;
-bool QueueBackendRequest(const std::string &method, const std::string &path, const std::string &body,
-    BackendHttpQueue::Callback callback, const std::string &key, bool sessionBound) {
-    const unsigned long generation = s_backendLinkGeneration;
-    return QueueBackend(method, path, body, [generation, sessionBound, callback](const BackendResponse &response) {
-        if(sessionBound && generation != s_backendLinkGeneration) return;
-        if(callback) callback(response);
-    }, key);
-}
-BackendResponse GetBackendSnapshot(const std::string &path, unsigned int maxAgeMs) {
-    if(ClientReplay().enabled) {
-        auto found = ClientReplay().responses.find("GET " + path);
-        if(found == ClientReplay().responses.end()) return BackendResponse();
-        BackendResponse response = std::make_shared<httplib::Response>(); response->status = found->second.first; response->body = found->second.second;
-        return response;
-    }
-    const DWORD now = ClientTick();
-    auto found = s_backendReads.find(path);
-    if(found == s_backendReads.end() || now - found->second.at > maxAgeMs) {
-        QueueBackendRequest("GET", path, "", [path](const BackendResponse &response) {
-            if(s_backendReads.size() >= 256 && s_backendReads.find(path) == s_backendReads.end()) s_backendReads.erase(s_backendReads.begin());
-            s_backendReads[path] = BackendReadEntry{response, ClientTick()};
-        }, "read:" + path);
-    }
-    if(found == s_backendReads.end() || !found->second.response) return BackendResponse();
-    BackendResponse response = found->second.response;
-    try {
-        json data = json::parse(response->body);
-        if(data.contains("rows") && data["rows"].is_array()) {
-            for(auto &row : data["rows"]) if(row.contains("ageSec") && row["ageSec"].is_number())
-                row["ageSec"] = row["ageSec"].get<double>() + (now - found->second.at) / 1000;
-            response = std::make_shared<httplib::Response>(*response); response->body = data.dump();
-        }
-    } catch(...) {}
-    return response;
-}
+#include "BackendReadRuntime.inc"
 static DurableResults &WarOutbox() {
     static DurableResults outbox("war-outbox-" + g_myHWID + ".json"); return outbox;
 }

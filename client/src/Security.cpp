@@ -551,8 +551,8 @@ void SetWelcomeMessage(const char *message) {
 
 // 11c. Backend'den welcome ayarlarini cek (PollCommands'a benzer, ana donguden cagrilir)
 void RefreshWelcomeState() {
-    GetBackendSnapshot("/api/welcome/peruser/list?hwid=" + g_myHWID, 10000);
     if (!g_isEngineActive || g_sessionToken.empty()) return;
+    GetBackendSnapshot("/api/welcome/peruser/list?hwid=" + g_myHWID, 10000);
 
     DWORD dwNow = ClientTick();
     static DWORD s_lastWelcomePoll = 0;

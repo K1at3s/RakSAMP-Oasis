@@ -71,3 +71,5 @@ Backend testleri: `bun run test` veya `npm run test:node`. `warResultDelivery.se
 
 
 Oasis'e ait ek senaryolar: `client/tests/obj/runtime-replay/RuntimeReplayTests.exe client/tests/fixtures/oasis_native.json`. Bunlar tek kutulu sonuc, yanlis takim, tekrar gelen dialog, ters takim sirasi, yenilgi ve beraberlikte kesin sonuc sinyali gereksinimini dogrular.
+
+HTTP devam mekanizmasi, gercek MySQL testi, otomatik release ve uzun sureli test komutlari icin [IMPROVEMENTS.md](IMPROVEMENTS.md) belgesine bak.

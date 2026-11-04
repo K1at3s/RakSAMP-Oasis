@@ -1,0 +1,651 @@
+[
+  {
+    "name": "cold-welcome-list-completes-once",
+    "events": [
+      {
+        "type": "setup"
+      },
+      {
+        "type": "backend_async"
+      },
+      {
+        "type": "backend_response",
+        "request": "GET /api/welcome/peruser/list?hwid=replay-hwid",
+        "body": {
+          "success": true,
+          "list": [
+            {
+              "target_name": "Ali",
+              "custom_message": "Welcome"
+            }
+          ]
+        }
+      },
+      {
+        "type": "command",
+        "text": "?welcomemsg list"
+      },
+      {
+        "type": "pump"
+      },
+      {
+        "type": "expect_chat_contains",
+        "text": "Ali->Welcome"
+      },
+      {
+        "type": "expect_http_count",
+        "prefix": "GET /api/welcome/peruser/list",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "name": "cold-zone-command-resumes-through-two-http-results",
+    "events": [
+      {
+        "type": "setup"
+      },
+      {
+        "type": "backend_async"
+      },
+      {
+        "type": "zone",
+        "id": 5
+      },
+      {
+        "type": "zone",
+        "id": 6
+      },
+      {
+        "type": "backend_response",
+        "request": "GET /api/groups",
+        "body": {
+          "success": true,
+          "groups": [
+            {
+              "name": "EnemyGroup",
+              "tag": "EN",
+              "zones": []
+            }
+          ]
+        }
+      },
+      {
+        "type": "command",
+        "text": "?zsnip EN"
+      },
+      {
+        "type": "tick"
+      },
+      {
+        "type": "backend_response",
+        "request": "GET /api/groups/zone?name=EnemyGroup",
+        "body": {
+          "success": true,
+          "zones": [
+            5
+          ]
+        }
+      },
+      {
+        "type": "expect_no_command",
+        "text": "/gmembers"
+      },
+      {
+        "type": "pump"
+      },
+      {
+        "type": "tick"
+      },
+      {
+        "type": "expect_no_command",
+        "text": "/gmembers"
+      },
+      {
+        "type": "pump"
+      },
+      {
+        "type": "tick"
+      },
+      {
+        "type": "expect_command",
+        "text": "/gmembers"
+      },
+      {
+        "type": "expect_http_count",
+        "prefix": "GET /api/groups\n",
+        "count": 1
+      },
+      {
+        "type": "expect_http_count",
+        "prefix": "GET /api/groups/zone?",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "name": "cancel-before-http-completion",
+    "events": [
+      {
+        "type": "setup"
+      },
+      {
+        "type": "backend_async"
+      },
+      {
+        "type": "zone",
+        "id": 5
+      },
+      {
+        "type": "zone",
+        "id": 6
+      },
+      {
+        "type": "backend_response",
+        "request": "GET /api/groups",
+        "body": {
+          "success": true,
+          "groups": [
+            {
+              "name": "EnemyGroup",
+              "tag": "EN",
+              "zones": []
+            }
+          ]
+        }
+      },
+      {
+        "type": "command",
+        "text": "?zsnip EN"
+      },
+      {
+        "type": "tick"
+      },
+      {
+        "type": "command",
+        "text": "?iptal"
+      },
+      {
+        "type": "pump"
+      },
+      {
+        "type": "tick"
+      },
+      {
+        "type": "expect_no_command",
+        "text": "/gmembers"
+      },
+      {
+        "type": "expect",
+        "queued": 0
+      }
+    ]
+  },
+  {
+    "name": "disconnect-before-http-completion",
+    "events": [
+      {
+        "type": "setup"
+      },
+      {
+        "type": "backend_async"
+      },
+      {
+        "type": "zone",
+        "id": 5
+      },
+      {
+        "type": "zone",
+        "id": 6
+      },
+      {
+        "type": "backend_response",
+        "request": "GET /api/groups",
+        "body": {
+          "success": true,
+          "groups": [
+            {
+              "name": "EnemyGroup",
+              "tag": "EN",
+              "zones": []
+            }
+          ]
+        }
+      },
+      {
+        "type": "command",
+        "text": "?zsnip EN"
+      },
+      {
+        "type": "tick"
+      },
+      {
+        "type": "disconnect"
+      },
+      {
+        "type": "pump"
+      },
+      {
+        "type": "tick"
+      },
+      {
+        "type": "expect_no_command",
+        "text": "/gmembers"
+      },
+      {
+        "type": "expect",
+        "queued": 0,
+        "connected": false
+      }
+    ]
+  },
+  {
+    "name": "group-change-invalidates-awaiting-command",
+    "events": [
+      {
+        "type": "setup"
+      },
+      {
+        "type": "backend_async"
+      },
+      {
+        "type": "zone",
+        "id": 5
+      },
+      {
+        "type": "zone",
+        "id": 6
+      },
+      {
+        "type": "backend_response",
+        "request": "GET /api/groups",
+        "body": {
+          "success": true,
+          "groups": [
+            {
+              "name": "EnemyGroup",
+              "tag": "EN",
+              "zones": []
+            }
+          ]
+        }
+      },
+      {
+        "type": "command",
+        "text": "?zsnip EN"
+      },
+      {
+        "type": "tick"
+      },
+      {
+        "type": "group",
+        "name": "OtherGroup"
+      },
+      {
+        "type": "pump"
+      },
+      {
+        "type": "tick"
+      },
+      {
+        "type": "expect_no_command",
+        "text": "/gmembers"
+      },
+      {
+        "type": "expect",
+        "queued": 0
+      }
+    ]
+  },
+  {
+    "name": "player-slot-reuse-invalidates-awaiting-command",
+    "events": [
+      {
+        "type": "setup"
+      },
+      {
+        "type": "backend_async"
+      },
+      {
+        "type": "zone",
+        "id": 6
+      },
+      {
+        "type": "backend_response",
+        "request": "GET /api/groups",
+        "body": {
+          "success": true,
+          "groups": [
+            {
+              "name": "EnemyGroup",
+              "tag": "EN",
+              "zones": []
+            }
+          ]
+        }
+      },
+      {
+        "type": "player",
+        "id": 2,
+        "name": "Alice"
+      },
+      {
+        "type": "command",
+        "text": "?zsnip EN",
+        "sender": 2
+      },
+      {
+        "type": "tick"
+      },
+      {
+        "type": "player",
+        "id": 2,
+        "name": "Bob"
+      },
+      {
+        "type": "pump"
+      },
+      {
+        "type": "tick"
+      },
+      {
+        "type": "expect_no_command",
+        "text": "/gmembers"
+      },
+      {
+        "type": "expect",
+        "queued": 0
+      }
+    ]
+  },
+  {
+    "name": "malformed-http-reply-does-not-execute-command",
+    "events": [
+      {
+        "type": "setup"
+      },
+      {
+        "type": "backend_async"
+      },
+      {
+        "type": "zone",
+        "id": 6
+      },
+      {
+        "type": "backend_response",
+        "request": "GET /api/groups",
+        "raw": "{broken"
+      },
+      {
+        "type": "command",
+        "text": "?zsnip EN"
+      },
+      {
+        "type": "tick"
+      },
+      {
+        "type": "pump"
+      },
+      {
+        "type": "tick"
+      },
+      {
+        "type": "expect_no_command",
+        "text": "/gmembers"
+      },
+      {
+        "type": "expect_chat_contains",
+        "text": "Backend query could not be completed"
+      }
+    ]
+  },
+  {
+    "name": "coalesced-read-has-bounded-waiters",
+    "events": [
+      {
+        "type": "setup"
+      },
+      {
+        "type": "backend_async"
+      },
+      {
+        "type": "backend_response",
+        "request": "GET /read",
+        "body": {
+          "success": true
+        }
+      },
+      {
+        "type": "read_once",
+        "path": "/read",
+        "count": 20,
+        "accepted": 16
+      },
+      {
+        "type": "expect_http_count",
+        "prefix": "GET /read\n",
+        "count": 1
+      },
+      {
+        "type": "pump"
+      },
+      {
+        "type": "expect",
+        "read_callbacks": 16
+      }
+    ]
+  },
+  {
+    "name": "pending-read-cache-is-bounded",
+    "events": [
+      {
+        "type": "setup"
+      },
+      {
+        "type": "backend_async"
+      },
+      {
+        "type": "read_once",
+        "path": "/pressure/",
+        "unique": true,
+        "count": 400,
+        "accepted": 256
+      },
+      {
+        "type": "pump"
+      },
+      {
+        "type": "expect",
+        "read_callbacks": 256
+      }
+    ]
+  },
+  {
+    "name": "cold-member-roster-resumes-after-known-accounts",
+    "events": [
+      {
+        "type": "setup"
+      },
+      {
+        "type": "backend_async"
+      },
+      {
+        "type": "backend_response",
+        "request": "GET /api/gmembers/known?hwid=replay-hwid&group=TestGroup",
+        "body": {
+          "success": true,
+          "known": {
+            "ali": "123"
+          }
+        }
+      },
+      {
+        "type": "roster"
+      },
+      {
+        "type": "tick"
+      },
+      {
+        "type": "expect_no_command",
+        "text": "/gmembers"
+      },
+      {
+        "type": "pump"
+      },
+      {
+        "type": "tick"
+      },
+      {
+        "type": "expect_command",
+        "text": "/gmembers"
+      },
+      {
+        "type": "expect_http_count",
+        "prefix": "GET /api/gmembers/known?",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "name": "cold-player-stats-resumes-after-game-timeout",
+    "events": [
+      {
+        "type": "setup"
+      },
+      {
+        "type": "backend_async"
+      },
+      {
+        "type": "backend_response",
+        "request": "GET /api/player/cache?id=1",
+        "body": {
+          "success": true,
+          "rows": [
+            {
+              "name": "ReplayBot",
+              "packetloss": 1.5,
+              "fps": 90,
+              "ping": 50,
+              "ageSec": 1
+            }
+          ]
+        }
+      },
+      {
+        "type": "command",
+        "text": "?pl 1"
+      },
+      {
+        "type": "tick"
+      },
+      {
+        "type": "expect_command",
+        "text": "/stats"
+      },
+      {
+        "type": "advance",
+        "ms": 4001
+      },
+      {
+        "type": "war_tick"
+      },
+      {
+        "type": "pump"
+      },
+      {
+        "type": "expect_chat_contains",
+        "text": "1.5"
+      },
+      {
+        "type": "expect_http_count",
+        "prefix": "GET /api/player/cache?id=1\n",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "name": "welcome-query-cancellation-is-respected",
+    "events": [
+      {
+        "type": "setup"
+      },
+      {
+        "type": "backend_async"
+      },
+      {
+        "type": "backend_response",
+        "request": "GET /api/welcome/peruser/list?hwid=replay-hwid",
+        "body": {
+          "success": true,
+          "list": [
+            {
+              "target_name": "Ali",
+              "custom_message": "CancelledWelcome"
+            }
+          ]
+        }
+      },
+      {
+        "type": "command",
+        "text": "?welcomemsg list"
+      },
+      {
+        "type": "command",
+        "text": "?iptal"
+      },
+      {
+        "type": "pump"
+      },
+      {
+        "type": "expect_no_chat_contains",
+        "text": "CancelledWelcome"
+      }
+    ]
+  },
+  {
+    "name": "offline-snapshots-use-backoff",
+    "events": [
+      {
+        "type": "setup"
+      },
+      {
+        "type": "backend_async"
+      },
+      {
+        "type": "snapshot",
+        "path": "/offline",
+        "count": 1000
+      },
+      {
+        "type": "pump"
+      },
+      {
+        "type": "snapshot",
+        "path": "/offline",
+        "count": 1000
+      },
+      {
+        "type": "expect_http_count",
+        "prefix": "GET /offline\n",
+        "count": 1
+      },
+      {
+        "type": "advance",
+        "ms": 10001
+      },
+      {
+        "type": "snapshot",
+        "path": "/offline",
+        "count": 1000
+      },
+      {
+        "type": "pump"
+      },
+      {
+        "type": "expect_http_count",
+        "prefix": "GET /offline\n",
+        "count": 2
+      }
+    ]
+  }
+]

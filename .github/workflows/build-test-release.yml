@@ -1,0 +1,99 @@
+name: Build, test and release
+on:
+  push:
+    branches: [beta]
+    tags: ['beta-v*', 'v*']
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      long_stress:
+        description: Run the 20 minute offline endurance test
+        type: boolean
+        default: false
+  schedule:
+    - cron: '30 2 * * 1'
+permissions:
+  contents: read
+concurrency:
+  group: build-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: raksamp-test
+          MYSQL_ROOT_HOST: '%'
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -praksamp-test"
+          --health-interval=10s --health-timeout=5s --health-retries=12
+    defaults:
+      run:
+        working-directory: Discord
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
+      - run: bun run test
+      - name: Real MySQL integration
+        run: bun run test:mysql
+        env:
+          TEST_MYSQL_URL: mysql://root:raksamp-test@127.0.0.1:3306
+  client:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and test Win32
+        shell: pwsh
+        run: ./client/tests/Build-And-Test.ps1 -Toolset v143 -StressSeconds 60
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ github.event.repository.name }}-win32
+          path: client/tests/obj/ci-artifacts/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: runtime-stress-report
+          path: client/tests/obj/stress/summary.json
+  endurance:
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.long_stress)
+    runs-on: windows-2022
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Twenty minute offline stress test
+        shell: pwsh
+        run: ./client/tests/Build-And-Test.ps1 -Toolset v143 -StressSeconds 1200
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: endurance-report
+          path: client/tests/obj/stress/summary.json
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [backend, client]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ github.event.repository.name }}-win32
+          path: dist
+      - name: Verify and publish this repository's executable
+        working-directory: dist
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          sha256sum --check SHA256SUMS.txt
+          gh release create "$RELEASE_TAG" RakSAMPClient.exe SHA256SUMS.txt --verify-tag --title "$RELEASE_TAG" --generate-notes

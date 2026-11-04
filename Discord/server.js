@@ -841,9 +841,11 @@ app.post('/api/grouplog', async (req, res) => {
     }
 
     await db.execute(
-        `INSERT INTO group_logs (actor_name, actor_acc, target_name, target_acc, old_rank, new_rank)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO group_logs (hwid, group_name, actor_name, actor_acc, target_name, target_acc, old_rank, new_rank)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         [
+            String(body.hwid || '').trim().slice(0, 64),
+            String(body.group || '').trim().slice(0, 96),
             String(body.actorName || '').trim().slice(0, 64),
             body.actorAcc ? Number(body.actorAcc) : null,
             String(body.targetName || '').trim().slice(0, 64),

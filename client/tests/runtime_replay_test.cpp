@@ -1,6 +1,7 @@
 #include "../src/main.h"
 #include "../src/Security.h"
 #include "../src/ReplayHooks.h"
+#include "../src/BackendApi.h"
 #include <cmath>
 #undef isfinite
 #undef snprintf
@@ -16,6 +17,7 @@ void ClientMessage(RPCParameters *);
 void ScrAddGangZone(RPCParameters *);
 void ScrDialogBox(RPCParameters *);
 void ScrGameText(RPCParameters *);
+void ProcessZoneWarAutoJoin();
 
 static void Message(const std::string &text) {
     RakNet::BitStream data; data.Write((DWORD)0xffffffff); data.Write((DWORD)text.size()); data.Write(text.data(), (int)text.size());
@@ -45,12 +47,13 @@ int main(int argc, char **argv) {
     pRakClient = RakNetworkFactory::GetRakClientInterface();
     std::ifstream file(argc > 1 ? argv[1] : "client/tests/fixtures/runtime_scenarios.json");
     assert(file); nlohmann::json scenarios; file >> scenarios;
+    int readCallbacks = 0;
     for(const auto &scenario : scenarios) {
         std::cout << "Replay: " << scenario.at("name").get<std::string>() << std::endl;
         for(const auto &event : scenario.at("events")) {
             const std::string type = event.at("type");
             if(type == "setup") {
-                ClientReplay() = ReplayState(); ClientReplay().enabled = true; ResetAutomationSession(); ResetChatOutQueue();
+                ClientReplay() = ReplayState(); ClientReplay().enabled = true; InvalidateBackendResponses(); ResetAutomationSession(); ResetChatOutQueue(); readCallbacks = 0;
                 iAreWeConnected = iGameInited = iSpawned = 1; g_myPlayerID = 1;
                 strcpy_s(g_szNickName, sizeof(g_szNickName), "ReplayBot");
                 playerInfo[1].iIsConnected = 1; strcpy_s(playerInfo[1].szPlayerName, sizeof(playerInfo[1].szPlayerName), "ReplayBot");
@@ -70,21 +73,58 @@ int main(int argc, char **argv) {
             }
             else if(type == "advance") ClientReplay().tick += event.at("ms").get<unsigned long>();
             else if(type == "sniper_tick") ProcessZtkTick();
-            else if(type == "backend_response") ClientReplay().responses[event.at("request")] = {200, event.at("body").dump()};
-            else if(type == "command") HandleGroupCommand(event.at("text").get<std::string>().c_str(), g_myPlayerID);
+            else if(type == "war_tick") ProcessZoneWarAutoJoin();
+            else if(type == "roster") assert(QueueAutomationAction("gmembers", []() { StartGmembersCollect("replay-request"); }));
+            else if(type == "backend_response") ClientReplay().responses[event.at("request")] = {event.value("status", 200), event.contains("raw") ? event.at("raw").get<std::string>() : event.at("body").dump()};
+            else if(type == "command") HandleGroupCommand(event.at("text").get<std::string>().c_str(), event.value("sender", (int)g_myPlayerID));
             else if(type == "tick") ProcessAutomationRuntime();
             else if(type == "backend_tick") { ProcessDbSync(); PumpBackendHttp(); }
+            else if(type == "backend_async") ClientReplay().asyncReads = true;
+            else if(type == "pump") PumpBackendHttp();
+            else if(type == "snapshot") { for(int i = 0; i < event.value("count", 1); ++i) GetBackendSnapshot(event.at("path")); }
+            else if(type == "group") g_myGroupName = event.at("name").get<std::string>();
+            else if(type == "player") {
+                const int id = event.at("id").get<int>(); assert(id >= 0 && id < MAX_PLAYERS);
+                playerInfo[id].iIsConnected = 1;
+                strcpy_s(playerInfo[id].szPlayerName, sizeof(playerInfo[id].szPlayerName), event.at("name").get<std::string>().c_str());
+            } else if(type == "read_once") {
+                int accepted = 0;
+                for(int i = 0; i < event.value("count", 1); ++i) {
+                    std::string path = event.at("path"); if(event.value("unique", false)) path += std::to_string(i);
+                    if(ReadBackendOnce(path, [&readCallbacks](const BackendResponse &) { ++readCallbacks; })) ++accepted;
+                }
+                assert(accepted == event.at("accepted").get<int>());
+            } else if(type == "expect_http_count") {
+                int count = 0; for(const auto &request : ClientReplay().http) if(request.compare(0, event.at("prefix").get<std::string>().size(), event.at("prefix").get<std::string>()) == 0) ++count;
+                assert(count == event.at("count").get<int>());
+            } else if(type == "expect_no_command") assert(!Contains(ClientReplay().commands, event.at("text")));
+            else if(type == "expect_no_chat_contains") { for(const auto &line : ClientReplay().chats) assert(line.find(event.at("text").get<std::string>()) == std::string::npos); }
             else if(type == "disconnect") { resetPools(1, 0); }
             else if(type == "login_tick") { assert(ProcessLoginGate(g_loginPendingUntil)); }
             else if(type == "dialog") {
                 sampDialog.bDialogStyle = event.value("style", 2);
                 HandleCapturedDialog(7, event.at("title").get<std::string>().c_str(), event.at("text").get<std::string>().c_str());
-            } else if(type == "expect_command" || type == "expect_command_prefix") assert(Contains(ClientReplay().commands, event.at("text"), type == "expect_command_prefix"));
+            } else if(type == "expect_command" || type == "expect_command_prefix") {
+                if(!Contains(ClientReplay().commands, event.at("text"), type == "expect_command_prefix")) {
+                    std::cerr << "Missing command: " << event.at("text") << std::endl;
+                    for(const auto &line : ClientReplay().commands) std::cerr << "command: " << line << std::endl;
+                    for(const auto &line : ClientReplay().chats) std::cerr << "chat: " << line << std::endl;
+                    for(const auto &line : ClientReplay().logs) std::cerr << "log: " << line << std::endl;
+                }
+                assert(Contains(ClientReplay().commands, event.at("text"), type == "expect_command_prefix"));
+            }
             else if(type == "expect_chat_contains") {
                 bool found = false; for(const auto &line : ClientReplay().chats) if(line.find(event.at("text").get<std::string>()) != std::string::npos) found = true;
+                if(!found) {
+                    std::cerr << "Missing chat: " << event.at("text") << std::endl;
+                    for(const auto &line : ClientReplay().chats) std::cerr << "chat: " << line << std::endl;
+                    for(const auto &line : ClientReplay().logs) std::cerr << "log: " << line << std::endl;
+                    for(const auto &line : ClientReplay().http) std::cerr << "http: " << line << std::endl;
+                }
                 assert(found);
             } else if(type == "expect") {
                 if(event.contains("results")) assert(ClientReplay().warResults.size() == event.at("results").get<size_t>());
+                if(event.contains("read_callbacks")) assert(readCallbacks == event.at("read_callbacks").get<int>());
                 if(event.contains("login")) assert(g_loginPending == event.at("login").get<bool>());
                 if(event.contains("war")) assert(g_inZoneWar == event.at("war").get<bool>());
                 if(event.contains("connected")) assert((iAreWeConnected != 0) == event.at("connected").get<bool>());
