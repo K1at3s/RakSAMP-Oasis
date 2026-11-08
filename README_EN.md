@@ -32,7 +32,7 @@ RakSAMP is an automated group bot for the **UIF (United Islands Freeroam)** serv
    - The client shuts itself down if the backend is offline.
 4. **Discord** — create the log channels with `/setup` (TR: `/kurulum`). Channels are NOT auto-created; only this command creates them. `/setup off` (TR: `/setup kapat`) deletes them.
 
-Update and rollback steps are included with every release in [`INSTALL-AND-ROLLBACK.md`](client/INSTALL-AND-ROLLBACK.md). Use the [diagnostic report tool](client/tests/Create-DiagnosticReport.ps1) to create a privacy-filtered report locally; it is never sent anywhere, and you should review it before sharing.
+Update and rollback instructions are included with every release. The bundled `Update-RakSAMPClient.ps1` verifies the checksum and backs up the current EXE before installing (GitHub CLI sign-in required). Example: `./client/Update-RakSAMPClient.ps1 -Project UIF -InstallRoot 'C:\path\to\RakSAMP'`. Use the [diagnostic report tool](client/tests/Create-DiagnosticReport.ps1) to create a privacy-filtered report locally; it is never sent anywhere, and you should review it before sharing.
 
 ---
 

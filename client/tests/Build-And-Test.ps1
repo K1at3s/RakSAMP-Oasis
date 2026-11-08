@@ -32,6 +32,7 @@ try {
     [IO.File]::Copy((Join-Path $root 'client/bin/RakSAMPClient.exe'), (Join-Path $artifacts 'RakSAMPClient.exe'), $true)
     [IO.File]::Copy((Join-Path $root 'client/INSTALL-AND-ROLLBACK.md'), (Join-Path $artifacts 'INSTALL-AND-ROLLBACK.md'), $true)
     [IO.File]::Copy((Join-Path $root 'client/tests/Create-DiagnosticReport.ps1'), (Join-Path $artifacts 'Create-DiagnosticReport.ps1'), $true)
+    [IO.File]::Copy((Join-Path $root 'client/Update-RakSAMPClient.ps1'), (Join-Path $artifacts 'Update-RakSAMPClient.ps1'), $true)
     $digest = (Get-FileHash -LiteralPath (Join-Path $artifacts 'RakSAMPClient.exe') -Algorithm SHA256).Hash.ToLowerInvariant()
     [IO.File]::WriteAllText((Join-Path $artifacts 'SHA256SUMS.txt'), $digest + '  RakSAMPClient.exe' + "`n", (New-Object Text.UTF8Encoding($false)))
 } finally { Pop-Location }

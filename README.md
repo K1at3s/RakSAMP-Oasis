@@ -32,7 +32,7 @@ RakSAMP, **UIF (United Islands Freeroam)** sunucusu için geliştirilmiş otomat
    - Backend kapalıysa client kendini kapatır.
 4. **Discord** — `/setup` (TR: `/kurulum`) komutuyla log kanallarını kur. Kanallar otomatik oluşturulmaz; yalnızca bu komutla kurulur. `/setup kapat` (EN: `/setup off`) ile silinir.
 
-İstemciyi güncelleme ve geri alma adımları her release'te bulunan [`INSTALL-AND-ROLLBACK.md`](client/INSTALL-AND-ROLLBACK.md) dosyasındadır. Gizlilik filtreli hata raporunu elle oluşturmak için [tanılama aracını](client/tests/Create-DiagnosticReport.ps1) kullanın; rapor hiçbir yere gönderilmez, paylaşmadan önce içeriğini inceleyin.
+İstemci güncelleme ve geri alma yönergesi her release'te bulunur. Release içindeki `Update-RakSAMPClient.ps1`, checksum'ı doğrular ve EXE'yi yedekleyerek günceller (GitHub CLI ile giriş gerekir). Örnek: `./client/Update-RakSAMPClient.ps1 -Project UIF -InstallRoot 'C:\path\to\RakSAMP'`. Gizlilik filtreli hata raporunu elle oluşturmak için [tanılama aracını](client/tests/Create-DiagnosticReport.ps1) kullanın; rapor hiçbir yere gönderilmez, paylaşmadan önce içeriğini inceleyin.
 
 ---
 
