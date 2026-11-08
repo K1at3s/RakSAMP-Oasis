@@ -2,6 +2,8 @@
 // mysql2/promise'i in-memory bir fake ile degistirir; uretilen SQL sekillerini isler.
 // Gercek ProxySQL/MySQL baglantisi kurulunca: DB=mysql ile manual dogrula.
 const path = require('node:path');
+process.env.DISCORD_BOT_TOKEN ||= 'selftest-placeholder';
+process.env.RAKSAMP_AES_SECRET ||= 'selftest-only-secret-material-at-least-32-characters';
 
 // --- fake mysql2/promise (yalnizca db.js'in urettigi 4 SQL sekli) ---
 const state = {}; // { table: [ {col: val}, ... ] }
