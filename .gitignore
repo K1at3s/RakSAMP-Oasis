@@ -23,6 +23,10 @@ Release/
 Discord/node_modules/
 Discord/*.db
 Discord/data/
+Discord/backups/
+Discord/.env
+Discord/.env.*
+!Discord/.env.example
 
 # Temp / misc
 UpgradeLog.htm

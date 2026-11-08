@@ -172,3 +172,5 @@ raknet/           RakNet + SA-MP RPC layer (SAMPRPC.cpp)
 Discord/          Node.js backend (server.js, db.js, commands/, models/)
 CHANGELOG.md      Version history (Turkish + English)
 ```
+## Backend configuration
+Copy Discord/.env.example to Discord/.env and set the bot token, AES secret, and MySQL credentials before starting the backend. The AES secret must contain at least 32 characters. MySQL backup and restore instructions: Discord/BACKUP-RESTORE.md.

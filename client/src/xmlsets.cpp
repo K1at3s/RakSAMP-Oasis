@@ -19,6 +19,27 @@ int LoadSettings()
 	}
 
 	TiXmlElement* rakSAMPElement = xmlSettings.FirstChildElement("RakSAMPClient");
+	if(!rakSAMPElement)
+	{
+		Log("[CONFIG] Missing RakSAMPClient root element");
+		xmlSettings.Clear();
+		return 0;
+	}
+	TiXmlElement* configuredServer = rakSAMPElement->FirstChildElement("server");
+	const char *version = rakSAMPElement->Attribute("clientversion");
+	const char *followName = rakSAMPElement->Attribute("followplayer");
+	if(!configuredServer || !configuredServer->GetText() ||
+	   !configuredServer->Attribute("nickname") || !configuredServer->Attribute("password") ||
+	   !version || !followName || strlen(version) >= sizeof(settings.szClientVersion) ||
+	   strlen(followName) >= sizeof(settings.szFollowingPlayerName) ||
+	   strlen(configuredServer->Attribute("nickname")) >= sizeof(settings.server.szNickname) ||
+	   strlen(configuredServer->Attribute("password")) >= sizeof(settings.server.szPassword) ||
+	   strlen(configuredServer->GetText()) >= sizeof(settings.server.szAddr))
+	{
+		Log("[CONFIG] Missing or oversized required server/client setting");
+		xmlSettings.Clear();
+		return 0;
+	}
 	if(rakSAMPElement)
 	{
         if(TiXmlElement *automation = rakSAMPElement->FirstChildElement("automation")) {
@@ -226,6 +247,12 @@ int LoadSettings()
 	xmlSettings.Clear();
 
 	ApplyServerArguments(GetCommandLineA(), settings.server);
+	if(!settings.server.szAddr[0] || settings.server.iPort < 1 || settings.server.iPort > 65535 ||
+	   !settings.server.szNickname[0])
+	{
+		Log("[CONFIG] Server address, port (1-65535), and nickname are required");
+		return 0;
+	}
 
 	return 1;
 }

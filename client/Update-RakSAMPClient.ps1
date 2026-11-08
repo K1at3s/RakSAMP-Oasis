@@ -1,4 +1,4 @@
-[CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
+[CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
 param(
     [Parameter(Mandatory = $true)][ValidateSet('UIF', 'Oasis')][string]$Project,
     [Parameter(Mandatory = $true)][string]$InstallRoot,
@@ -37,7 +37,7 @@ if (-not $stage.StartsWith($tempRoot, [StringComparison]::OrdinalIgnoreCase)) { 
 [IO.Directory]::CreateDirectory($stage) | Out-Null
 try {
     $downloadArgs = @('release', 'download', '--repo', $repo, '--pattern', 'RakSAMPClient.exe', '--pattern', 'SHA256SUMS.txt', '--dir', $stage)
-    if ($Tag) { $downloadArgs += @($Tag) } else { $downloadArgs += '--latest' }
+    if ($Tag) { $downloadArgs += $Tag }
     & $gh.Source @downloadArgs
     if ($LASTEXITCODE -ne 0) { throw "Could not download a release from $repo. Check GitHub access and the selected tag." }
 
@@ -63,9 +63,6 @@ try {
     Write-Output 'Only RakSAMPClient.exe will be replaced. XML and runtime data will be left in place.'
 
     if ($PSCmdlet.ShouldProcess($targetExe, "Install verified $Project client")) {
-        if (-not $PSCmdlet.ShouldContinue("Create a backup and install this $Project release at the path above?", 'Confirm client update')) {
-            throw 'Update cancelled; the installed client was not changed.'
-        }
         $backupDir = Join-Path $bin 'backups'
         [IO.Directory]::CreateDirectory($backupDir) | Out-Null
         $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
@@ -79,11 +76,24 @@ try {
             [IO.File]::Copy($releaseExe, $candidateExe, $false)
             $candidateHash = (Get-FileHash -LiteralPath $candidateExe -Algorithm SHA256).Hash.ToLowerInvariant()
             if ($candidateHash -ne $expectedHash) { throw 'Staged executable checksum mismatch; the original client is still in place.' }
-            [IO.File]::Replace($candidateExe, $targetExe, $null)
+            $swapBackup = Join-Path $bin (".RakSAMPClient-$([Guid]::NewGuid().ToString('N')).swap")
+            [IO.File]::Replace($candidateExe, $targetExe, $swapBackup)
+            $installedHash = (Get-FileHash -LiteralPath $targetExe -Algorithm SHA256).Hash.ToLowerInvariant()
+            $swappedHash = (Get-FileHash -LiteralPath $swapBackup -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($installedHash -ne $expectedHash -or $swappedHash -ne $oldHash) {
+                $restoreExe = Join-Path $bin (".RakSAMPClient-$([Guid]::NewGuid().ToString('N')).restore")
+                $restoreOld = $restoreExe + '.old'
+                [IO.File]::Copy($backupExe, $restoreExe, $false)
+                [IO.File]::Replace($restoreExe, $targetExe, $restoreOld)
+                if (Test-Path -LiteralPath $restoreOld) { [IO.File]::Delete($restoreOld) }
+                throw 'Post-install verification failed; the previous executable was restored.'
+            }
+            [IO.File]::Delete($swapBackup)
         } catch {
             throw "Update failed. The original remains backed up at '$backupExe'. Details: $($_.Exception.Message)"
         } finally {
             if (Test-Path -LiteralPath $candidateExe) { Remove-Item -LiteralPath $candidateExe -Force }
+            if ($swapBackup -and (Test-Path -LiteralPath $swapBackup)) { [IO.File]::Delete($swapBackup) }
         }
         Write-Output "Update complete. Previous executable backup: $backupExe"
         Write-Output 'To roll back, close the client and copy that backup over client/bin/RakSAMPClient.exe.'
@@ -91,7 +101,7 @@ try {
 } finally {
     foreach ($name in @('RakSAMPClient.exe', 'SHA256SUMS.txt')) {
         $path = Join-Path $stage $name
-        if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Force }
+        if (Test-Path -LiteralPath $path) { [IO.File]::Delete($path) }
     }
-    Remove-Item -LiteralPath $stage -Force
+    if (Test-Path -LiteralPath $stage) { [IO.Directory]::Delete($stage, $false) }
 }
